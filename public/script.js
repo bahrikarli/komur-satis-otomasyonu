@@ -7145,6 +7145,9 @@ window.tekTikGuncelle = async function() {
             durumEl.textContent = data.message || 'Güncelleme başlatıldı.';
         }
         alert('Güncelleme süreci başlatıldı. Uygulama birkaç saniye içinde yeniden açılacaktır.');
+        setTimeout(() => {
+            window.location.reload();
+        }, 8000);
     } catch (err) {
         if (durumEl) {
             durumEl.className = 'small text-danger';
