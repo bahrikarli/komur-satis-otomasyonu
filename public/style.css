@@ -1,0 +1,71 @@
+/* Genel Ayarlar */
+body {
+    background-color: #f4f6f9;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+}
+
+/* Renk Tanımlamaları */
+:root {
+    --dark-custom: #2c3e50; /* Antrasit Kömür Grisi */
+    --orange-custom: #f39c12; /* Enerji Turuncusu/Uyanı */
+    --orange-hover: #e67e22;
+}
+
+.text-dark-custom { color: var(--dark-custom); }
+.bg-dark-custom { background-color: var(--dark-custom) !important; }
+.table-dark-custom thead { background-color: var(--dark-custom); color: white; }
+
+/* Buton Özelleştirme */
+.btn-orange {
+    background-color: var(--orange-custom);
+    color: white;
+    border: none;
+    transition: all 0.3s;
+}
+
+.btn-orange:hover {
+    background-color: var(--orange-hover);
+    color: white;
+    transform: translateY(-2px);
+}
+
+/* Kart Özelleştirmeleri */
+.card-custom {
+    border: none;
+    border-radius: 10px;
+    transition: transform 0.2s;
+}
+
+.card-custom:hover {
+    transform: translateY(-3px);
+}
+
+/* İkon Kutuları (Summary Cards) */
+.icon-box {
+    width: 60px;
+    height: 60px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.bg-warning-light { background-color: rgba(243, 156, 18, 0.15); }
+.bg-success-light { background-color: rgba(40, 167, 69, 0.15); }
+.bg-info-light { background-color: rgba(23, 162, 184, 0.15); }
+
+/* Tablo Stilleri */
+#stokTablosu thead th {
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 0.85rem;
+    letter-spacing: 1px;
+}
+
+.badge-stok {
+    font-size: 0.8rem;
+    padding: 0.5em 0.75em;
+}

@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sisteme Giriş - KARAARSLAN KÖMÜR</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        /* Arka Plan: Kömür Karası ve Gece Mavisi Karışımı */
+        body {
+            background: linear-gradient(135deg, #0b0f19 0%, #1a1c23 100%);
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            overflow: hidden;
+        }
+        
+        /* Arkadaki Işık Hüzmesi Efektleri */
+        .glow-1 {
+            position: absolute;
+            top: -10%;
+            left: -10%;
+            width: 400px;
+            height: 400px;
+            background: radial-gradient(circle, rgba(253, 126, 20, 0.15) 0%, rgba(0,0,0,0) 70%);
+            border-radius: 50%;
+            z-index: 0;
+        }
+        
+        /* VIP Buzlu Cam Kart */
+        .login-card {
+            background: rgba(255, 255, 255, 0.03);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 24px;
+            box-shadow: 0 30px 60px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.1);
+            width: 100%;
+            max-width: 420px;
+            padding: 40px 35px;
+            z-index: 1;
+            position: relative;
+        }
+
+        /* Logonun Olduğu Kutu */
+        .logo-container {
+            width: 75px;
+            height: 75px;
+            background: linear-gradient(135deg, #fd7e14, #ffc107);
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 25px auto;
+            box-shadow: 0 10px 25px rgba(253, 126, 20, 0.4);
+            transform: rotate(-5deg);
+        }
+        
+        .logo-container i {
+            transform: rotate(5deg);
+            font-size: 35px;
+            color: #fff;
+        }
+
+        /* Modern İnput Kutuları */
+        .input-group-custom {
+            position: relative;
+            margin-bottom: 20px;
+        }
+
+        .custom-input {
+            background: rgba(255, 255, 255, 0.04) !important;
+            border: 1px solid rgba(255, 255, 255, 0.08) !important;
+            color: #fff !important;
+            padding: 16px 20px 16px 50px; /* Soldan ikon için boşluk */
+            border-radius: 16px;
+            font-size: 1rem;
+            width: 100%;
+            transition: all 0.3s ease;
+        }
+        
+        .custom-input:focus {
+            background: rgba(255, 255, 255, 0.08) !important;
+            border-color: #fd7e14 !important;
+            box-shadow: 0 0 0 4px rgba(253, 126, 20, 0.15) !important;
+            outline: none;
+        }
+
+        .custom-input::placeholder {
+            color: rgba(255, 255, 255, 0.3);
+            font-weight: 400;
+        }
+
+        /* İnput İçi İkonlar */
+        .input-icon {
+            position: absolute;
+            left: 20px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #fd7e14;
+            z-index: 10;
+            font-size: 1.1rem;
+        }
+
+        /* Giriş Butonu */
+        .btn-login {
+            background: linear-gradient(135deg, #fd7e14 0%, #e85d04 100%);
+            border: none;
+            border-radius: 16px;
+            padding: 16px;
+            font-weight: 700;
+            font-size: 1.1rem;
+            color: white;
+            letter-spacing: 1px;
+            width: 100%;
+            transition: all 0.3s ease;
+            box-shadow: 0 10px 20px rgba(253, 126, 20, 0.3);
+            margin-top: 10px;
+        }
+
+        .btn-login:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 15px 25px rgba(253, 126, 20, 0.5);
+            background: linear-gradient(135deg, #ff8c2b 0%, #f56606 100%);
+        }
+    </style>
+</head>
+<body>
+
+    <div class="glow-1"></div>
+
+    <div class="login-card">
+        <div class="text-center mb-4">
+            <div class="logo-container">
+                <i class="fas fa-industry"></i>
+            </div>
+            <h3 class="text-white fw-bolder mb-1" style="letter-spacing: 1px;">KARAARSLAN <span style="color: #fd7e14;">KÖMÜR</span></h3>
+            <p class="text-white-50 small mb-0">Yönetim Paneli Güvenli Giriş</p>
+        </div>
+        
+        <form id="loginForm">
+            <div class="input-group-custom">
+                <i class="fas fa-user input-icon"></i>
+                <input type="text" id="kAdi" class="custom-input" placeholder="Kullanıcı Adı" required autocomplete="off">
+            </div>
+            
+            <div class="input-group-custom">
+                <i class="fas fa-lock input-icon"></i>
+                <input type="password" id="sifre" class="custom-input" placeholder="Şifreniz" required>
+            </div>
+            
+            <button type="submit" class="btn-login">
+                GİRİŞ YAP <i class="fas fa-arrow-right ms-2 fs-6"></i>
+            </button>
+        </form>
+        
+        <div id="hataMesaji" class="text-danger text-center mt-3 fw-bold bg-danger bg-opacity-10 p-2 rounded-3 border border-danger border-opacity-25" style="display:none; font-size: 0.9rem;"></div>
+    </div>
+
+    <script>
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = e.target.querySelector('button');
+    const orjinalIcerik = btn.innerHTML;
+    
+    btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Kontrol Ediliyor...';
+    btn.disabled = true;
+
+    const kAdi = document.getElementById('kAdi').value;
+    const sifre = document.getElementById('sifre').value;
+
+    try {
+        const res = await fetch('/api/giris', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ kullaniciAdi: kAdi, sifre: sifre })
+        });
+
+        const data = await res.json();
+
+if (res.ok) {
+            // =======================================================
+            // 🛡️ YENİ NESİL GÜVENLİ KAYIT (YETKİ ZIRHLI)
+            // =======================================================
+            
+            // 🚨 KRİTİK: Terminalden gelen 'admin' yazısını 'Admin'e çeviriyoruz
+            let sunucudanGelenYetki = data.yetki; 
+            if (sunucudanGelenYetki && sunucudanGelenYetki.toLowerCase() === 'admin') {
+                sunucudanGelenYetki = 'Admin';
+            }
+
+            // Verileri her iki isimle de (yedekli) sessionStorage'a yazıyoruz
+            sessionStorage.setItem('aktifKullanici', data.adSoyad); 
+            sessionStorage.setItem('adSoyad', data.adSoyad); // Yedek isim
+            
+            sessionStorage.setItem('kullaniciYetki', sunucudanGelenYetki);
+            sessionStorage.setItem('yetki', sunucudanGelenYetki); // Yedek isim
+            
+            sessionStorage.setItem('aktifKullaniciAdi', data.kullaniciAdi);
+
+            // Eski localStorage kalıntılarını tamamen temizle
+            localStorage.removeItem('aktifKullanici');
+            localStorage.removeItem('kullaniciYetki');
+            localStorage.removeItem('aktifKullaniciAdi');
+            localStorage.clear(); // Tam temizlik
+            
+            // Başarılı giriş animasyonu
+            btn.innerHTML = '<i class="fas fa-check"></i> Başarılı!';
+            btn.style.background = '#198754';
+            btn.style.boxShadow = '0 10px 20px rgba(25, 135, 84, 0.4)';
+            
+            // Yarım saniye sonra ana sayfaya yönlendir
+            setTimeout(() => {
+                window.location.href = 'index.html'; 
+            }, 500);
+
+        }else {
+            const hataKutusu = document.getElementById('hataMesaji');
+            hataKutusu.innerHTML = `<i class="fas fa-exclamation-circle me-1"></i> ${data.hata || "Hatalı giriş!"}`;
+            hataKutusu.style.display = 'block';
+            
+            btn.innerHTML = orjinalIcerik;
+            btn.disabled = false;
+        }
+    } catch (err) {
+        const hataKutusu = document.getElementById('hataMesaji');
+        hataKutusu.innerHTML = `<i class="fas fa-wifi me-1"></i> Sunucu bağlantısı yok!`;
+        hataKutusu.style.display = 'block';
+        
+        btn.innerHTML = orjinalIcerik;
+        btn.disabled = false;
+    }
+});
+    </script>
+</body>
+</html>

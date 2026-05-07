@@ -1,0 +1,2718 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KARAARSLAN KÖMÜR - Satış Otomasyonu</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
+    <style>
+        /* nth-of-type(even) ile z-index şişirmek backdrop’u modalın üstüne taşıyabiliyordu; katmanlamayı JS (guvenliModalAc) ve Bootstrap varsayılanı yönetir. */
+
+        /* --- A5 MAKBUZ YAZDIRMA AYARLARI --- */
+
+@media print {
+    /* Boş sayfa çıkmasını engellemek için kritik ayarlar */
+    html, body { height: 100%; margin: 0 !important; padding: 0 !important; overflow: hidden; }
+    
+    body * { visibility: hidden; }
+    #makbuzPrintAlani, #makbuzPrintAlani * { visibility: visible; }
+    
+    @page { size: A4 portrait; margin: 0; }
+    
+    #makbuzPrintAlani {
+        position: absolute; top: 0; left: 0;
+        width: 210mm; height: 297mm;
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: center;
+        padding-top: 10mm;
+    }
+
+    .makbuz-yari {
+        width: 190mm; 
+        height: 130mm; /* Yüksekliği biraz azalttık ki 2. sayfaya taşmasın */
+        padding: 5mm;
+        box-sizing: border-box;
+        border-bottom: 2px dashed #888;
+        margin-bottom: 5mm;
+    }
+
+    .makbuz-cerceve { 
+        border: 3px solid #000; 
+        height: 100%; padding: 8mm; 
+        border-radius: 15px;
+        display: flex; flex-direction: column;
+        justify-content: space-between;
+    }
+
+    /* Rakamları iri ve kalın yap */
+    .m-kutu-deger { font-size: 16pt !important; font-weight: 900 !important; color: #000; }
+    
+    /* Teslim Alan kısmını nizami yap */
+    .m-alt-hiza {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-end; /* Yazıları tabana eşitle */
+        margin-top: 20px;
+    }
+
+    .imza-alani {
+        text-align: center;
+        min-width: 180px;
+        border-top: 2px solid #000; /* Yazının üstüne çizgi çek */
+        padding-top: 5px;
+    }
+    .m-no { 
+    font-size: 16pt !important; 
+    font-weight: 900 !important; /* En kalın seviye */
+    color: #000 !important; /* Kırmızı yerine siyah istersen böyle kalsın */
+    letter-spacing: 1px;
+}
+}
+
+        /* İl / ilçe / mahalle seçimleri: kesilmeden okunabilsin */
+        .adres-il-genis, .adres-ilce-genis, .adres-mahalle-genis {
+            width: 100% !important;
+            max-width: 100%;
+            min-width: 10rem;
+            min-height: 2.5rem;
+            font-size: 0.9375rem;
+        }
+        /* Hızlı satış modalı: bir tık daha dar ve okunaklı */
+        .hizli-satis-modal-dar .modal-dialog {
+            max-width: 980px;
+        }
+        
+    </style>
+    <link rel="icon" href="data:," type="image/x-icon">
+</head>
+<body>
+
+
+
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const ad = localStorage.getItem('aktifKullanici');
+        const yetki = localStorage.getItem('kullaniciYetki');
+        if(ad) {
+            document.getElementById('navbarKullaniciAd').innerText = ad;
+            document.getElementById('navbarKullaniciYetki').innerText = yetki === 'Admin' ? '👑 Yönetici' : '👤 Personel';
+        }
+    });
+</script>
+
+<nav class="navbar navbar-expand-lg navbar-dark py-2 shadow" style="background: linear-gradient(135deg, #1a1c1e 0%, #2c2e30 100%); border-bottom: 3px solid #fd7e14;">
+    <div class="container-fluid px-4">
+        
+        <a class="navbar-brand fw-bold d-flex align-items-center" href="index.html">
+            <div class="bg-warning rounded p-2 me-2 d-flex align-items-center justify-content-center shadow-sm" style="width: 35px; height: 35px;">
+                <i class="fas fa-industry text-dark fs-6"></i>
+            </div>
+            <span class="text-white" style="letter-spacing: 0.5px;">KARAARSLAN <span class="text-warning">KÖMÜR</span></span>
+        </a>
+
+        <button class="navbar-toggler border-0 shadow-none" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+
+        <div class="collapse navbar-collapse" id="navbarNav">
+            <ul class="navbar-nav ms-lg-4 me-auto gap-1 mt-2 mt-lg-0">
+                <li class="nav-item">
+                    <a class="nav-link px-3 rounded-pill active text-white fw-medium" style="background-color: rgba(255,255,255,0.1);" href="index.html">
+                        <i class="fas fa-home me-1 text-info opacity-75"></i> Ana Sayfa
+                    </a>
+                </li>
+<li class="nav-item dropdown">
+    <a class="nav-link px-3 rounded-pill fw-medium dropdown-toggle" href="#" id="giderAlimDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+        <i class="fas fa-wallet me-1 text-success opacity-75"></i> Finans & Alım
+    </a>
+    <ul class="dropdown-menu border-0 shadow mt-2 rounded-3" aria-labelledby="giderAlimDropdown">
+            <li>
+    <a class="dropdown-item py-2 fw-medium" href="#" onclick="giderleriYukle()" id="menuModulGider">
+        <i class="fas fa-receipt text-success me-2"></i> İşletme Giderleri & Mazot
+    </a>
+</li>
+<li><hr class="dropdown-divider"></li>
+<li>
+    <a class="dropdown-item py-2 fw-medium" href="#" onclick="tedarikcileriYukle()" id="menuModulToptanci">
+        <i class="fas fa-truck text-info me-2"></i> Toptancı (Tedarikçi) Yönetimi
+    </a>
+</li>
+<li><hr class="dropdown-divider"></li>
+<li>
+    <a class="dropdown-item py-2 fw-medium" href="#" onclick="alimGecmisiYukle()" id="menuModulAlimGecmisi">
+        <i class="fas fa-history text-danger me-2"></i> Toptancı Alım Geçmişi
+    </a>
+</li>
+
+<li><hr id="ayiriciAyarlar" class="dropdown-divider d-none"></li>
+<li>
+    <a id="btnTanimlamalar" class="dropdown-item py-2 fw-bold text-dark d-none" href="#" onclick="tanimlamalarModalAc()">
+        <i class="fas fa-cogs text-warning me-2"></i> Sistem Ayarları
+    </a>
+</li>
+    </ul>
+</li>
+
+                <li class="nav-item">
+                    <a class="nav-link px-3 rounded-pill fw-medium" href="#" onclick="guvenliModalAc('musterilerModal'); return false;">
+                        <i class="fas fa-users me-1 text-primary opacity-75"></i> Müşteriler & Cari
+                    </a>
+                </li>
+                
+                <li class="nav-item dropdown">
+                    <a class="nav-link px-3 rounded-pill dropdown-toggle fw-medium" href="#" id="navbarDropdown" role="button" data-bs-toggle="dropdown">
+                        <i class="fas fa-chart-pie me-1 text-warning opacity-75"></i> Raporlar
+                    </a>
+                    <ul class="dropdown-menu dropdown-menu-dark shadow-lg border-0 mt-2 p-2" aria-labelledby="navbarDropdown" style="background: #2c2e30; border-radius: 12px;">
+                        <li>
+                            <a class="dropdown-item py-2 px-3 rounded-3" href="#" onclick="vadesiGelenleriGetir()">
+                                <i class="fas fa-exclamation-triangle text-danger me-2"></i> Vadesi Gelen/Geçen Taksitler
+                            </a>
+                        </li>
+                        <li>
+                            <a class="dropdown-item py-2 px-3 rounded-3 mt-1" href="#" onclick="borcluMusterileriGetir()">
+                                <i class="fas fa-hand-holding-usd text-warning me-2"></i> Sadece Borçlu Müşteriler
+                            </a>
+                        </li>
+                        <li>
+                            <a class="dropdown-item py-2 px-3 rounded-3 mt-1" href="#" onclick="sistemLoglariModalAc(); return false;">
+                                <i class="fas fa-clipboard-list text-info me-2"></i> Loglar
+                            </a>
+                        </li>
+                        <li><hr class="dropdown-divider border-secondary mx-2 opacity-25"></li>
+                        <li>
+                            <a class="dropdown-item py-2 px-3 rounded-3 text-muted disabled" href="#">
+                                <i class="fas fa-history me-2"></i> Günlük Kasa Raporu (Yakında)
+                            </a>
+                        </li>
+                    </ul>
+                </li>
+            </ul>
+
+            <div class="dropdown ms-lg-3 mt-3 mt-lg-0">
+    <a href="#" class="d-flex align-items-center text-white text-decoration-none dropdown-toggle" id="userMenuBtn" data-bs-toggle="dropdown" aria-expanded="false">
+        <div class="text-end me-3 d-none d-md-block">
+            <div class="text-white fw-bold mb-0" id="navbarKullaniciAd" style="font-size: 0.95rem; letter-spacing: 0.3px;">Yükleniyor...</div>
+            <div class="text-warning text-uppercase fw-bold" id="navbarKullaniciYetki" style="font-size: 0.65rem; letter-spacing: 1px;">YETKİ</div>
+        </div>
+        <div class="bg-white bg-opacity-10 rounded-circle d-flex align-items-center justify-content-center border border-secondary border-opacity-50" style="width: 42px; height: 42px;">
+            <i class="fas fa-user-tie text-light fs-6"></i>
+        </div>
+    </a>
+    <ul class="dropdown-menu dropdown-menu-dark dropdown-menu-end shadow-lg border-0 mt-3 p-2" aria-labelledby="userMenuBtn" style="background: #2c2e30; border-radius: 12px; min-width: 220px;">
+        <li>
+            <a class="dropdown-item py-2 px-3 rounded-3" href="#" onclick="personelYonetimAc()">
+                <i class="fas fa-user-cog text-info me-2"></i> Profil & Personel
+            </a>
+        </li>
+        <li>
+            <a class="dropdown-item py-2 px-3 rounded-3" href="#" onclick="surumModalAc()">
+                <i class="fas fa-tag text-warning me-2"></i> Sürüm
+            </a>
+        </li>
+        <li><hr class="dropdown-divider border-secondary mx-2 opacity-25"></li>
+        <li>
+            <a class="dropdown-item py-2 px-3 rounded-3 text-danger fw-bold" href="#" onclick="sistemdenCikisYap()">
+                <i class="fas fa-power-off me-2"></i> Güvenli Çıkış
+            </a>
+        </li>
+    </ul>
+</div>
+            
+        </div>
+    </div>
+</nav>
+
+
+<div class="modal fade" id="personelYonetimModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg" style="border-radius: 15px; overflow: hidden;">
+            <div class="modal-header border-0 py-3 px-4" style="background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);">
+                <h5 class="modal-title fw-bold text-white"><i class="fas fa-user-shield text-warning me-2"></i>Hesap ve Sistem Ayarları</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            
+            <div class="modal-body p-4 bg-light">
+                
+                <div class="card border-0 shadow-sm rounded-4 mb-4">
+                    <div class="card-header bg-white border-bottom py-3">
+                        <h6 class="mb-0 fw-bold text-dark"><i class="fas fa-key text-primary me-2"></i>Şifremi Değiştir</h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-2">
+                            <div class="col-md-5">
+                                <input type="password" id="eskiSifre" class="form-control" placeholder="Mevcut Şifreniz">
+                            </div>
+                            <div class="col-md-5">
+                                <input type="password" id="yeniSifre" class="form-control" placeholder="Yeni Şifre Belirleyin">
+                            </div>
+                            <div class="col-md-2">
+                                <button class="btn btn-primary w-100 fw-bold" onclick="kendiSifremiDegistir()">Güncelle</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="adminPanelAlani" style="display: none;">
+                    
+                    <div class="card border-0 shadow-sm rounded-4 mb-4">
+                        <div class="card-header bg-white border-bottom py-3 d-flex justify-content-between align-items-center">
+                            <h6 class="mb-0 fw-bold text-dark"><i class="fas fa-users text-success me-2"></i>Sistemdeki Kullanıcılar</h6>
+                            <button class="btn btn-sm btn-success rounded-pill px-3 fw-bold shadow-sm" onclick="yeniPersonelFormuGoster()">
+                                <i class="fas fa-plus me-1"></i> Yeni Ekle
+                            </button>
+                        </div>
+                        <div class="card-body p-0">
+                            <table class="table table-hover align-middle mb-0">
+                                <thead class="bg-light">
+                                    <tr>
+                                        <th class="ps-4">Ad Soyad</th>
+                                        <th>Kullanıcı Adı</th>
+                                        <th>Yetki</th>
+                                        <th class="text-center pe-4">İşlem</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="kullaniciTabloGovdesi">
+                                    <tr><td colspan="4" class="text-center py-3 text-muted">Yükleniyor...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="card border-0 shadow-sm rounded-4" id="yeniPersonelEkleKutusu" style="display: none; border-left: 4px solid #198754 !important;">
+                        <div class="card-body bg-white">
+                            <h6 class="fw-bold mb-3"><i class="fas fa-user-plus text-success me-2"></i>Yeni Kullanıcı Hesabı Aç</h6>
+                            <div class="row g-2">
+                                <div class="col-md-3">
+                                    <input type="text" id="perAdSoyad" class="form-control form-control-sm" placeholder="Ad Soyad">
+                                </div>
+                                <div class="col-md-3">
+                                    <input type="text" id="perKadi" class="form-control form-control-sm" placeholder="Giriş Adı (Kısa)">
+                                </div>
+                                <div class="col-md-3">
+                                    <input type="text" id="perSifre" class="form-control form-control-sm" placeholder="Geçici Şifre">
+                                </div>
+                                <div class="col-md-3">
+                                    <select id="perYetki" class="form-select form-select-sm fw-bold">
+                                        <option value="Personel" selected>Personel</option>
+                                        <option value="Admin">Admin</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="text-end mt-3">
+                                <button class="btn btn-sm btn-outline-secondary me-2" onclick="document.getElementById('yeniPersonelEkleKutusu').style.display='none'">Vazgeç</button>
+                                <button class="btn btn-sm btn-success px-4 fw-bold shadow-sm" onclick="yeniPersonelKaydetMotoru()"><i class="fas fa-save me-1"></i> Kaydet</button>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const ad = localStorage.getItem('aktifKullanici');
+        const yetki = localStorage.getItem('kullaniciYetki');
+        if(ad) {
+            document.getElementById('navbarKullaniciAd').innerText = ad;
+            document.getElementById('navbarKullaniciYetki').innerText = yetki === 'Admin' ? '👑 Yönetici' : '👤 Personel';
+        }
+    });
+</script>
+
+<div class="container my-5">
+    <div class="row mb-4">
+        <div class="col-md-8">
+            <h1 class="display-5 fw-bold text-dark-custom">Hoşgeldiniz, Yönetici</h1>
+            <p class="lead text-muted">KARAARSLAN KÖMÜR günlük operasyon paneli.</p>
+        </div>
+    </div>
+
+    <div class="row g-4 mb-5">
+        <div class="col-12 col-md-4">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-body d-flex align-items-center">
+                    <div class="icon-box bg-warning-light text-warning me-3">
+                        <i class="fas fa-boxes fa-2x"></i>
+                    </div>
+                    <div>
+                        <h6 class="card-subtitle text-muted mb-1">Mevcut Toplam Stok</h6>
+                        <h2 class="card-title fw-bold mb-0" id="toplamStokGosterge">-- <small>Birim</small></h2>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-12 col-md-4">
+            <div class="card card-custom h-100 border-start border-4 border-success shadow-sm" onclick="gunlukOzetModalAc()" style="cursor: pointer; transition: transform 0.2s;" onmouseover="this.style.transform='scale(1.02)'" onmouseout="this.style.transform='scale(1)'">
+                <div class="card-body d-flex align-items-center">
+                    <div class="icon-box bg-success-light text-success me-3">
+                        <i class="fas fa-hand-holding-usd fa-2x"></i>
+                    </div>
+                    <div>
+                        <h6 class="card-subtitle text-muted mb-2">Bugünkü Satışlar</h6>
+                        <h4 class="fw-bold mb-1 text-dark-custom" id="bugunkuKomurGosterge">-- <small class="fs-6 fw-normal text-muted">Birim Kömür</small></h4>
+                        <h4 class="fw-bold mb-0 text-orange" id="bugunkuUnGosterge">-- <small class="fs-6 fw-normal text-muted">Birim Un</small></h4>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-12 col-md-4">
+            <div class="card card-custom h-100 border-start border-4 border-info shadow-sm" 
+     style="cursor: pointer; transition: 0.2s;" 
+     onclick="musteriRehberiniAc()" 
+     onmouseover="this.style.transform='scale(1.02)'" 
+     onmouseout="this.style.transform='scale(1)'" 
+     title="Müşteri Rehberini Aç">
+                <div class="card-body d-flex align-items-center">
+                    <div class="icon-box bg-info-light text-info me-3">
+                        <i class="fas fa-users fa-2x"></i>
+                    </div>
+                    <div>
+                        <h6 class="card-subtitle text-muted mb-1">Kayıtlı Müşteri</h6>
+                        <h2 class="card-title fw-bold mb-0" id="kayitliMusteriGosterge">-- <small>Kişi</small></h2>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+    <div class="col-12">
+        <div class="card card-custom shadow">
+            
+            <div class="card-header bg-white border-0 pt-4">
+                <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
+                    <h4 class="fw-bold mb-0 text-dark-custom">
+                        <i class="fas fa-layer-group me-2 text-warning"></i>Mevcut Kömür Stok Durumu
+                    </h4>
+                    
+                    <div class="input-group input-group-sm shadow-sm" style="max-width: 300px; border-radius: 8px; overflow: hidden;">
+                        <span class="input-group-text bg-light border-end-0"><i class="fas fa-search text-muted"></i></span>
+                        <input type="text" id="anaStokArama" class="form-control border-start-0 ps-0" 
+                               placeholder="Ürün adı ara..." onkeyup="anaStokFiltrele()">
+                    </div>
+
+                    <div>
+                        <button class="btn btn-warning btn-sm me-2 fw-bold" onclick="guvenliModalAc('sevkiyatListesiModal'); return false;" id="btnModulSevkiyat">
+    <i class="fas fa-truck me-2"></i> BEKLEYEN SEVKİYAT
+</button>
+                        <button id="btnYeniStokEkle" class="btn btn-warning btn-sm me-2 fw-bold" onclick="yeniStokModalAc()">
+    <i class="fas fa-plus"></i> Yeni Ürün
+</button>
+                        <button class="btn btn-outline-dark btn-sm" onclick="stoklariYukle()">
+                            <i class="fas fa-sync-alt me-1"></i>Yenile
+                        </button>
+                    </div>
+                </div>
+            </div>
+            
+                <div class="card-body p-0" style="max-height: 500px; overflow-y: auto; position: relative;">
+                <div class="table-responsive">
+                    <table class="table table-striped table-hover align-middle mb-0" id="stokTablosu">
+                        <thead class="table-dark-custom sticky-top" style="top: 0; z-index: 10;">
+                            <tr>
+                                <th>#</th>
+                                <th>Kömür Cinsi</th>
+                                <th>Birim Fiyatı (₺)</th>
+                                <th>Mevcut Stok</th>
+                                <th title="Mevcut stok, ürün için kaydettiğiniz iki eşiğe göre: alt ve altı Yetersiz, üst ve üstü Yeterli, arası Orta">Seviye</th>
+                                <th class="text-center">İşlem</th>
+                            </tr>
+                        </thead>
+                        <tbody id="stokTabloGövdesi">
+                            <tr><td colspan="6" class="text-center text-muted py-4">Veriler yükleniyor...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+        </div>
+    </div>
+</div> 
+
+<footer class="text-center py-4 text-muted bg-light mt-auto">
+    <div class="container">
+        <small>&copy; 2024 KARAARSLAN KÖMÜR. Tüm Hakları Saklıdır.</small>
+    </div>
+</footer>
+
+
+<div class="modal fade" id="yeniSatisModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-warning text-dark">
+                <h5 class="modal-title fw-bold"><i class="fas fa-shopping-cart me-2"></i>Yeni Satış Yap</h5>
+                
+                <button type="button" class="btn-close btn-close-white shadow-none" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="satisFormu">
+                    <div class="mb-3">
+                        <label class="form-label text-dark-custom fw-bold">Müşteri Seçin</label>
+                        <select class="form-select" id="satisMusteri" required>
+                            <option value="">Yükleniyor...</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label text-dark-custom fw-bold">Kömür Cinsi Seçin</label>
+                        <select class="form-select" id="satisKomur" required>
+                            <option value="">Yükleniyor...</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label text-dark-custom fw-bold">Satış Miktarı</label>
+                        <input type="number" step="0.01" class="form-control" id="satisMiktar" placeholder="Örn: 1.5" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Satış Notu</label>
+                        <textarea class="form-control" id="satisNotlar" rows="2" placeholder="Plaka veya detay yazın..."></textarea>
+                    </div>
+                    <div class="form-check form-switch mt-3 p-3 bg-light border rounded">
+                        <input class="form-check-input fs-4 ms-0 me-3" type="checkbox" id="adreseGidecekMi">
+                        <label class="form-check-label fw-bold text-danger mt-1" for="adreseGidecekMi">
+                            <i class="fas fa-truck me-2"></i> Adrese Biz Götüreceğiz
+                        </label>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer d-flex justify-content-between">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
+                <button type="button" class="btn btn-orange fw-bold" onclick="satisiTamamla()">
+                    <i class="fas fa-check me-1"></i> Satışı Onayla
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="musterilerModal" tabindex="-1" data-bs-backdrop="true" data-bs-keyboard="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable modal-dialog-centered"> 
+        <div class="modal-content border-0 shadow-lg" style="border-radius: 20px; overflow: hidden;">
+            
+            <div class="modal-header border-0 py-3 px-4" style="background: linear-gradient(135deg, #1a1c1e 0%, #2c2e30 100%);">
+                <div class="d-flex align-items-center">
+                    <div class="bg-warning rounded-circle p-2 me-3 d-flex align-items-center justify-content-center" style="width: 40px; height: 40px;">
+                        <i class="fas fa-users text-dark fs-5"></i>
+                    </div>
+                    <div>
+                        <h5 class="modal-title fw-bold text-white mb-0" style="letter-spacing: 0.5px;">Müşteri Rehberi</h5>
+                        <small class="text-white-50" style="font-size: 0.75rem;">Cari bakiyeler ve müşteri hareketleri</small>
+                    </div>
+                </div>
+                <button type="button" class="btn-close btn-close-white shadow-none" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+
+            <div class="modal-body bg-white p-4">
+                <div class="row g-3 mb-4 align-items-center">
+                    <div class="col-md-8">
+                        <div class="input-group input-group-lg shadow-sm border rounded-pill overflow-hidden bg-light">
+                            <span class="input-group-text bg-transparent border-0 ps-3">
+                                <i class="fas fa-search text-muted"></i>
+                            </span>
+                            <input type="text" class="form-control bg-transparent border-0 fs-6 shadow-none" 
+                                   id="cariAramaKutusu" placeholder="İsim veya telefon yazarak anında bulun..." onkeyup="cariAra()">
+                        </div>
+                    </div>
+                    <div class="col-md-4 text-end">
+                        <button class="btn btn-dark btn-lg w-100 rounded-pill fw-bold shadow-sm" 
+                                onclick="guvenliModalAc('yeniMusteriModal')" style="transition: 0.3s;">
+                            <i class="fas fa-user-plus me-2 text-warning"></i> Yeni Müşteri Ekle
+                        </button>
+                    </div>
+                </div>
+
+                <div class="border rounded-4 overflow-hidden shadow-sm bg-white">
+                    <div class="table-responsive" style="max-height: 55vh;">
+                        <table class="table table-hover align-middle mb-0" id="cariTablosu">
+                            <thead class="bg-light border-bottom">
+                                <tr style="font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px;">
+                                    <th class="ps-4 py-3 text-secondary fw-bold">Müşteri / Firma</th>
+                                    <th class="py-3 text-secondary fw-bold">İletişim</th>
+                                    <th class="py-3 text-secondary fw-bold text-end">Borç</th>
+                                    <th class="py-3 text-secondary fw-bold text-end">Ödenen</th>
+                                    <th class="py-3 text-dark fw-bolder text-center" style="width: 150px;">Bakiye Durumu</th>
+                                    <th class="text-center pe-4 py-3 text-secondary fw-bold">Yönetim</th>
+                                </tr>
+                            </thead>
+                            <tbody id="cariTabloGövdesi" style="font-size: 0.95rem;">
+                                <tr>
+                                    <td colspan="6" class="text-center py-5">
+                                        <div class="spinner-grow text-warning spinner-grow-sm" role="status"></div>
+                                        <div class="text-muted small mt-2">Müşteri listesi taranıyor...</div>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal-footer bg-light border-0 py-2 px-4 justify-content-between">
+                <small class="text-muted"><i class="fas fa-info-circle me-1"></i> Toplam kayıt sayısına göre otomatik filtrelenir.</small>
+                <button type="button" class="btn btn-outline-secondary btn-sm rounded-pill px-4" data-bs-dismiss="modal">Kapat</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+<div class="modal fade" id="musteriDetayModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg" style="border-radius: 20px; overflow: hidden;">
+            
+            <div class="modal-header border-0 py-3 px-4" style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);">
+                <div class="d-flex align-items-center">
+                    <div class="bg-white bg-opacity-25 rounded-circle p-2 me-3 d-flex align-items-center justify-content-center" style="width: 45px; height: 45px;">
+                        <i class="fas fa-address-card text-white fs-5"></i>
+                    </div>
+                    <div>
+                        <h5 class="modal-title fw-bold text-white mb-0" style="letter-spacing: 0.5px;">Cari Kart Detayı</h5>
+                        <small class="text-white-50" style="font-size: 0.75rem;">Müşteri finansal özeti ve geçmişi</small>
+                    </div>
+                </div>
+                
+                <div class="d-flex gap-2 align-items-center">
+                    <button class="btn btn-sm btn-light text-primary fw-bold rounded-pill shadow-sm px-3" onclick="borcuTaksitlendirAc()">
+                        <i class="fas fa-divide me-1"></i> Borcu Taksitlendir
+                    </button>
+                    <button class="btn btn-sm btn-warning text-dark fw-bold rounded-pill shadow-sm px-3" onclick="musteriTaksitleriniAc()">
+                        <i class="fas fa-calendar-alt me-1"></i> Taksit Planı
+                    </button>
+                    <div class="dropdown">
+                        <button type="button" class="btn btn-sm btn-outline-light rounded-pill px-3 dropdown-toggle" id="musteriDetayMenuDropdown" data-bs-toggle="dropdown" aria-expanded="false" title="Notlar">
+                            <i class="fas fa-bars me-1"></i> Menü
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end shadow border-0" aria-labelledby="musteriDetayMenuDropdown">
+                            <li><button type="button" class="dropdown-item" onclick="musteriNotlarModalAc()"><i class="fas fa-sticky-note text-warning me-2"></i>Notları aç</button></li>
+                        </ul>
+                    </div>
+                    <button class="btn btn-sm btn-outline-light rounded-pill px-3 me-2" onclick="detaydanListeyeDon()">
+                        <i class="fas fa-arrow-left me-1"></i> Listeye Dön
+                    </button>
+                    <button type="button" class="btn-close btn-close-white shadow-none" data-bs-dismiss="modal"></button>
+                </div>
+            </div>
+
+            <div class="modal-body bg-light p-4">
+                
+                <div class="row g-3 mb-4">
+                    
+                    <div class="col-md-4">
+                        <div class="card h-100 border-0 shadow-sm rounded-4 overflow-hidden bg-white">
+                            <div class="card-body position-relative p-4 d-flex flex-column justify-content-between">
+                                <div class="position-absolute top-0 start-0 w-100" style="height: 4px; background: linear-gradient(90deg, #1e3c72, #2a5298);"></div>
+                                
+                                <div>
+                                    <h5 class="fw-bold text-dark mb-3" id="detayAdSoyad">Yükleniyor...</h5>
+                                    <div class="mb-2 text-muted small d-flex align-items-center">
+                                        <i class="fas fa-phone-alt me-2 text-primary opacity-75"></i><span id="detayTelefon" class="fw-medium">...</span>
+                                    </div>
+                                    <div class="mb-3 text-muted small d-flex align-items-start">
+                                        <i class="fas fa-map-marker-alt me-2 mt-1 text-danger opacity-75"></i><span id="detayAdres">...</span>
+                                    </div>
+                                </div>
+                                
+                                <button class="btn btn-success btn-sm w-100 rounded-pill fw-bold shadow-sm mt-2" id="btnWhatsapp">
+                                    <i class="fab fa-whatsapp me-1 fs-6 align-middle"></i> WhatsApp'tan Yaz
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-8">
+                        <div class="row g-3 h-100">
+                            <div class="col-4">
+                                <div class="card h-100 border-0 shadow-sm rounded-4 bg-danger bg-opacity-10 d-flex flex-column justify-content-center align-items-center p-3" style="border: 1px solid rgba(220,53,69,0.1) !important;">
+                                    <div class="text-danger mb-2 opacity-75"><i class="fas fa-shopping-bag fs-4"></i></div>
+                                    <h6 class="text-danger small fw-bold mb-1 opacity-75 text-uppercase" style="letter-spacing: 0.5px;">Toplam Satış</h6>
+                                    <h4 class="text-danger fw-bolder mb-0" id="detayToplamBorc">0 ₺</h4>
+                                </div>
+                            </div>
+                            
+                            <div class="col-4">
+                                <div class="card h-100 border-0 shadow-sm rounded-4 bg-success bg-opacity-10 d-flex flex-column justify-content-center align-items-center p-3" style="border: 1px solid rgba(25,135,84,0.1) !important;">
+                                    <div class="text-success mb-2 opacity-75"><i class="fas fa-hand-holding-usd fs-4"></i></div>
+                                    <h6 class="text-success small fw-bold mb-1 opacity-75 text-uppercase" style="letter-spacing: 0.5px;">Yapılan Ödeme</h6>
+                                    <h4 class="text-success fw-bolder mb-0" id="detayToplamOdenen">0 ₺</h4>
+                                </div>
+                            </div>
+                            
+                            <div class="col-4">
+                                <div class="card h-100 border-0 shadow-sm rounded-4 d-flex flex-column justify-content-center align-items-center p-3" style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);">
+                                    <div class="text-white-50 mb-2"><i class="fas fa-wallet fs-4"></i></div>
+                                    <h6 class="text-white-50 small fw-bold mb-1 text-uppercase" style="letter-spacing: 0.5px;">Kalan Bakiye</h6>
+                                    <h3 class="text-white fw-bolder mb-0" id="detayKalanBakiye">0 ₺</h3>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="d-flex justify-content-between align-items-end mb-3 px-1">
+                    <h6 class="fw-bold text-dark mb-0"><i class="fas fa-list-ul text-muted me-2"></i>Hesap Hareketleri</h6>
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-sm rounded-pill px-4 fw-bold shadow-sm" style="background-color: #fd7e14; color: white;" onclick="hizliSatisModalAc()">
+                            <i class="fas fa-shopping-cart me-1"></i> Satış Yap
+                        </button>
+                        <button class="btn btn-sm btn-success rounded-pill px-4 fw-bold shadow-sm" onclick="odemeAlModalAc()">
+                            <i class="fas fa-lira-sign me-1"></i> Ödeme Al
+                        </button>
+                        <button class="btn btn-sm btn-outline-secondary rounded-pill px-4 fw-bold shadow-sm bg-white" onclick="urunIadeAc()">
+                            <i class="fas fa-undo me-1"></i> İade Al
+                        </button>
+                    </div>
+                </div>
+
+                <div class="card shadow-sm border-0 rounded-4 overflow-hidden bg-white">
+                    <div class="table-responsive" style="max-height: 38vh;">
+                        <table class="table table-hover align-middle mb-0" style="font-size: 0.85rem;">
+                            <thead class="bg-light sticky-top" style="z-index: 2;">
+                                <tr class="text-secondary text-uppercase" style="font-size: 0.75rem; letter-spacing: 0.5px;">
+                                    <th class="ps-4 py-3 fw-bold">Tarih</th>
+                                    <th class="text-center py-3 fw-bold">İşlem</th>
+                                    <th class="py-3 fw-bold">Açıklama</th>
+                                    <th class="text-center py-3 fw-bold">Miktar</th>
+                                    <th class="text-center py-3 fw-bold">Birim</th>
+                                    <th class="text-end py-3 fw-bold">Birim Fiyatı</th>
+                                    <th class="text-end py-3 fw-bold">Borç</th>
+                                    <th class="text-end py-3 fw-bold">Alacak</th>
+                                    
+                                    <th class="text-center pe-4 py-3"><i class="fas fa-cog"></i></th>
+                                </tr>
+                            </thead>
+                            <tbody id="detayTabloGovdesi" style="font-size: 0.9rem;">
+                                <tr>
+                                    <td colspan="10" class="text-center py-5">
+                                        <div class="spinner-border text-primary small mb-2"></div><br>
+                                        <span class="text-muted">Hareketler listeleniyor...</span>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Müşteri notları: liste + ekleme + silme -->
+<div class="modal fade" id="musteriNotlarModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
+        <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+            <div class="modal-header bg-warning text-dark py-3">
+                <h5 class="modal-title fw-bold mb-0"><i class="fas fa-sticky-note me-2"></i>Müşteri notları</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Kapat"></button>
+            </div>
+            <div class="modal-body">
+                <div id="musteriNotlarListe" class="small mb-3" style="max-height: 320px; overflow-y: auto;"></div>
+                <label class="form-label small fw-bold text-muted mb-1">Yeni not</label>
+                <div class="input-group">
+                    <textarea class="form-control" id="musteriNotYeniMetin" rows="3" placeholder="Not yazın…"></textarea>
+                    <button class="btn btn-warning text-dark fw-bold px-3 align-self-stretch" type="button" onclick="musteriNotKaydet()" title="Kaydet">
+                        <i class="fas fa-save"></i>
+                    </button>
+                </div>
+                <div class="form-text small mt-1">Kaydeden: oturum adı + kullanıcı adı.</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Cari açılışında not uyarısı (özet veya tek tek) -->
+<div class="modal fade" id="musteriNotUyariModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+            <div class="modal-header bg-primary text-white py-3">
+                <h5 class="modal-title fw-bold mb-0" id="musteriNotUyariBaslik"><i class="fas fa-bell me-2"></i> Bildirim</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Kapat"></button>
+            </div>
+            <div class="modal-body" id="musteriNotUyariGovde"></div>
+            <div class="modal-footer flex-wrap gap-2">
+                <button type="button" class="btn btn-primary ms-auto" data-bs-dismiss="modal" id="musteriNotUyariBtnTamam">Tamam</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="borcSatisModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg">
+            <div class="modal-header bg-dark text-white">
+                <h5 class="modal-title"><i class="fas fa-calculator me-2"></i> Borç Yapılandırma</h5>
+                <button type="button" class="btn-close" onclick="detayaGeriDon()"></button>
+            </div>
+            <div class="modal-body">
+                <div class="text-center mb-3 border-bottom pb-2">
+    <small class="text-muted fw-bold d-block">İşlem Yapılan Müşteri</small>
+    <h3 class="fw-bold text-dark" id="taksitMusteriAd">Yükleniyor...</h3>
+</div>
+                <div class="alert alert-info py-2">
+                    <strong>Güncel Bakiye:</strong> <span id="yapilandirmaBakiyesi">0</span> ₺
+                </div>
+                <div class="row g-3">
+                    <div class="col-12">
+                        <label class="form-label fw-bold">Yapılandırılacak Tutar</label>
+                        <input type="number" id="taksitlendirilecekTutar" class="form-control border-primary">
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label fw-bold">Taksit Sayısı</label>
+                        <select id="yapiTaksitSayisi" class="form-select border-primary">
+                            <option value="1">Tek Vade</option>
+                            <option value="2">2 Taksit</option>
+                            <option value="3">3 Taksit</option>
+                            <option value="4">4 Taksit</option>
+                            <option value="5">5 Taksit</option>
+                            <option value="6">6 Taksit</option>
+                            <option value="12">12 Taksit</option>
+                        </select>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label fw-bold">İlk Taksit Tarihi</label>
+                        <input type="date" id="yapiBaslangicTarihi" class="form-control border-primary">
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="detayaGeriDon()">İptal</button>
+                <button type="button" class="btn btn-success fw-bold" onclick="borcYapilandirKaydet()">
+                    <i class="fas fa-save me-1"></i> Planı Oluştur ve Kaydet
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="taksitPlaniModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg">
+            <div class="modal-header bg-warning text-dark">
+                <h5 class="modal-title fw-bold"><i class="fas fa-file-invoice-dollar me-2"></i> <span id="taksitModalBaslik">Ödeme Planı</span></h5>
+                <button type="button" class="btn-close" onclick="detayaGeriDon()"></button>
+            </div>
+            <div class="modal-body p-0">
+                <table class="table table-hover mb-0">
+                    <thead class="table-dark">
+                        <tr>
+                            <th>Vade Tarihi</th>
+                            <th>Açıklama</th>
+                            <th class="text-end">Tutar</th>
+                            <th class="text-center">Durum</th>
+                            <th class="text-center">İşlem</th>
+                        </tr>
+                    </thead>
+                    <tbody id="taksitPlaniGovdesi"></tbody>
+                </table>
+            </div>
+            <div class="modal-footer bg-light">
+                <button type="button" class="btn btn-secondary" onclick="detayaGeriDon()">İptal</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="tahsilatModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title fw-bold"><i class="fas fa-lira-sign me-2"></i>Tahsilat Al</h5>
+                <button type="button" class="btn-close" onclick="detayaGeriDon()"></button>
+            </div>
+            <div class="modal-body">
+                <form id="tahsilatFormu">
+                    <div class="mb-3 text-center">
+                        <h6 class="text-muted mb-1">İşlem Yapılan Müşteri</h6>
+                        <h4 class="fw-bold text-dark-custom" id="tahsilatMusteriAd">Yükleniyor...</h4>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">İşlem Tarihi</label>
+                        <input type="date" id="odemeTarihi" class="form-control border-success shadow-sm">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Alınan Tutar (₺)</label>
+                        <input type="number" step="0.01" class="form-control form-control-lg text-success fw-bold" id="tahsilatTutar" placeholder="Örn: 5000" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-success">Ödeme Türü <span class="text-danger">*</span></label>
+                        <select class="form-select border-success" id="tahsilatAciklama">
+                            <option value="Nakit">Nakit</option>
+                            <option value="Havale/EFT">Havale/EFT</option>
+                            <option value="Kredi Kartı">Kredi Kartı</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Ödeme Notu</label>
+                        <textarea class="form-control" id="odemeNot" rows="2" placeholder="Örn: X Bankası EFT, Elden nakit..."></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer bg-light">
+                <button type="button" class="btn btn-secondary" onclick="detayaGeriDon()">İptal</button>
+                <button type="button" class="btn btn-success fw-bold" onclick="tahsilatiKaydet()">
+                    <i class="fas fa-check me-1"></i> Ödemeyi Kaydet
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade hizli-satis-modal-dar" id="hizliSatisModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable"> 
+        <div class="modal-content border-0 shadow">
+            
+            <div class="modal-header text-white py-2" style="background-color: var(--orange-custom, #fd7e14);">
+                <h5 class="modal-title fw-bold fs-6"><i class="fas fa-shopping-cart me-2"></i>Müşteriye Satış Yap</h5>
+                <button type="button" class="btn-close btn-close-white" onclick="satistanDetayaDon()"></button>
+            </div>
+            
+            <div class="modal-body bg-light px-3 py-2"> <form id="hizliSatisFormu">
+                    
+                    <div class="row mb-2 align-items-end border-bottom pb-2">
+                        <div class="col-md-8">
+                            <h6 class="text-muted mb-0 small">Seçili Müşteri</h6>
+                            <h5 class="fw-bold text-dark-custom mb-0" id="hizliSatisMusteriAd">Yükleniyor...</h5>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold small mb-1">İşlem Tarihi</label>
+                            <input type="date" id="hizliSatisTarihi" class="form-control form-control-sm border-warning shadow-sm">
+                        </div>
+                    </div>
+
+                    <div class="p-2 bg-white border rounded shadow-sm mb-2">
+                        <h6 class="fw-bold text-secondary mb-2 small"><i class="fas fa-box-open me-1"></i>Ürün Ekle</h6>
+                        <div class="row g-1 align-items-end"> <div class="col-md-3">
+                                <label class="form-label fw-bold text-muted small mb-0">Cins Seçin</label>
+                                <select class="form-select form-select-sm border-secondary fw-bold" id="hizliSatisKomur" onchange="urunSecildi()" required>
+                                    <option value="">Yükleniyor...</option>
+                                </select>
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label fw-bold text-muted small mb-0">B. Fiyat (₺)</label>
+                                <input type="number" step="0.01" class="form-control form-control-sm bg-light" id="hizliSatisBirimFiyat" oninput="fiyatDegisti()">
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label fw-bold text-muted small mb-0">Miktar</label>
+                                <input type="number" step="0.01" class="form-control form-control-sm fw-bold" id="hizliSatisMiktar" oninput="miktarDegisti()" placeholder="Örn: 2.5">
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label fw-bold text-muted small mb-0">Tutar (₺)</label>
+                                <input type="number" step="0.01" class="form-control form-control-sm fw-bold text-danger" id="hizliSatisTutar" oninput="tutarDegisti()">
+                            </div>
+                            <div class="col-md-2 text-center pb-1">
+                                <div class="form-check form-switch d-inline-block">
+                                    <input class="form-check-input" type="checkbox" id="satirTeslimat">
+                                    <label class="form-check-label fw-bold text-danger ms-1 small" for="satirTeslimat"><i class="fas fa-truck"></i> Adrese</label>
+                                </div>
+                            </div>
+                            <div class="col-md-1 text-end">
+                                <button type="button" class="btn btn-success btn-sm w-100 fw-bold shadow-sm" onclick="sepeteEkle()" title="Sepete Ekle">
+                                    <i class="fas fa-plus"></i> Ekle
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-white border rounded shadow-sm mb-2" style="max-height: 180px; overflow-y: auto;">
+                        <table class="table table-sm table-hover mb-0" style="font-size: 0.9rem;">
+                            <thead class="table-dark sticky-top" style="top: 0; z-index: 10;">
+                                <tr>
+                                    <th>Ürün</th>
+                                    <th class="text-center">Teslimat</th>
+                                    <th class="text-center">Miktar</th>
+                                    <th class="text-center">B. Fiyat (₺)</th>
+                                    <th class="text-end">Tutar</th>
+                                    <th class="text-center">Sil</th>
+                                </tr>
+                            </thead>
+                            <tbody id="sepetTabloGovdesi">
+                                <tr><td colspan="6" class="text-center text-muted py-2">Sepet boş...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    <div class="p-1 px-2 text-end fw-bold fs-6 text-danger bg-light border border-top-0 rounded-bottom mb-2">
+                        Genel Toplam: <span id="sepetGenelToplam">0</span> ₺
+                    </div>
+
+                    <div class="mb-2">
+                        <textarea class="form-control form-control-sm border-secondary" id="hizliSatisNotlar" rows="1" placeholder="Genel Notlar (Plaka, Şoför vb.)"></textarea>
+                    </div>
+
+                    <div class="border border-2 border-success rounded p-2 mb-1 bg-white shadow-sm">
+                        <div class="form-check form-switch mb-0">
+                            <input class="form-check-input" type="checkbox" id="hizliOdemeVarMi" onchange="odemeAlaniniTetikle()" style="cursor: pointer;">
+                            <label class="form-check-label fw-bold text-success small mt-1" style="cursor: pointer;" for="hizliOdemeVarMi">
+                                Şimdi Ödeme Alınacak mı?
+                            </label>
+                        </div>
+                        
+                        <div id="hizliOdemeDetay" style="display: none; margin-top: 10px;" class="pt-2 border-top border-success border-opacity-25">
+                            <div class="row g-2 align-items-end">
+                                <div class="col-md-6">
+                                    <label class="form-label text-muted small fw-bold mb-0">Ödeme Türü</label>
+                                    <select class="form-select form-select-sm border-secondary fw-bold" id="hizliOdemeTuru">
+                                        <option value="Nakit">💵 Nakit</option>
+                                        <option value="Kredi Kartı">💳 Kredi Kartı</option>
+                                        <option value="Havale / EFT">🏦 Havale / EFT</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label text-muted small fw-bold mb-0">Alınan Tutar (₺)</label>
+                                    <div class="input-group input-group-sm">
+                                        <input type="number" class="form-control border-secondary fw-bold text-danger" id="hizliOdemeTutari" placeholder="0.00" step="0.01">
+                                        <button class="btn btn-outline-secondary fw-bold" type="button" onclick="tutariTamamla()">Tümü</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                </form>
+            </div>
+            
+            <div class="modal-footer bg-light py-1">
+                <button type="button" class="btn btn-secondary btn-sm" onclick="satistanDetayaDon()">İptal</button>
+                <button type="button" class="btn btn-success btn-sm fw-bold text-white px-4" onclick="satisiTamamla()">
+                    <i class="fas fa-check-circle me-1"></i> Satışı Tamamla
+                </button>
+            </div>
+            
+        </div>
+    </div>
+</div>
+
+
+<div class="modal fade" id="yeniMusteriModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-xl">
+        <div class="modal-content border-0 shadow-lg" style="border-radius: 16px; overflow: hidden;">
+            
+            <!-- Şık ve Ferah Header -->
+            <div class="modal-header border-0 bg-light px-4 py-3">
+                <h5 class="modal-title fw-bold text-dark d-flex align-items-center">
+                    <div class="bg-primary bg-opacity-10 text-primary d-flex align-items-center justify-content-center rounded-circle me-3" style="width: 40px; height: 40px;">
+                        <i class="fas fa-user-plus fs-5"></i>
+                    </div>
+                    Yeni Müşteri Kaydı
+                </h5>
+                <button type="button" class="btn-close shadow-none" onclick="guvenliModalAc('musterilerModal')"></button>
+            </div>
+
+            <div class="modal-body px-4 py-4 bg-white">
+                <form id="yeniMusteriFormu">
+                    <div class="row">
+                        
+                        <!-- ========================================== -->
+                        <!-- SOL KOLON: KİŞİSEL BİLGİLER                -->
+                        <!-- ========================================== -->
+                        <div class="col-md-6 pe-md-4">
+                            
+                            <!-- 1. Resmi Ünvan (YEŞİL VURGU - Mevcut olan) -->
+                            <div class="p-3 mb-3 bg-success bg-opacity-10 rounded-4 border border-success border-opacity-25">
+                                <label class="form-label fw-bold text-success small text-uppercase" style="letter-spacing: 0.5px;">
+                                    <i class="fas fa-file-invoice me-1"></i> Resmi Ünvan (Makbuz İsmi) <span class="text-danger">*</span>
+                                </label>
+                                <div class="input-group shadow-sm has-validation">
+                                    <span class="input-group-text bg-white border-end-0 border-success text-success"><i class="fas fa-id-card"></i></span>
+                                    <input type="text" 
+                                           class="form-control border-success border-start-0 ps-0 shadow-none" 
+                                           id="yeniMusteriUnvan" 
+                                           placeholder="Örn: RAMAZAN BAĞIŞ" 
+                                           oninput="this.value = this.value.toLocaleUpperCase('tr-TR');"
+                                           required>
+                                    <div class="invalid-feedback">Lütfen makbuz için geçerli bir ünvan giriniz!</div>
+                                </div>
+                                <div class="form-text text-success small mt-2 opacity-75" style="line-height: 1.2;">
+                                    <i class="fas fa-info-circle me-1"></i> Makbuz/Fiş kesilirken sistem bu ismi kullanacaktır.
+                                </div>
+                            </div>
+
+                            <!-- 2. Dükkan İçi İsim (MAVİ VURGU) -->
+                            <div class="p-3 mb-3 bg-primary bg-opacity-10 rounded-4 border border-primary border-opacity-25">
+                                <label class="form-label fw-bold text-primary small text-uppercase" style="letter-spacing: 0.5px;">
+                                    <i class="fas fa-store me-1"></i> Dükkan İçi Tanıma İsmi
+                                </label>
+                                <div class="input-group shadow-sm">
+                                    <span class="input-group-text bg-white border-end-0 border-primary text-primary"><i class="fas fa-user"></i></span>
+                                    <input type="text" 
+                                           class="form-control border-primary border-start-0 ps-0 shadow-none" 
+                                           id="yeniMusteriAd" 
+                                           placeholder="Örn: osman amcanın oğlu ramazan bağış">
+                                </div>
+                                <div class="form-text text-primary small mt-2 opacity-75" style="line-height: 1.2;">
+                                    <i class="fas fa-info-circle me-1"></i> Dükkan içi aramalarda kolay bulmak içindir (İsteğe bağlı).
+                                </div>
+                            </div>
+
+                            <!-- 3. Telefon Numarası (TURKUAZ/INFO VURGU) -->
+                            <div class="p-3 mb-3 mb-md-0 bg-info bg-opacity-10 rounded-4 border border-info border-opacity-25">
+                                <label class="form-label fw-bold text-info small text-uppercase" style="letter-spacing: 0.5px;">
+                                    <i class="fas fa-phone-volume me-1"></i> İletişim Bilgisi <span class="text-danger">*</span>
+                                </label>
+                                <div class="input-group shadow-sm">
+                                    <span class="input-group-text bg-white border-end-0 border-info text-info"><i class="fas fa-phone"></i></span>
+                                    <input type="tel" class="form-control border-info border-start-0 ps-0 fw-bold text-dark" id="yeniMusteriTelefon" placeholder="5xx xxx xx xx" maxlength="10" oninput="this.value = this.value.replace(/[^0-9]/g, ''); if(this.value.startsWith('0')) this.value = this.value.substring(1);">
+                                </div>
+                                <div class="form-text text-danger small mt-2" style="font-size: 0.75rem;">
+                                    Başında <strong>'0' olmadan</strong> 10 hane giriniz.
+                                </div>
+                            </div>
+
+                        </div>
+                        <!-- SOL KOLON BİTTİ -->
+
+                        <!-- ========================================== -->
+                        <!-- SAĞ KOLON: ADRES BİLGİLERİ (KIRMIZI VURGU) -->
+                        <!-- ========================================== -->
+                        <div class="col-md-6 ps-md-4 mt-4 mt-md-0">
+                            
+                            <div class="p-4 bg-danger bg-opacity-10 rounded-4 border border-danger border-opacity-25 h-100 d-flex flex-column">
+                                <h6 class="fw-bold text-danger mb-4 text-uppercase" style="letter-spacing: 0.5px;">
+                                    <i class="fas fa-truck-loading me-2"></i>Sevkiyat Adresi Bilgileri
+                                </h6>
+
+                                <div class="row g-3 mb-4">
+                                    <div class="col-12">
+                                        <label class="form-label fw-bold text-danger small opacity-75"><i class="fas fa-globe-americas me-1"></i>İL</label>
+                                        <select class="form-select border-danger shadow-sm fw-bold adres-il-genis" id="yeniMusteriIl" disabled autocomplete="address-level1"><option>KONYA</option></select>
+                                    </div>
+                                    <div class="col-12">
+                                        <label class="form-label fw-bold text-danger small opacity-75"><i class="fas fa-city me-1"></i>İLÇE</label>
+                                        <select class="form-select border-danger shadow-sm fw-bold text-dark adres-ilce-genis" id="yeniMusteriIlce" autocomplete="address-level2"></select>
+                                    </div>
+                                    <div class="col-12">
+                                        <label class="form-label fw-bold text-danger small opacity-75"><i class="fas fa-map-signs me-1"></i>MAHALLE</label>
+                                        <select class="form-select border-danger shadow-sm adres-mahalle-genis" id="yeniMusteriMahalleListe" autocomplete="address-level3"></select>
+                                        <div class="form-text small text-muted">Mahalle listeden seçilir (Karatay, Meram, Ilgın için liste sırayla eklenecek).</div>
+                                    </div>
+                                </div>
+
+                                <!-- 5. DETAYLI ADRES (Uzun Kutu) -->
+                                <div class="mb-1 flex-grow-1">
+                                    <label class="form-label fw-bold text-danger small opacity-75">AÇIK ADRES (SOKAK, NO)</label>
+                                    <div class="input-group shadow-sm h-100">
+                                        <span class="input-group-text bg-white border-end-0 border-danger text-danger align-items-start pt-3"><i class="fas fa-map-marker-alt"></i></span>
+                                        <textarea class="form-control border-danger border-start-0 ps-0 pt-3" id="yeniMusteriAdres" style="min-height: 120px;" placeholder="Sokak, Apartman, Daire No..."></textarea>
+                                    </div>
+                                </div>
+                            </div>
+
+                        </div>
+                        <!-- SAĞ KOLON BİTTİ -->
+
+                    </div>
+                </form>
+            </div>
+            
+            <!-- Modern Footer -->
+            <div class="modal-footer border-0 bg-light px-4 py-3 justify-content-between">
+                <button type="button" class="btn btn-outline-secondary fw-bold rounded-pill px-4" onclick="guvenliModalAc('musterilerModal')">İptal / Geri</button>
+                <button type="button" class="btn btn-primary fw-bold rounded-pill px-4 shadow-sm" onclick="yeniMusteriKaydet()">
+                    <i class="fas fa-user-plus me-2"></i> Kaydı Tamamla
+                </button>
+            </div>
+            
+        </div>
+    </div>
+</div>
+<div class="modal fade" id="yeniStokModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-dark text-white">
+                <h5 class="modal-title fw-bold"><i class="fas fa-box-open me-2 text-warning"></i>Yeni Kömür / Ürün Ekle</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="yeniStokFormu">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Ürün Adı / Cinsi <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control form-control-lg" id="stokUrunAdi" placeholder="Örn: Sibirya Kömür" required autocomplete="off">
+                        <div class="form-text">Sadece ürün adını yazın. Birim aşağıda seçilir; kayıtta tek kimlik olarak <strong>Ürün + birim</strong> birlikte oluşur (örn. <span class="text-muted">Sibirya Kömür (Ton)</span>).</div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-primary">Satış Birimi <span class="text-danger">*</span></label>
+                        <select class="form-select border-primary" id="stokBirim" onchange="stokBirimDegisti()">
+                            <option value="Ton">Ton</option>
+                            <option value="Adet">Adet</option>
+                            <option value="Çuval">Çuval</option>
+                        </select>
+                    </div>
+                    <div class="mb-3 d-none" id="kgAlanDiv">
+                        <label class="form-label fw-bold text-success">1 Çuval Kaç KG? <span class="text-danger">*</span></label>
+                        <input type="number" step="0.1" class="form-control border-success" id="stokCuvalKg" placeholder="Örn: 25">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold" id="lblStokFiyat">Ton Fiyatı (₺) <span class="text-danger">*</span></label>
+                        <input type="number" step="0.01" class="form-control" id="stokFiyat" placeholder="Örn: 7500" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold" id="lblStokMiktar">Başlangıç Stoğu (Ton) <span class="text-danger">*</span></label>
+                        <input type="number" step="0.01" class="form-control" id="stokMiktar" placeholder="Örn: 150" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Stok eşikleri (aynı birimde) <span class="text-danger">*</span></label>
+                        <div class="row g-2">
+                            <div class="col-6">
+                                <input type="number" step="0.01" min="0" class="form-control" id="stokEsikAlt" placeholder="Alt eşik" required>
+                                <div class="form-text small">Bu rakamın <strong>altında ve eşit</strong> → <span class="text-danger">Yetersiz</span></div>
+                            </div>
+                            <div class="col-6">
+                                <input type="number" step="0.01" min="0" class="form-control" id="stokEsikUst" placeholder="Üst eşik" required>
+                                <div class="form-text small">Bu rakamın <strong>üstünde ve eşit</strong> → <span class="text-success">Yeterli</span></div>
+                            </div>
+                        </div>
+                        <div class="form-text mt-1">İki rakamın arasında kalan miktar otomatik <strong>Orta</strong> gösterilir. Üst eşik, alt eşikten büyük olmalı.</div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer bg-light">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
+                <button type="button" class="btn btn-warning fw-bold text-dark" onclick="yeniStokKaydet()">
+                    <i class="fas fa-save me-1"></i> Ürünü Kaydet
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="stokDuzenleModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-xl">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title fw-bold"><i class="fas fa-edit me-2"></i>Ürün Düzenle ve Alım Geçmişi</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-0">
+                <div class="row g-0">
+                    
+                    <div class="col-md-4 p-4 border-end bg-light">
+                        <form id="stokDuzenleFormu">
+                            <input type="hidden" id="duzenleStokId">
+                            <input type="hidden" id="duzenleStokEtiketiOrig" value="">
+                            <div class="mb-3">
+                                <label class="form-label fw-bold">Ürün Adı / Cinsi <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control form-control-lg" id="duzenleUrunAdi" required autocomplete="off">
+                                <div class="form-text small">İsim ile birimin tek dilimde olduğundan emin olun: <strong>Temel ad (birim)</strong> — stoğun ve satış eşlemesinin referansı bu satırdır.</div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label fw-bold">Satış Fiyatı (₺) <span class="text-danger">*</span></label>
+                                <input type="number" step="0.01" class="form-control" id="duzenleFiyat" required>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label fw-bold text-muted">Başlangıç Stoğu (Manuel Düzeltme)</label>
+                                <input type="number" step="0.01" class="form-control" id="duzenleMiktar" required>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label fw-bold">Stok eşikleri <span class="text-danger">*</span></label>
+                                <div class="row g-2">
+                                    <div class="col-6">
+                                        <input type="number" step="0.01" min="0" class="form-control" id="duzenleEsikAlt" placeholder="Alt eşik" required>
+                                        <div class="form-text small">Altı/eşiti → Yetersiz</div>
+                                    </div>
+                                    <div class="col-6">
+                                        <input type="number" step="0.01" min="0" class="form-control" id="duzenleEsikUst" placeholder="Üst eşik" required>
+                                        <div class="form-text small">Üstü/eşiti → Yeterli</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+
+                    <div class="col-md-8 p-0">
+                        <div class="bg-white h-100 d-flex flex-column">
+                            <div class="p-3 border-bottom bg-light">
+                                <h6 class="mb-0 fw-bold text-secondary"><i class="fas fa-history me-1"></i> Bu Ürünün Son Alım Hareketleri</h6>
+                            </div>
+                            <div class="table-responsive flex-grow-1" style="max-height: 350px; overflow-y: auto;">
+                                <table class="table table-hover table-sm mb-0">
+                                    <thead class="table-dark sticky-top">
+                                        <tr>
+                                            <th class="ps-3">Tarih</th>
+                                            <th>Tedarikçi Firma</th>
+                                            <th class="text-center">Miktar</th>
+                                            <th class="text-end pe-3">Birim Alış Fiyatı</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="urunAlimGecmisiGövdesi">
+                                        </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+            <div class="modal-footer bg-light">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
+                <button type="button" class="btn btn-primary fw-bold" onclick="stokGuncelleKaydet()">
+                    <i class="fas fa-save me-1"></i> Değişiklikleri Kaydet
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="gunlukOzetModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-fullscreen-lg-down modal-dialog-centered modal-dialog-scrollable" style="max-width: 85vw; width: 85%;"> 
+        <div class="modal-content border-0 shadow-lg" style="border-radius: 15px;">
+            
+            <div class="modal-header bg-success text-white border-0 py-3 px-4">
+                <h5 class="modal-title fw-bold"><i class="fas fa-calendar-day me-2"></i>Günlük Kasa ve Satış Özeti</h5>
+                <button type="button" class="btn-close btn-close-white shadow-none" onclick="modalZorlaKapat('gunlukOzetModal')"></button>
+            </div>
+            
+            <div class="modal-body bg-light p-4">
+                
+                <div class="row mb-4 align-items-end bg-white p-3 rounded shadow-sm border mx-0">
+                    <div class="col-md-5">
+                        <label class="form-label fw-bold text-muted small mb-1">Başlangıç Tarihi</label>
+                        <input type="date" id="ozetBaslangicTarihi" class="form-control border-secondary shadow-none" onchange="gunlukOzetGetir()">
+                    </div>
+                    <div class="col-md-5">
+                        <label class="form-label fw-bold text-muted small mb-1">Bitiş Tarihi</label>
+                        <input type="date" id="ozetBitisTarihi" class="form-control border-secondary shadow-none" onchange="gunlukOzetGetir()">
+                    </div>
+                    <div class="col-md-2 text-end">
+                        <button class="btn btn-success w-100 shadow-sm fw-bold py-2" onclick="gunlukOzetGetir()">
+                            <i class="fas fa-search me-1"></i> Getir
+                        </button>
+                    </div>
+                </div>
+
+                <div class="row mb-4 g-3">
+                    <div class="col-md-3">
+                        <div class="bg-white p-3 rounded shadow-sm border-start border-info border-4 h-100">
+                            <small class="text-muted fw-bold mb-1">GÜNLÜK SATIŞ</small>
+                            <div class="fs-4 fw-bold text-info" id="ozetToplamSatis">0,00 ₺</div>
+                            <small class="text-muted" style="font-size:0.7rem;">(Açık hesap / veresiye dahil)</small>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="bg-white p-3 rounded shadow-sm border-start border-success border-4 h-100">
+                            <small class="text-muted fw-bold mb-1">KASAYA GİREN (Tahsilat)</small>
+                            <div class="fs-4 fw-bold text-success" id="ozetToplamTahsilat">0,00 ₺</div>
+                            <div class="mt-2" style="font-size: 0.75rem;">
+                                <span class="d-block text-muted">Nakit: <b class="text-dark" id="ozetNakit">0 ₺</b></span>
+                                <span class="d-block text-muted">Kart: <b class="text-dark" id="ozetKart">0 ₺</b></span>
+                                <span class="d-block text-muted">Havale: <b class="text-dark" id="ozetHavale">0 ₺</b></span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="bg-white p-3 rounded shadow-sm border-start border-danger border-4 h-100">
+                            <small class="text-muted fw-bold mb-1">KASADAN ÇIKAN (Gider)</small>
+                            <div class="fs-4 fw-bold text-danger" id="ozetToplamGider">0,00 ₺</div>
+                            <small class="text-muted" style="font-size:0.7rem;">(Maaş, Fatura, Mazot vb.)</small>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="bg-dark p-3 rounded shadow-sm border-start border-warning border-4 h-100">
+                            <small class="text-white-50 fw-bold mb-1">GÜN SONU NET KASA</small>
+                            <div class="fs-4 fw-bold text-warning" id="ozetNetKasa">0,00 ₺</div>
+                            <small class="text-white-50" style="font-size:0.7rem;">(Giren Para eksi Çıkan Para)</small>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="table-responsive bg-white rounded shadow-sm border">
+                    <table class="table table-hover align-middle mb-0">
+                            <thead class="table-light sticky-top" style="top: 0; z-index: 10;">
+    <tr class="small text-muted text-uppercase">
+        <th class="ps-3" style="width: 120px;">Tarih / Saat</th>
+        <th style="width: 30%;">Kişi / Firma</th> <th style="width: 20%;">İşlem Detayı</th>
+        <th class="text-center" style="width: 150px;">İşlemi Yapan</th>
+        <th class="text-end text-danger" style="width: 130px;">Satış / Borç</th>
+        <th class="text-end pe-3 text-success" style="width: 140px;">Giren / Çıkan</th>
+    </tr>
+</thead>
+                        <tbody id="gunlukOzetTabloGovdesi">
+                            </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<style>
+    /* Sevkiyat Listesi Özel Scroll Alanı */
+    .sevkiyat-scroll {
+        max-height: 65vh; /* Ekranın %65'i kadar yer kaplar, sonrası kaydırılır */
+        overflow-y: auto;
+        overflow-x: hidden;
+    }
+    
+    /* Modern ve İnce Kaydırma Çubuğu */
+    .sevkiyat-scroll::-webkit-scrollbar {
+        width: 6px;
+    }
+    .sevkiyat-scroll::-webkit-scrollbar-track {
+        background: #f8f9fa; 
+        border-radius: 10px;
+    }
+    .sevkiyat-scroll::-webkit-scrollbar-thumb {
+        background: #cdd4da; 
+        border-radius: 10px;
+    }
+    .sevkiyat-scroll::-webkit-scrollbar-thumb:hover {
+        background: #a8b2bc; 
+    }
+
+    /* Tablo Başlığını Yukarıya Sabitleme (Gölgeli) */
+    .sevkiyat-scroll thead th {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        background-color: #2c3e50; /* Daha asil bir koyu lacivert/gri */
+        color: #ffffff;
+        box-shadow: 0 3px 5px rgba(0,0,0,0.08);
+        border-bottom: none;
+    }
+    
+    /* Tablo satırlarına hafif vurgu */
+    .sevkiyat-table tbody tr {
+        transition: background-color 0.2s ease;
+    }
+    .sevkiyat-table tbody tr:hover {
+        background-color: #fff9f0 !important; /* Üzerine gelince çok hafif sıcak bir sarı */
+    }
+</style>
+
+<div class="modal fade" id="sevkiyatListesiModal" tabindex="-1" data-bs-backdrop="true" data-bs-keyboard="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg" style="border-radius: 15px;">
+            
+            <div class="modal-header bg-white py-3 px-4 border-bottom-0">
+                <h5 class="modal-title fw-bold text-dark d-flex align-items-center">
+                    <div class="bg-danger bg-opacity-10 text-danger p-2 rounded-3 me-3">
+                        <i class="fas fa-shipping-fast"></i>
+                    </div>
+                    Sevkiyat & Yıkım Planı
+                </h5>
+                <button type="button" class="btn-close shadow-none" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+
+            <div class="px-4 pb-3 bg-white sticky-top" style="z-index: 1020;">
+                <div class="input-group input-group-lg shadow-sm" style="border-radius: 10px; overflow: hidden;">
+                    <span class="input-group-text bg-light border-end-0 text-muted">
+                        <i class="fas fa-search"></i>
+                    </span>
+                    <input type="text" id="sevkiyatAramaKutusu" class="form-control bg-light border-start-0 ps-0 shadow-none" 
+                           placeholder="Müşteri adı, ürün veya not ara..." onkeyup="sevkiyatFiltrele()">
+                </div>
+            </div>
+
+            <div class="modal-body p-0 sevkiyat-scroll" style="max-height: 60vh; overflow-y: auto;">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="bg-light sticky-top shadow-sm" style="top: 0; z-index: 10;">
+    <tr>
+        <th class="ps-4 py-3 text-muted fw-bold small text-uppercase" style="width: 25%;">Müşteri</th>
+        <th class="ps-4 py-3 text-muted fw-bold small text-uppercase" style="width: 25%;">Adres</th>
+        <th class="py-3 text-muted fw-bold small text-uppercase" style="width: 15%;">Telefon</th>
+        <th class="py-3 text-muted fw-bold small text-uppercase" style="width: 25%;">Ürün</th>
+        <th class="text-center py-3 text-muted fw-bold small text-uppercase" style="width: 15%;">Kalan</th>
+        <th class="py-3 text-muted fw-bold small text-uppercase" style="width: 20%;">Notlar</th>
+    </tr>
+</thead>
+                        <tbody id="bekleyenTeslimatlarGovdesi">
+                            </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="modal-footer border-0 bg-light px-4 py-3 d-flex justify-content-between align-items-center">
+    <div>
+        <i class="fas fa-info-circle text-danger me-1"></i> <span class="small text-muted">Toplam <strong id="toplamSevkiyatSayisi" class="text-dark">0</strong> bekleyen sevkiyat.</span>
+    </div>
+    <div>
+        <button type="button" class="btn btn-outline-secondary fw-bold rounded-pill px-4 me-2" onclick="sevkiyatModalKapat()">Kapat</button>
+        <!-- 🚨 YENİ RAPOR BUTONU -->
+        <button type="button" class="btn btn-success fw-bold rounded-pill px-4 shadow-sm me-2" onclick="raporMerkeziAc()">
+    <i class="fas fa-print me-2"></i> Rapor Al
+</button>
+        <button type="button" class="btn btn-danger fw-bold rounded-pill px-4 shadow-sm" onclick="bekleyenTeslimatlariYukle()">
+            <i class="fas fa-sync-alt me-2"></i> Listeyi Yenile
+        </button>
+    </div>
+</div>
+            
+        </div>
+    </div>
+</div>
+<div class="modal fade" id="teslimatModal" tabindex="-1">
+    <div class="modal-dialog modal-sm modal-dialog-centered">
+        <div class="modal-content border-success border-3">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title"><i class="fas fa-truck me-2"></i>Miktar Gir</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body text-center">
+                <p id="teslimatMusteriIsim" class="fw-bold fs-5 mb-1"></p>
+                <p class="text-muted small">Bekleyen: <span id="teslimatBekleyenMiktar" class="fw-bold text-danger"></span></p>
+                <div class="form-group mt-3">
+                    <label class="small fw-bold">Yıkılan Miktar:</label>
+                    <input type="number" id="teslimEdilenMiktar" class="form-control form-control-lg text-center fw-bold text-success" step="0.1">
+                </div>
+                <input type="hidden" id="teslimatHareketId">
+            </div>
+            <div class="modal-footer p-2">
+                <button type="button" class="btn btn-success w-100 fw-bold" onclick="teslimatiKaydet()">
+                    ONAYLA
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="islemDuzenleModal" tabindex="-1">
+    <div class="modal-dialog modal-lg"> 
+        <div class="modal-content border-0 shadow-lg">
+            <div class="modal-header bg-warning text-dark">
+                <h5 class="modal-title fw-bold"><i class="fas fa-edit me-2"></i>Teslimat ve İşlem Düzenle</h5>
+                <button type="button" class="btn-close" onclick="islemDuzenleKapat()"></button>
+            </div>
+            <div class="modal-body">
+                <div class="text-center mb-3 border-bottom pb-2">
+    <small class="text-muted fw-bold d-block">İşlem Yapılan Müşteri</small>
+    <h3 class="fw-bold text-dark" id="duzenleMusteriAd">Yükleniyor...</h3>
+</div>
+                <input type="hidden" id="duzenleIslemId">
+                <input type="hidden" id="duzenleToplamMiktar">
+                <div class="form-check form-switch mb-4 bg-light p-3 rounded border">
+                    <input class="form-check-input ms-1" type="checkbox" id="duzenleTeslimatDurumu" style="transform: scale(1.5);">
+                    <label class="form-check-label fw-bold text-danger ms-3 mt-1" for="duzenleTeslimatDurumu">
+                        <i class="fas fa-truck"></i> Adrese Biz Götüreceğiz (Bekleyen Teslimat)
+                    </label>
+                </div>
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label fw-bold text-success">Teslim Edilecek Miktar (Şimdi Yıkılan)</label>
+                        <input type="number" id="duzenleTeslimEdilecek" class="form-control form-control-lg border-success" step="0.01" min="0" value="0">
+                        <small id="teslimatLimitBilgi" class="text-muted mt-1 d-block"></small>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label fw-bold">Notlar / Açıklama</label>
+                        <textarea id="duzenleIslemNotu" class="form-control" rows="2"></textarea>
+                    </div>
+                </div>
+                <hr>
+                <h6 class="fw-bold"><i class="fas fa-history me-1"></i> Bu İşleme Ait Teslimat Geçmişi</h6>
+                <div class="table-responsive">
+                    <table class="table table-sm table-bordered table-striped mt-2">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Tarih</th>
+                                <th>Yıkılan Miktar</th>
+                                <th>Açıklama / Yapan</th>
+                            </tr>
+                        </thead>
+                        <tbody id="teslimatGecmisiGovdesi"></tbody>
+                    </table>
+                </div>
+            </div> 
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="islemDuzenleKapat()">İptal</button>
+                <button type="button" class="btn btn-warning fw-bold text-dark px-4" onclick="islemGuncelleKaydet()">
+                    <i class="fas fa-save me-1"></i> Değişiklikleri Kaydet
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="musteriDuzenleModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-xl">
+        <div class="modal-content border-0 shadow-lg" style="border-radius: 16px; overflow: hidden;">
+            
+            <!-- Şık ve Ferah Header -->
+            <div class="modal-header border-0 bg-light px-4 py-3">
+                <h5 class="modal-title fw-bold text-dark d-flex align-items-center">
+                    <div class="bg-primary bg-opacity-10 text-primary d-flex align-items-center justify-content-center rounded-circle me-3" style="width: 40px; height: 40px;">
+                        <i class="fas fa-user-edit fs-5"></i>
+                    </div>
+                    Müşteri Bilgileri Düzenle
+                </h5>
+                <button type="button" class="btn-close shadow-none" data-bs-dismiss="modal"></button>
+            </div>
+
+            <div class="modal-body px-4 py-4 bg-white">
+                <form id="musteriDuzenleFormu">
+                    <div class="row">
+                        
+                        <!-- ========================================== -->
+                        <!-- SOL KOLON: KİŞİSEL BİLGİLER                -->
+                        <!-- ========================================== -->
+                        <div class="col-md-6 pe-md-4">
+                            
+                            <!-- 1. Resmi Ünvan (YEŞİL VURGU) -->
+                            <div class="p-3 mb-3 bg-success bg-opacity-10 rounded-4 border border-success border-opacity-25">
+                                <label class="form-label fw-bold text-success small text-uppercase" style="letter-spacing: 0.5px;">
+                                    <i class="fas fa-file-invoice me-1"></i> Resmi Ünvan (Makbuz İsmi)
+                                </label>
+                                <div class="input-group shadow-sm">
+                                    <span class="input-group-text bg-white border-end-0 border-success text-success"><i class="fas fa-id-card"></i></span>
+                                    <input type="text" 
+                                           id="duzenleUnvan" 
+                                           class="form-control border-success border-start-0 ps-0 shadow-none" 
+                                           placeholder="Örn: RAMAZAN BAĞIŞ" 
+                                           oninput="this.value = this.value.toLocaleUpperCase('tr-TR');">
+                                </div>
+                                <div class="form-text text-success small mt-2 opacity-75" style="line-height: 1.2;">
+                                    <i class="fas fa-check-circle me-1"></i>Makbuz/Fiş kesilirken sistem otomatik olarak bu ismi kullanacaktır.
+                                </div>
+                            </div>
+
+                            <!-- 2. Dükkan İçi İsim (MAVİ VURGU) -->
+                            <div class="p-3 mb-3 bg-primary bg-opacity-10 rounded-4 border border-primary border-opacity-25">
+                                <label class="form-label fw-bold text-primary small text-uppercase" style="letter-spacing: 0.5px;">
+                                    <i class="fas fa-store me-1"></i> Dükkan İçi Tanıma İsmi
+                                </label>
+                                <div class="input-group shadow-sm">
+                                    <span class="input-group-text bg-white border-end-0 border-primary text-primary"><i class="fas fa-user"></i></span>
+                                    <input type="text" 
+                                           id="duzenleAd" 
+                                           class="form-control border-primary border-start-0 ps-0 shadow-none" 
+                                           placeholder="Örn:osman amcanın oğlu ramazan">
+                                </div>
+                                <div class="form-text text-primary small mt-2 opacity-75" style="line-height: 1.2;">
+                                    <i class="fas fa-info-circle me-1"></i> Sadece dükkan içi aramalarda görünür.
+                                </div>
+                            </div>
+
+                            <!-- 3. Telefon Numarası (TURKUAZ/INFO VURGU) -->
+                            <div class="p-3 mb-3 mb-md-0 bg-info bg-opacity-10 rounded-4 border border-info border-opacity-25">
+                                <label class="form-label fw-bold text-info small text-uppercase" style="letter-spacing: 0.5px;">
+                                    <i class="fas fa-phone-volume me-1"></i> İletişim Bilgisi
+                                </label>
+                                <div class="input-group shadow-sm">
+                                    <span class="input-group-text bg-white border-end-0 border-info text-info"><i class="fas fa-phone"></i></span>
+                                    <input type="tel" 
+                                           class="form-control border-info border-start-0 ps-0 fw-bold text-dark" 
+                                           id="duzenleTelefon" 
+                                           placeholder="5xx xxx xx xx" 
+                                           maxlength="10" 
+                                           oninput="this.value = this.value.replace(/[^0-9]/g, ''); if(this.value.startsWith('0')) this.value = this.value.substring(1);">
+                                </div>
+                            </div>
+
+                        </div>
+                        <!-- SOL KOLON BİTTİ -->
+
+                        <!-- ========================================== -->
+                        <!-- SAĞ KOLON: ADRES BİLGİLERİ (KIRMIZI VURGU) -->
+                        <!-- ========================================== -->
+                        <div class="col-md-6 ps-md-4 mt-4 mt-md-0">
+                            
+                            <div class="p-4 bg-danger bg-opacity-10 rounded-4 border border-danger border-opacity-25 h-100 d-flex flex-column">
+                                <h6 class="fw-bold text-danger mb-4 text-uppercase" style="letter-spacing: 0.5px;">
+                                    <i class="fas fa-truck-loading me-2"></i>Sevkiyat Adresi Bilgileri
+                                </h6>
+
+                                <div class="row g-3 mb-4">
+                                    <div class="col-12">
+                                        <label class="form-label fw-bold text-danger small opacity-75"><i class="fas fa-globe-americas me-1"></i>İL</label>
+                                        <select class="form-select border-danger shadow-sm fw-bold adres-il-genis" id="duzenleIl" disabled autocomplete="address-level1"><option>KONYA</option></select>
+                                    </div>
+                                    <div class="col-12">
+                                        <label class="form-label fw-bold text-danger small opacity-75"><i class="fas fa-city me-1"></i>İLÇE</label>
+                                        <select class="form-select border-danger shadow-sm fw-bold text-dark adres-ilce-genis" id="duzenleIlce" autocomplete="address-level2"></select>
+                                    </div>
+                                    <div class="col-12">
+                                        <label class="form-label fw-bold text-danger small opacity-75"><i class="fas fa-map-signs me-1"></i>MAHALLE</label>
+                                        <select class="form-select border-danger shadow-sm adres-mahalle-genis" id="duzenleMahalleListe" autocomplete="address-level3"></select>
+                                    </div>
+                                </div>
+
+                                <!-- 5. DETAYLI ADRES -->
+                                <div class="mb-1 flex-grow-1">
+                                    <label class="form-label fw-bold text-danger small opacity-75">AÇIK ADRES (SOKAK, NO)</label>
+                                    <div class="input-group shadow-sm">
+                                        <span class="input-group-text bg-white border-end-0 border-danger text-danger align-items-start pt-3"><i class="fas fa-map-marker-alt"></i></span>
+                                        <textarea class="form-control border-danger border-start-0 ps-0 pt-3" id="duzenleAdres" rows="4" placeholder="Sokak, Apartman, Daire No..."></textarea>
+                                    </div>
+                                </div>
+                            </div>
+
+                        </div>
+                        <!-- SAĞ KOLON BİTTİ -->
+
+                    </div>
+                </form>
+            </div>
+            
+            <!-- Modern Footer -->
+            <div class="modal-footer border-0 bg-light px-4 py-3 justify-content-between">
+                <button type="button" class="btn btn-outline-secondary fw-bold rounded-pill px-4" data-bs-dismiss="modal">Vazgeç</button>
+                <button type="button" class="btn btn-primary fw-bold rounded-pill px-4 shadow-sm" onclick="musteriGuncelleKaydet()">
+                    <i class="fas fa-save me-2"></i> Kaydet
+                </button>
+            </div>
+            
+        </div>
+    </div>
+</div>
+<div class="modal fade" id="urunIadeModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg">
+            <div class="modal-header bg-secondary text-white">
+                <h5 class="modal-title fw-bold"><i class="fas fa-undo-alt me-2"></i> Müşteriden İade Al</h5>
+                <button type="button" class="btn btn-secondary" onclick="detayaGeriDon()">İptal</button>
+            </div>
+            <div class="modal-body bg-light">
+                <div class="text-center mb-4">
+    <small class="text-muted fw-bold d-block">İşlem Yapılan Müşteri</small>
+    <h3 class="fw-bold text-secondary" id="iadeMusteriAd">Yükleniyor...</h3>
+</div>
+                <div class="alert alert-warning py-2 small fw-bold">
+                    <i class="fas fa-info-circle"></i> İade alınan ürün stoğa geri eklenir, tutar müşterinin borcundan düşülür.
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-bold">İşlem Tarihi</label>
+                    <input type="date" id="iadeTarihi" class="form-control border-success shadow-sm">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-bold">İade Edilen Ürün</label>
+                    <select id="iadeUrunSec" class="form-select border-secondary shadow-sm"></select>
+                </div>
+                <div class="row">
+                    <div class="col-6 mb-3">
+                        <label class="form-label fw-bold">Miktar (Ton/Adet)</label>
+                        <input type="number" id="iadeMiktar" class="form-control border-secondary shadow-sm" step="0.01" placeholder="Örn: 1.5">
+                    </div>
+                    <div class="col-6 mb-3">
+                        <label class="form-label fw-bold">İade Tutarı (₺)</label>
+                        <input type="number" id="iadeTutar" class="form-control border-secondary shadow-sm text-danger fw-bold" step="0.01" placeholder="Borçtan Düşülecek">
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Not / Açıklama</label>
+                    <input type="text" id="iadeNotlar" class="form-control border-secondary shadow-sm" placeholder="İade sebebi vb.">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="detayaGeriDon()">İptal</button>
+                <button type="button" class="btn btn-secondary fw-bold shadow-sm" onclick="urunIadeKaydet()">
+                    <i class="fas fa-check-circle me-1"></i> İadeyi Onayla
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+<div class="modal fade" id="satisOdemeModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-sm">
+        <div class="modal-content border-0 shadow-lg">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title fw-bold"><i class="fas fa-wallet me-2"></i>Kasa / Tahsilat</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body bg-light">
+                <div class="text-center mb-4">
+                    <small class="text-muted fw-bold d-block">ÖDENECEK TUTAR</small>
+                    <h3 class="fw-bold text-danger" id="odemeEkraniToplam">0 ₺</h3>
+                </div>
+                
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Ödeme Yöntemi</label>
+                    <select class="form-select form-select-lg border-success fw-bold text-dark" id="odemeYontemi" onchange="odemeYontemiSecildi()">
+                        <option value="Açık Hesap" class="text-danger">Açık Hesap (Borca Yaz)</option>
+                        <option value="Nakit" class="text-success">Nakit</option>
+                        <option value="Kredi Kartı" class="text-primary">Kredi Kartı</option>
+                        <option value="Havale / EFT" class="text-info">Havale / EFT</option>
+                    </select>
+                </div>
+
+                <div class="mb-3" id="alinanTutarKutusu" style="display: none;">
+                    <label class="form-label fw-bold">Alınan Peşinat / Tahsilat</label>
+                    <input type="number" step="0.01" class="form-control form-control-lg fw-bold text-success border-success" id="odemeAlinanTutar" value="0">
+                </div>
+            </div>
+            <div class="modal-footer border-0">
+                <button type="button" class="btn btn-success w-100 fw-bold py-2 fs-5 shadow-sm" onclick="satisVeTahsilatiBitir()">
+                    <i class="fas fa-check-circle me-1"></i> İşlemi Tamamla
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+<div class="modal fade" id="raporModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg" style="border-radius: 15px;">
+            
+            <div class="modal-header border-bottom-0 py-3 px-4" style="background-color: #000000;">
+                <h5 class="modal-title fw-bold d-flex align-items-center text-white">
+                    <div class="bg-danger text-white p-2 rounded-3 me-3 d-flex align-items-center justify-content-center" style="width: 35px; height: 35px;">
+                        <i class="fas fa-bell"></i>
+                    </div>
+                    Vadesi Gelen ve Geçen Ödemeler
+                </h5>
+                <button type="button" class="btn-close btn-close-white shadow-none" onclick="modalZorlaKapat('raporModal')"></button>
+            </div>
+
+            <div class="px-4 pb-3 sticky-top bg-white" style="z-index: 10;">
+                <div class="row g-3 align-items-center">
+                    <div class="col-md-6">
+                        <div class="input-group shadow-sm" style="border-radius: 10px; overflow: hidden;">
+                            <span class="input-group-text bg-white border-end-0 text-muted">
+                                <i class="fas fa-search"></i>
+                            </span>
+                            <input type="text" id="raporAramaKutusu" class="form-control border-start-0 ps-0 shadow-none" placeholder="Müşteri adı veya telefon ile ara..." onkeyup="raporTablosundaAra()">
+                        </div>
+                    </div>
+                    <div class="col-md-6 text-end">
+                        <span class="badge bg-light border text-dark p-2 px-3 shadow-sm" style="border-radius: 8px;">
+                            <i class="fas fa-list-ol me-1 text-primary"></i> 
+                            <span id="vadeKayitSayisi" class="fw-bold">0</span> Kayıt
+                        </span>
+                        <span class="badge bg-danger p-2 px-3 shadow-sm ms-2" style="border-radius: 8px; font-size: 1rem;">
+                            <i class="fas fa-wallet me-1"></i> Toplam: <span id="raporGenelToplam" class="fw-bold">0,00</span> ₺
+                        </span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal-body p-0" style="max-height: 65vh; overflow-y: auto;">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="bg-light border-bottom sticky-top" style="z-index: 2;">
+                            <tr class="text-secondary text-uppercase" style="font-size: 0.75rem; letter-spacing: 0.5px;">
+                                <th class="ps-3 py-3 fw-bold">Müşteri Adı Soyadı / Tel</th>
+                                <th class="py-3 fw-bold">Vade Tarihi</th>
+                                <th class="py-3 fw-bold">Açıklama</th>
+                                <th class="text-end py-3 fw-bold">Tutar</th>
+                                <th class="text-center pe-3 py-3 fw-bold">Durum</th>
+                            </tr>
+                        </thead>
+                        <tbody id="raporTabloGovdesi">
+                            <tr><td colspan="5" class="text-center py-5 text-muted">Yükleniyor...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="modal-footer border-top-0 bg-light py-2 px-4">
+                <small class="text-muted fst-italic">
+                    <i class="fas fa-info-circle me-1"></i> Listede sadece ödenmemiş (bekleyen) vadeli veya borçlu işlemler görünür.
+                </small>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+<!-- ====================== YIKILDI İÇİN AYRI MODAL ====================== -->
+<div class="modal fade" id="yikildiIslemDuzenleModal" tabindex="-1">
+    <div class="modal-dialog modal-lg"> 
+        <div class="modal-content border-0 shadow-lg">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title fw-bold">
+                    <i class="fas fa-truck me-2"></i>Yıkım İşlemi Düzenle
+                </h5>
+                <button type="button" class="btn-close btn-close-white" 
+                        onclick="yikildiIslemDuzenleKapat()"></button>
+            </div>
+            
+            <div class="modal-body">
+                <div class="text-center mb-3 border-bottom pb-2">
+                    <small class="text-muted fw-bold d-block">İşlem Yapılan Müşteri</small>
+                    <h3 class="fw-bold text-dark" id="yikildiDuzenleMusteriAd">Yükleniyor...</h3>
+                </div>
+                
+                <input type="hidden" id="yikildiDuzenleIslemId">
+                <input type="hidden" id="yikildiDuzenleToplamMiktar">
+                
+                <div class="form-check form-switch mb-4 bg-light p-3 rounded border">
+                    <input class="form-check-input ms-1" type="checkbox" id="yikildiDuzenleTeslimatDurumu" style="transform: scale(1.5);">
+                    <label class="form-check-label fw-bold text-danger ms-3 mt-1" for="yikildiDuzenleTeslimatDurumu">
+                        <i class="fas fa-truck"></i> Adrese Biz Götüreceğiz (Bekleyen Teslimat)
+                    </label>
+                </div>
+                
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label fw-bold text-success">Teslim Edilecek Miktar (Şimdi Yıkılan)</label>
+                        <input type="number" id="yikildiDuzenleTeslimEdilecek" class="form-control form-control-lg border-success" step="0.01" min="0" value="0">
+                        <small id="yikildiTeslimatLimitBilgi" class="text-muted mt-1 d-block"></small>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label fw-bold">Notlar / Açıklama</label>
+                        <textarea id="yikildiDuzenleIslemNotu" class="form-control" rows="2"></textarea>
+                    </div>
+                </div>
+                
+                <hr>
+                <h6 class="fw-bold"><i class="fas fa-history me-1"></i> Bu İşleme Ait Teslimat Geçmişi</h6>
+                <div class="table-responsive">
+                    <table class="table table-sm table-bordered table-striped mt-2">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Tarih</th>
+                                <th>Yıkılan Miktar</th>
+                                <th>Açıklama / Yapan</th>
+                            </tr>
+                        </thead>
+                        <tbody id="yikildiTeslimatGecmisiGovdesi"></tbody>
+                    </table>
+                </div>
+            </div> 
+            
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="yikildiIslemDuzenleKapat()">İptal</button>
+                <button type="button" class="btn btn-danger fw-bold px-4" onclick="yikildiIslemGuncelleKaydet()">
+                    <i class="fas fa-save me-1"></i> Değişiklikleri Kaydet
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="giderListesiModal" tabindex="-1">
+    <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content border-0 shadow-lg">
+            <div class="modal-header bg-dark text-white border-bottom-0 py-3 px-4">
+                <h5 class="modal-title fw-bold text-warning"><i class="fas fa-money-bill-wave me-2"></i>İşletme Giderleri ve Mazot Durumu</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="px-4 py-3 bg-light border-bottom d-flex justify-content-between align-items-center sticky-top">
+                <div class="d-flex gap-3">
+                    <div class="bg-white px-3 py-2 rounded shadow-sm border-start border-danger border-4">
+                        <small class="text-muted fw-bold d-block" style="font-size:0.7rem;">TOPLAM GİDER</small>
+                        <span class="fs-5 fw-bold text-danger" id="giderGenelToplam">0 ₺</span>
+                    </div>
+                    <div class="bg-dark px-3 py-2 rounded shadow-sm border-start border-warning border-4">
+                        <small class="text-white-50 fw-bold d-block" style="font-size:0.7rem;">KALAN MAZOT STOĞU</small>
+                        <span class="fs-5 fw-bold text-warning"><span id="mazotKalanStok">0</span> <small class="fs-6 text-white">Litre</small></span>
+                    </div>
+                </div>
+                <button class="btn btn-primary fw-bold shadow-sm px-4" onclick="yeniGiderModalAc()">
+                    <i class="fas fa-plus-circle me-1"></i> Yeni Fiş / Gider Ekle
+                </button>
+            </div>
+            <div class="modal-body p-0">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light sticky-top">
+                        <tr class="text-muted small text-uppercase fw-bold">
+                            <th class="ps-4">Tarih</th>
+                            <th>Kategori / Tür</th>
+                            <th>Firma / Kişi</th>
+                            <th>Açıklama / Plaka</th>
+                            <th class="text-center">Miktar (Lt)</th>
+                            <th class="text-end">Tutar (₺)</th>
+                            <th class="text-center pe-4">İşlem</th>
+                        </tr>
+                    </thead>
+                    <tbody id="giderTabloGovdesi"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="yeniGiderModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title fw-bold"><i class="fas fa-plus me-2"></i>Yeni Gider / Mazot Fişi</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body bg-light">
+                <form id="giderFormu">
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold small">İşlem Tarihi</label>
+                            <input type="date" id="giderTarihi" class="form-control shadow-sm">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold small">İşlem Türü (Kategori)</label>
+                            <select id="giderTuruSecim" class="form-select border-primary shadow-sm fw-bold" onchange="giderTuruDegisti()">
+                                <option value="Normal">Normal İşletme Gideri (Maaş, Fatura vb.)</option>
+                                <option value="MazotGirisi">🚚 Toplu Mazot Alımı (Depoya Giriş)</option>
+                                <option value="MazotCikisi">⛽ Araça Mazot Verilmesi (Kullanım)</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+<div class="mb-3" id="alanFirma">
+    <label class="form-label fw-bold small">Firma veya Kişi (Kime Ödendi?)</label>
+    <input type="text" id="giderFirma" list="firmaListesi" class="form-control shadow-sm" placeholder="Örn: Petrol Ofisi, Aydaş Elektrik, Ahmet Usta..." autocomplete="off">
+    <datalist id="firmaListesi">
+        </datalist>
+</div>  
+                    
+                    <div class="row mb-3">
+                        <div class="col-md-6" id="alanMiktar" style="display: none;">
+                            <label class="form-label fw-bold small text-warning bg-dark px-2 py-1 rounded w-100">Mazot Miktarı (Litre)</label>
+                            <input type="number" id="giderMiktar" class="form-control form-control-lg fw-bold border-warning" step="0.1" placeholder="Örn: 100">
+                        </div>
+                        <div class="col-md-6" id="alanTutar">
+                            <label class="form-label fw-bold small text-danger bg-danger bg-opacity-10 px-2 py-1 rounded w-100">Ödenen Tutar (₺)</label>
+                            <input type="number" id="giderTutar" class="form-control form-control-lg fw-bold text-danger border-danger" step="0.01" placeholder="Örn: 2500">
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold small" id="lblAciklama">Açıklama / Detay</label>
+                        <textarea id="giderAciklama" class="form-control shadow-sm" rows="2" placeholder="Nereye harcandı, fatura no vs..."></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
+                <button type="button" class="btn btn-primary fw-bold px-4" onclick="gideriKaydet()">
+                    <i class="fas fa-save me-1"></i> Fişi Kaydet
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="malAlimModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg"> <div class="modal-content border-0 shadow-lg">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title"><i class="fas fa-truck-loading me-2"></i> Yeni Malzeme / Stok Alımı</h5>
+                <button type="button" class="btn-close btn-close-white" onclick="malAlimindanGeriDon()"></button>
+            </div>
+            <div class="modal-body">
+                <form id="malAlimFormu">
+                    <div class="row g-3 align-items-end">
+                        
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">İşlem Tarihi</label>
+                            <input type="date" class="form-control" id="alimTarih" required>
+                        </div>
+                        <div class="col-md-8">
+                            <label class="form-label fw-bold">Tedarikçi (Toptancı) Firma</label>
+                            <select class="form-select" id="alimTedarikci" required>
+                                </select>
+                        </div>
+
+                        <div class="col-md-8">
+                            <label class="form-label fw-bold">Alınan Ürün</label>
+                            <select class="form-select" id="alimUrunSec" required>
+                                </select>
+                        </div>
+                        <div class="mb-3"> <label class="form-label fw-bold">Ödeme Durumu</label>
+    <select class="form-select border-primary" id="alimOdemeDurumu" required>
+        <option value="Açık Hesap (Borç)" selected>Deftere Yaz (Açık Hesap / Borç)</option>
+        
+        <option value="Nakit (Kasa)">Peşin - Nakit (Kasa Çıkışı)</option>
+        <option value="Havale / EFT">Banka - Havale / EFT</option>
+        <option value="Kredi Kartı">Kredi Kartı</option>
+        <option value="Çek / Senet">Çek / Senet Verildi</option>
+    </select>
+</div>
+
+                        <div class="col-md-4">
+    <label class="form-label fw-bold text-primary">Alış Miktarı <span id="alimBirimGosterge" class="badge bg-secondary ms-1">Birim?</span></label>
+    <input type="number" class="form-control fw-bold border-primary" id="alimMiktar" step="0.01" oninput="alimHesapla()" required>
+</div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold text-danger">Birim Alış (₺)</label>
+                            <input type="number" class="form-control fw-bold border-danger" id="alimBirimFiyat" step="0.01" oninput="alimHesapla()" required>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="d-flex flex-column justify-content-center text-center h-100 bg-light rounded border p-2">
+                                <span class="text-muted small">Toplam Fatura Tutarı</span>
+                                <div class="h5 mb-0 fw-bold text-dark" id="alimToplamTutarGosterge">0,00 ₺</div>
+                            </div>
+                        </div>
+
+                        <div class="col-md-12">
+                            <label class="form-label fw-bold text-muted">Not / Açıklama</label>
+                            <textarea class="form-control" id="alimAciklama" rows="1"></textarea>
+                        </div>
+
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer bg-light">
+                <button type="button" class="btn btn-secondary" onclick="malAlimindanGeriDon()">İptal</button>
+                <button type="button" class="btn btn-primary px-4 fw-bold" onclick="malAlimiKaydet()">
+                    <i class="fas fa-save me-1"></i> Stoğa Ekle
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+<div class="modal fade" id="alimGecmisiModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content border-0 shadow-lg">
+            <div class="modal-header bg-dark text-white">
+                <h5 class="modal-title"><i class="fas fa-clipboard-list me-2"></i> Toptancı Alım Geçmişi</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-0">
+                <div class="table-responsive" style="max-height: 60vh;">
+                    <table class="table table-hover table-striped mb-0 align-middle">
+                        <thead class="table-light position-sticky top-0 shadow-sm">
+                            <tr>
+                                <th>Tarih</th>
+                                <th>Tedarikçi Firma</th>
+                                <th>Ürün Adı</th>
+                                <th class="text-center">Miktar</th>
+                                <th class="text-end">Birim Fiyat</th>
+                                <th class="text-end">Toplam Tutar</th>
+                                <th class="text-center">Ödeme</th>
+                                <th class="text-center">İşlem</th>
+                            </tr>
+                        </thead>
+                        <tbody id="alimGecmisiTablosu">
+                            </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="tedarikcilerModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content border-0 shadow-lg">
+            <div class="modal-header bg-dark text-white">
+                <h5 class="modal-title"><i class="fas fa-truck me-2"></i> Toptancı (Tedarikçi) Yönetimi</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="d-flex justify-content-between mb-3">
+                    <input type="text" id="tedarikciAra" class="form-control w-50" placeholder="Toptancı ara..." onkeyup="tedarikciFiltrele()">
+                    <button class="btn btn-primary" onclick="guvenliModalAc('tedarikciEkleModal')">
+                        <i class="fas fa-plus me-1"></i> Yeni Toptancı Ekle
+                    </button>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Firma Adı</th>
+                                <th>Yetkili</th>
+                                <th>Telefon</th>
+                                <th class="text-end">Bakiye</th>
+                                <th class="text-center">İşlem</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tedarikciListesiGövdesi">
+                            </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="tedarikciEkleModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content border-0 shadow-lg">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title"><i class="fas fa-plus-circle me-2"></i> Yeni Toptancı Ekle</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="tedarikciEkleFormu">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Firma Adı <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control border-success" id="yeniTedarikciFirma" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Yetkili Kişi</label>
+                        <input type="text" class="form-control" id="yeniTedarikciYetkili" placeholder="Örn: Ahmet Bey">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Telefon</label>
+                        <input type="text" class="form-control" id="yeniTedarikciTel" placeholder="05XX XXX XX XX">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-muted">Açıklama (İsteğe Bağlı)</label>
+                        <textarea class="form-control" id="yeniTedarikciAciklama" rows="2"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer bg-light">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
+                <button type="button" class="btn btn-success px-4 fw-bold" onclick="tedarikciKaydet()">
+                    <i class="fas fa-save me-1"></i> Kaydet
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+<div class="modal fade" id="tedarikciDetayModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content border-0 shadow-lg">
+<div class="modal-header bg-info text-dark">
+                <h5 class="modal-title fw-bold"><i class="fas fa-file-invoice-dollar me-2"></i> <span id="detayTedarikciAdi">Firma Detayı</span></h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-0">
+                <div class="row g-0 bg-light border-bottom">
+                    <div class="col-md-4 p-3 border-end text-center">
+                        <div class="text-muted small fw-bold">TOPLAM ALIM</div>
+                        <div class="h4 mb-0 text-danger fw-bold" id="ozetToplamBorc">0,00 ₺</div>
+                    </div>
+                    <div class="col-md-4 p-3 border-end text-center">
+                        <div class="text-muted small fw-bold">TOPLAM ÖDEME</div>
+                        <div class="h4 mb-0 text-success fw-bold" id="ozetToplamOdeme">0,00 ₺</div>
+                    </div>
+                    <div class="col-md-4 p-3 text-center bg-white">
+                        <div class="text-muted small fw-bold">GÜNCEL BAKİYE</div>
+                        <div class="h4 mb-0 fw-bold" id="ozetGuncelBakiye">0,00 ₺</div>
+                    </div>
+                </div>
+
+                <div class="table-responsive" style="max-height: 500px;">
+                    <table class="table table-hover mb-0">
+                        <thead class="table-dark sticky-top">
+    <tr>
+        <th>Tarih</th>
+        <th>İşlem Türü</th>
+        <th class="text-center">Miktar</th> <th class="text-end">Birim Fiyat</th> <th class="text-end">Borç (Alım)</th>
+        <th class="text-end">Ödeme</th>
+        
+        <th>Açıklama</th>
+    </tr>
+</thead>
+                        <tbody id="tedarikciHareketGövdesi">
+                            </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer bg-light d-flex justify-content-between">
+    <div>
+        <button class="btn btn-primary fw-bold" onclick="detaydanMalAliminiAc()">
+            <i class="fas fa-plus-box me-1"></i> Yeni Mal Alımı
+        </button>
+    </div>
+    <div>
+        <button class="btn btn-success fw-bold me-2" onclick="tedarikciOdemeModalAc()">
+            <i class="fas fa-hand-holding-usd me-1"></i> Ödeme Yap
+        </button>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Kapat</button>
+    </div>
+</div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="paketlemeModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content border-0 shadow-lg">
+            <!-- <div class="modal-header bg-warning text-dark">
+                <h5 class="modal-title fw-bold"><i class="fas fa-people-carry me-2"></i> Kömür Çuvallama / Paketleme İşlemi</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div> -->
+            <div class="modal-body">
+                <div class="alert alert-info small">
+                    <i class="fas fa-info-circle me-1"></i> Bu ekran depodaki dökme (Ton) kömürlerinizi çuvala (Adet) çevirdiğinizde stokları eşitlemek içindir. Kasadan para çıkışı olmaz.
+                </div>
+                <form id="paketlemeFormu">
+                    <div class="row g-4 align-items-center">
+                        
+                        <div class="col-md-5 p-3 bg-light rounded border border-danger">
+                            <h6 class="text-danger fw-bold border-bottom pb-2 mb-3"><i class="fas fa-minus-circle me-1"></i> Eksilecek (Dökme) Ürün</h6>
+                            <label class="form-label fw-bold">Kaynak Ürün</label>
+                            <select class="form-select mb-3" id="paketlemeKaynakUrun" required></select>
+                            
+                            <label class="form-label fw-bold text-danger">Ne Kadar Azalacak? (Ton)</label>
+                            <input type="number" class="form-control fw-bold border-danger" id="paketlemeEksilenMiktar" step="0.01" required>
+                        </div>
+
+                        <div class="col-md-2 text-center">
+                            <i class="fas fa-arrow-right fa-3x text-muted"></i>
+                        </div>
+
+                        <div class="col-md-5 p-3 bg-light rounded border border-success">
+                            <h6 class="text-success fw-bold border-bottom pb-2 mb-3"><i class="fas fa-plus-circle me-1"></i> Artacak (Çuvallı) Ürün</h6>
+                            <label class="form-label fw-bold">Hedef Ürün</label>
+                            <select class="form-select mb-3" id="paketlemeHedefUrun" required></select>
+                            
+                            <label class="form-label fw-bold text-success">Kaç Adet Çuval Çıktı?</label>
+                            <input type="number" class="form-control fw-bold border-success" id="paketlemeArtanMiktar" required>
+                        </div>
+
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer bg-light">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
+                <button type="button" class="btn btn-warning px-4 fw-bold" onclick="paketlemeKaydet()">
+                    <i class="fas fa-exchange-alt me-1"></i> Transferi Tamamla
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+<div class="modal fade" id="tedarikciOdemeModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content border-0 shadow-lg">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title fw-bold"><i class="fas fa-money-bill-wave me-2"></i> Toptancıya Ödeme Yap</h5>
+                <button type="button" class="btn-close btn-close-white" onclick="odemeEkranindanGeriDon()"></button>
+            </div>
+            <div class="modal-body">
+                <form id="tedarikciOdemeFormu">
+                    <div class="row g-3 mb-3">
+    <div class="col-md-8">
+        <label class="form-label fw-bold">Ödeme Yapılacak Firma</label>
+        <input type="text" class="form-control bg-light fw-bold" id="odemeFirmaAdi" readonly>
+    </div>
+    <div class="col-md-4">
+        <label class="form-label fw-bold">İşlem Tarihi</label>
+        <input type="date" class="form-control fw-bold border-primary" id="odemeTarih" required>
+    </div>
+</div>
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold text-success">Ödenen Tutar (₺)</label>
+                            <input type="number" class="form-control border-success fw-bold h4 mb-0" id="odemeTutari" step="0.01" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">Ödeme Türü</label>
+                            <select class="form-select border-success" id="odemeTuru">
+                                <option value="Nakit">Nakit (Kasadan)</option>
+                                <option value="Banka">Banka / EFT</option>
+                                <option value="Çek">Çek / Senet</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="mt-3">
+                        <label class="form-label fw-bold text-muted">Açıklama / Not</label>
+                        <textarea class="form-control" id="odemeAciklama" rows="2" placeholder="Örn: X nolu fatura ödemesi"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer bg-light">
+                <button type="button" class="btn btn-secondary" onclick="odemeEkranindanGeriDon()">Vazgeç</button>
+                <button type="button" class="btn btn-success px-4 fw-bold" onclick="tedarikciOdemeKaydet()">
+                    <i class="fas fa-check-circle me-1"></i> Ödemeyi Onayla
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+<div id="makbuzPrintAlani" style="display: none;">
+    <div class="makbuz-yari">
+        <div class="makbuz-cerceve">
+            <div class="d-flex justify-content-between">
+                <div style="width: 60%; text-align: center;"> 
+                    <div class="m-baslik" style="font-weight: 900; font-size: 18pt;">KARAARSLAN TİCARET</div>
+                    <div class="m-alt-baslik" style="font-weight: 800; font-size: 12pt; margin-bottom: 5px;">SERKAN KARAARSLAN</div>
+                    <div class="m-iletisim" style="font-size: 9pt; line-height: 1.4;">
+                        Batı İstasyon Mah. Tahir Çelik Cad. No:71/A<br>
+                        Tel: 0542 335 00 07 &nbsp; Sarayönü/KONYA<br>
+                        Sarayönü V.D. 507 643 98912
+                    </div>
+                </div>
+                <div style="width: 35%; text-align: right;">
+                    <div id="m1_baslik" class="m-kutu mb-2">PARA MAKBUZU</div>
+                    <div class="m-no-alan">NO: <span id="m1_no" class="m-no"></span></div>
+                    <div class="small fw-bold">Tarih: <span id="m1_tarih"></span></div>
+                    <div class="mt-3 text-start" style="font-size: 14pt; font-weight: 900; line-height: 1.2;">
+                        Nakit : <span id="m1_nakit"></span><br>
+                        Kart &nbsp;: <span id="m1_kart"></span><br>
+                        Havale: <span id="m1_havale"></span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="mt-4 fs-5">
+                Sayın <span id="m1_isim" class="fw-bold border-bottom border-dark px-2"></span> 'dan<br>
+                Yalnız <span id="m1_tutarYazi" class="fw-bold border-bottom border-dark px-2"></span>
+                </div>
+
+            <div class="m-alt-hiza">
+                <div style="text-align: left;">
+                    <div id="m1_iadeNotu" style="font-weight: 900; font-size: 14pt; color: #000; height: 20px;"></div>
+                    <div id="m1_aciklama" style="
+    margin-top: 10px; 
+    padding: 8px; 
+    background: #f8f9fa; 
+    border-left: 4px solid #28a745; 
+    font-size: 14px; 
+    font-weight: bold; 
+    color: #333;
+    min-height: 20px;
+"></div>
+                    <div id="m1_kalanSatiri" style="font-size: 20pt; font-weight: 900;">KALAN: <span id="m1_kalan"></span></div>
+                </div>
+                <div class="imza-alani">
+                    <div style="font-weight: 900; border-bottom: 2px solid #000; margin-bottom: 5px;">TESLİM ALAN</div>
+                    <div id="m1_teslimAlan" style="font-size: 12pt; text-transform: uppercase; font-weight: bold;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="makbuz-yari">
+        <div class="makbuz-cerceve">
+            <div class="d-flex justify-content-between">
+                <div style="width: 60%; text-align: center;"> 
+                    <div class="m-baslik" style="font-weight: 900; font-size: 18pt;">KARAARSLAN TİCARET</div>
+                    <div class="m-alt-baslik" style="font-weight: 800; font-size: 12pt; margin-bottom: 5px;">SERKAN KARAARSLAN</div>
+                    <div class="m-iletisim" style="font-size: 9pt; line-height: 1.4;">
+                        Batı İstasyon Mah. Tahir Çelik Cad. No:71/A<br>
+                        Tel: 0542 335 00 07 &nbsp; Sarayönü/KONYA<br>
+                        Sarayönü V.D. 507 643 98912
+                    </div>
+                </div>
+                <div style="width: 35%; text-align: right;">
+                    <div id="m2_baslik" class="m-kutu mb-2">PARA MAKBUZU</div>
+                    <div class="m-no-alan">NO: <span id="m2_no" class="m-no"></span></div>
+                    <div class="small fw-bold">Tarih: <span id="m2_tarih"></span></div>
+                    <div class="mt-3 text-start" style="font-size: 14pt; font-weight: 900; line-height: 1.2;">
+                        Nakit : <span id="m2_nakit"></span><br>
+                        Kart &nbsp;: <span id="m2_kart"></span><br>
+                        Havale: <span id="m2_havale"></span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="mt-4 fs-5">
+                Sayın <span id="m2_isim" class="fw-bold border-bottom border-dark px-2"></span> 'dan<br>
+                Yalnız <span id="m2_tutarYazi" class="fw-bold border-bottom border-dark px-2"></span>
+            </div>
+
+            <div class="m-alt-hiza">
+                <div style="text-align: left;">
+                    <div id="m2_iadeNotu" style="font-weight: 900; font-size: 14pt; color: #000; height: 20px;"></div>
+                    <div id="m2_aciklama" style="
+    margin-top: 10px; 
+    padding: 8px; 
+    background: #f8f9fa; 
+    border-left: 4px solid #28a745; 
+    font-size: 14px; 
+    font-weight: bold; 
+    color: #333;
+    min-height: 20px;
+"></div>
+                    <div id="m2_kalanSatiri" style="font-size: 20pt; font-weight: 900;">KALAN: <span id="m2_kalan"></span></div>
+                </div>
+                <div class="imza-alani">
+                    <div style="font-weight: 900; border-bottom: 2px solid #000; margin-bottom: 5px;">TESLİM ALAN</div>
+                    <div id="m2_teslimAlan" style="font-size: 12pt; text-transform: uppercase; font-weight: bold;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="tanimlamalarModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg" style="border-radius: 20px; overflow: hidden;">
+            
+            <div class="modal-header bg-dark text-white border-0 py-3 px-4">
+                <h5 class="modal-title fw-bold mb-0" style="letter-spacing: 1px;">
+                    <i class="fas fa-sliders-h text-warning me-2"></i> Sistem Yapılandırması
+                </h5>
+                <button type="button" class="btn-close btn-close-white shadow-none" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            
+            <div class="modal-body p-4" style="background-color: #f4f7f6;">
+                <div class="row g-4">
+                    
+                    <div class="col-md-6">
+                        <div class="card h-100 border-0 shadow-sm" style="border-radius: 15px;">
+                            <div class="card-body p-4">
+                                <h6 class="fw-bold text-dark mb-4 pb-2 border-bottom">
+                                    <i class="fas fa-cubes text-danger me-2"></i>Aktif Modüller
+                                </h6>
+                                
+                                <div class="form-check form-switch mb-3 p-3 bg-light rounded-3 border-start border-danger border-4">
+                                    <input class="form-check-input ms-0 me-3 shadow-sm" type="checkbox" id="ayarModulGider" style="width: 45px; height: 22px; cursor: pointer;">
+                                    <label class="form-check-label fw-bold text-secondary mt-1" for="ayarModulGider" style="cursor: pointer;">İşletme & Mazot</label>
+                                </div>
+                                
+                                <div class="form-check form-switch mb-3 p-3 bg-light rounded-3 border-start border-primary border-4">
+                                    <input class="form-check-input ms-0 me-3 shadow-sm" type="checkbox" id="ayarModulToptanci" style="width: 45px; height: 22px; cursor: pointer;">
+                                    <label class="form-check-label fw-bold text-secondary mt-1" for="ayarModulToptanci" style="cursor: pointer;">Toptancı & Alım</label>
+                                </div>
+                                
+                                <div class="form-check form-switch mb-3 p-3 bg-light rounded-3 border-start border-success border-4">
+                                    <input class="form-check-input ms-0 me-3 shadow-sm" type="checkbox" id="ayarModulSevkiyat" style="width: 45px; height: 22px; cursor: pointer;">
+                                    <label class="form-check-label fw-bold text-secondary mt-1" for="ayarModulSevkiyat" style="cursor: pointer;">Sevkiyat (Yıkım)</label>
+                                </div>
+
+                                <div class="alert alert-danger mb-0 mt-3 border-0 py-2" style="font-size: 0.8rem; border-radius: 10px;">
+                                    <i class="fas fa-user-shield me-1"></i> Kapalı modüller personelden gizlenir.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-md-6">
+                        <div class="card h-100 border-0 shadow-sm" style="border-radius: 15px;">
+                            <div class="card-body p-4">
+                                <h6 class="fw-bold text-dark mb-4 pb-2 border-bottom">
+                                    <i class="fas fa-tools text-primary me-2"></i>Teknik Ayarlar
+                                </h6>
+                                
+                                <div class="mb-4">
+                                    <label class="form-label small fw-bold text-muted mb-2">MAKBUZ BAŞLANGIÇ NUMARASI</label>
+                                    <div class="input-group shadow-sm" style="border-radius: 10px; overflow: hidden;">
+                                        <span class="input-group-text bg-primary text-white border-0"><i class="fas fa-hashtag"></i></span>
+                                        <input type="number" id="ayarMakbuzBaslangic" class="form-control border-0 bg-light fw-bold text-center" placeholder="1">
+                                    </div>
+                                </div>
+
+                                <div class="mb-2">
+                                    <label class="form-label small fw-bold text-muted mb-2">OTOMATİK YAZDIRMA SİSTEMİ</label>
+                                    <div class="input-group shadow-sm" style="border-radius: 10px; overflow: hidden;">
+                                        <span class="input-group-text bg-success text-white border-0"><i class="fas fa-print"></i></span>
+                                        <select class="form-select border-0 bg-light fw-bold small" id="ayarOtoMakbuz" style="cursor: pointer;">
+                                            <option value="true">🟢 SİSTEM AÇIK</option>
+                                            <option value="false">🔴 SİSTEM KAPALI</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div class="mt-4 p-3 bg-info bg-opacity-10 text-dark border-start border-info border-4 rounded" style="font-size: 0.75rem;">
+                                    <i class="fas fa-info-circle text-info me-1"></i> Makbuz no geçmişteki en yüksek numaradan otomatik devam eder.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+            <div class="modal-footer bg-white border-top-0 pb-4 px-4">
+                <button type="button" class="btn btn-link text-decoration-none text-muted fw-bold me-auto" data-bs-dismiss="modal">Vazgeç</button>
+                <button type="button" class="btn btn-success fw-bold px-5 py-2 shadow" style="border-radius: 12px;" onclick="ayarlariKaydet()">
+                    <i class="fas fa-save me-2"></i> Yapılandırmayı Kaydet
+                </button>
+            </div>
+            
+        </div>
+    </div>
+</div>
+
+<!-- 🚚 SEVKİYAT İÇİN HIZLI ADRES DÜZENLEME MODALI -->
+<div class="modal fade" id="hizliAdresDuzenleModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-xl">
+        <div class="modal-content border-0 shadow-lg" style="border-radius: 16px; overflow: hidden;">
+            
+            <div class="modal-header border-0 bg-light px-4 py-3">
+                <h5 class="modal-title fw-bold text-dark d-flex align-items-center">
+                    <div class="bg-primary bg-opacity-10 text-primary d-flex align-items-center justify-content-center rounded-circle me-3" style="width: 40px; height: 40px;">
+                        <i class="fas fa-map-marked-alt fs-5"></i>
+                    </div>
+                    Adres ve Ünvan Düzenle
+                </h5>
+                <button type="button" class="btn-close shadow-none" onclick="hizliAdresModalKapat()"></button>
+            </div>
+
+            <div class="modal-body px-4 py-4 bg-white">
+                <input type="hidden" id="hizliAdresMusteriId">
+
+                <div class="alert alert-info py-2 small mb-3 border-info border-opacity-25">
+                    <i class="fas fa-info-circle me-1"></i> <strong id="hizliAdresMusteriAd" class="text-uppercase">Müşteri</strong> isimli kişinin sevkiyat bilgilerini güncelliyorsunuz.
+                </div>
+
+                <div class="row g-4">
+                    <div class="col-md-6 pe-md-3 border-md-end border-light">
+                        <label class="form-label fw-bold text-success small text-uppercase">Resmi Ünvan</label>
+                        <input type="text" class="form-control border-success text-dark fw-bold mb-3" id="hizliAdresUnvan" 
+                               oninput="this.value = this.value.toLocaleUpperCase('tr-TR');" placeholder="ÖRN: KARAARSLAN KÖMÜR">
+
+                        <label class="form-label fw-bold text-danger small text-uppercase">Telefon Numarası</label>
+                        <div class="input-group mb-1">
+                            <span class="input-group-text bg-light border-danger text-danger"><i class="fas fa-phone-alt"></i></span>
+                            <input type="text" class="form-control border-danger fw-bold" id="hizliAdresTelefon" 
+                                   placeholder="Örn: 5321234567" maxlength="10" 
+                                   oninput="this.value = this.value.replace(/\D/g, '').replace(/^0+/, '');">
+                        </div>
+                        <div class="form-text small text-muted">Başında 0 olmadan 10 haneli giriniz.</div>
+                    </div>
+
+                    <div class="col-md-6 ps-md-3">
+                        <div class="p-3 rounded-3 bg-danger bg-opacity-10 border border-danger border-opacity-25 h-100">
+                            <h6 class="fw-bold text-danger text-uppercase small mb-3"><i class="fas fa-truck-loading me-1"></i>Sevkiyat adresi</h6>
+                            <label class="form-label fw-bold text-secondary small text-uppercase">İl</label>
+                            <select class="form-select fw-bold mb-2 adres-il-genis" id="hizliAdresIl" disabled autocomplete="address-level1"><option>KONYA</option></select>
+
+                            <label class="form-label fw-bold text-secondary small text-uppercase">İlçe</label>
+                            <select class="form-select fw-bold mb-2 text-dark adres-ilce-genis" id="hizliAdresIlce" autocomplete="address-level2"></select>
+
+                            <label class="form-label fw-bold text-secondary small text-uppercase">Mahalle</label>
+                            <select class="form-select mb-3 adres-mahalle-genis" id="hizliAdresMahalleListe" autocomplete="address-level3"></select>
+
+                            <label class="form-label fw-bold text-secondary small text-uppercase">Açık Adres (Sokak, No)</label>
+                            <textarea class="form-control" id="hizliAdresDetay" rows="3" placeholder="Sokak, Apartman, Daire No..."></textarea>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal-footer border-0 bg-light px-4 py-3 justify-content-between">
+                <button type="button" class="btn btn-outline-secondary fw-bold rounded-pill px-4" onclick="hizliAdresModalKapat()">İptal</button>
+                <button type="button" class="btn btn-primary fw-bold rounded-pill px-4 shadow-sm" onclick="hizliAdresKaydet()">
+                    <i class="fas fa-save me-2"></i> Güncelle
+                </button>
+            </div>
+
+        </div>
+    </div>
+</div>
+
+
+<!-- 🚨 RAPORLAMA MERKEZİ MODALI -->
+<!-- 🚨 YENİ GENİŞLETİLMİŞ VE TAŞMA KORUMALI RAPORLAMA MERKEZİ MODALI -->
+<div class="modal fade" id="raporMerkeziModal" tabindex="-1" aria-hidden="true">
+    <!-- 1. DEĞİŞİKLİK BURADA: modal-dialog-scrollable eklendi -->
+    <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-xl">
+        <div class="modal-content border-0 shadow-lg" style="border-radius: 16px; overflow: hidden;">
+            
+            <!-- SABİT ÜST KISIM -->
+            <div class="modal-header border-0 bg-success bg-opacity-10 px-4 py-3">
+                <h5 class="modal-title fw-bold text-success d-flex align-items-center">
+                    <i class="fas fa-print fs-4 me-3"></i> Sevkiyat Kontrol ve Raporlama
+                </h5>
+                <button type="button" class="btn-close shadow-none" onclick="raporMerkeziniKapat()"></button>
+            </div>
+            
+            <!-- KAYDIRILABİLİR ORTA KISIM -->
+            <div class="modal-body px-4 py-4 bg-white">
+                <div class="row g-4">
+                    <!-- SOL TARAF: Seçim ve Kamyon Özeti -->
+                    <div class="col-lg-5 border-end">
+                        <div class="mb-4">
+                            <label class="form-label fw-bold text-secondary small text-uppercase">Çıktı Alınacak Bölge</label>
+                            <select class="form-select border-success fw-bold text-dark form-select-lg shadow-sm" id="raporMahalleSecim" onchange="raporOnizlemeGuncelle()">
+                                <option value="TUMU">Tüm Mahalleler (Genel Rapor)</option>
+                                <!-- Mahalleler buraya JS ile dolacak -->
+                            </select>
+                        </div>
+
+                        <div class="alert alert-warning border-warning border-opacity-25 bg-warning bg-opacity-10 p-3 mb-0">
+                            <h6 class="fw-bold text-dark border-bottom border-warning pb-2 mb-3">
+                                <i class="fas fa-truck-loading text-warning me-2"></i> Kamyona Yüklenecek Ürünler
+                            </h6>
+                            <!-- 2. DEĞİŞİKLİK BURADA: Sol tarafa da kaydırma çubuğu (scroll) eklendi -->
+                            <div id="raporOzetAlani" class="d-flex flex-column gap-2 text-dark pe-2" style="max-height: 350px; overflow-y: auto;">
+                                <!-- Ürün bazlı toplamlar buraya gelecek -->
+                                <span class="text-muted small">Hesaplanıyor...</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- SAĞ TARAF: Detaylı Teslimat Listesi -->
+                    <div class="col-lg-7">
+                        <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">
+                            <i class="fas fa-list-ul text-primary me-2"></i> Teslimat Noktaları ve Ürünler
+                        </h6>
+                        <!-- Sağ tarafın kaydırma boyu ayarlandı -->
+                        <div id="raporDetayListesi" class="pe-2" style="max-height: 450px; overflow-y: auto;">
+                            <!-- Kişi ve Ürün detayları buraya gelecek -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SABİT ALT KISIM (BUTONLAR) -->
+            <div class="modal-footer border-0 bg-light px-4 py-3 justify-content-between">
+                <button type="button" class="btn btn-outline-secondary fw-bold rounded-pill px-4" onclick="raporMerkeziniKapat()">İptal</button>
+                <button type="button" class="btn btn-success fw-bold rounded-pill px-4 shadow-sm" onclick="seciliRaporuYazdir()">
+                    <i class="fas fa-print me-2"></i> Çıktı Al (Yazdır)
+                </button>
+            </div>
+            
+        </div>
+    </div>
+</div>
+
+<!-- Sistem günlükleri (sunucudaki POST/PUT/DELETE özetleri) -->
+<div class="modal fade" id="sistemLoglariModal" tabindex="-1" aria-hidden="true" aria-labelledby="sistemLoglariModalBaslik">
+    <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
+        <div class="modal-content border-0 shadow-lg" style="border-radius: 14px; overflow: hidden;">
+            <div class="modal-header border-0 text-white py-3 px-4" style="background: linear-gradient(135deg, #1e3a5f 0%, #0d1f33 100%);">
+                <h5 class="modal-title fw-bold d-flex align-items-center mb-0" id="sistemLoglariModalBaslik">
+                    <i class="fas fa-terminal text-info me-2"></i> Sistem Logları
+                </h5>
+                <button type="button" class="btn-close btn-close-white shadow-none" data-bs-dismiss="modal" aria-label="Kapat"></button>
+            </div>
+            <div class="modal-body px-0 py-0 bg-dark">
+                <div class="px-4 py-2 border-bottom border-secondary border-opacity-25 d-flex flex-wrap align-items-center justify-content-between gap-2 bg-dark">
+                    <p class="text-white-50 small mb-0" id="sistemLoglariDurum">Liste yükleniyor…</p>
+                    <button type="button" class="btn btn-sm btn-outline-info fw-bold rounded-pill" onclick="sistemLoglariYenile()">
+                        <i class="fas fa-sync-alt me-1"></i> Yenile
+                    </button>
+                </div>
+                <div class="table-responsive mb-0" style="max-height: min(60vh, 520px);">
+                    <table class="table table-sm table-hover table-dark mb-0 align-middle">
+                        <thead class="sticky-top" style="z-index: 2; background: #111827;">
+                            <tr class="text-secondary small text-uppercase">
+                                <th class="ps-3" style="width: 9.5rem;">Zaman</th>
+                                <th style="width: 5rem;">Seviye</th>
+                                <th>Mesaj</th>
+                                <th class="pe-3" style="width: 22%;">Ek</th>
+                            </tr>
+                        </thead>
+                        <tbody id="sistemLoglariTabloGovdesi">
+                            <tr><td colspan="4" class="text-center text-white-50 py-4">Yükleniyor…</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer border-0 bg-light py-2 px-4 justify-content-between">
+                <span class="text-muted small">Sunucu yeniden başlatılınca önceki kayıtlar silinir.</span>
+                <button type="button" class="btn btn-secondary fw-bold rounded-pill px-4" data-bs-dismiss="modal">Kapat</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+<div class="modal fade" id="surumModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-secondary text-white">
+                <h5 class="modal-title"><i class="fa-solid fa-tag me-2"></i>Sürüm Bilgisi</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="small text-muted">Uygulama</div>
+                <div class="fw-bold mb-2" id="surumAppName">-</div>
+                <div class="small text-muted">Versiyon</div>
+                <div class="fw-bold mb-2" id="surumVersion">-</div>
+                <div class="small text-muted">Açıklama</div>
+                <div class="mb-2" id="surumDesc">-</div>
+                <div class="small text-muted">Node.js</div>
+                <div class="mb-2" id="surumNode">-</div>
+                <div class="small text-muted">Rapor zamanı</div>
+                <div id="surumGeneratedAt">-</div>
+                <hr>
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <div class="small text-muted">Güncelleme durumu</div>
+                    <button type="button" class="btn btn-sm btn-outline-primary" onclick="guncellemeKontrolEt()"><i class="fa-solid fa-rotate-right me-1"></i>Kontrol Et</button>
+                </div>
+                <div id="surumGuncellemeDurum" class="small text-muted">Henüz kontrol edilmedi.</div>
+                <hr>
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <div class="small text-muted">Yedekler</div>
+                    <button type="button" class="btn btn-sm btn-outline-success" onclick="yedekAl()"><i class="fa-solid fa-floppy-disk me-1"></i>Yedek Al</button>
+                </div>
+                <div id="surumYedekListe" class="small text-muted">Yükleniyor…</div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Kapat</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="adres-sozlugu.js?v=3"></script>
+<script src="script.js?v=21"></script>
+</body>
+</html>
