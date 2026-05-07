@@ -18,7 +18,7 @@ if "%NOTE%"=="" (
 
 echo.
 echo [1/7] Versiyon patch artiriliyor...
-npm version patch --no-git-tag-version >nul
+call npm version patch --no-git-tag-version >nul
 if errorlevel 1 (
   echo HATA: npm version patch basarisiz.
   pause
