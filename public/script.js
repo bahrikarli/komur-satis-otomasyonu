@@ -7122,3 +7122,39 @@ window.yedekAl = async function() {
         alert(`Yedek hatası: ${err.message || err}`);
     }
 };
+
+window.tekTikGuncelle = async function() {
+    const btn = document.getElementById('tekTikGuncelleBtn');
+    const durumEl = document.getElementById('surumGuncellemeDurum');
+    const eski = btn ? btn.innerHTML : '';
+    if (!confirm('Tek tık güncelleme başlatılsın mı? Uygulama kısa süre içinde yeniden başlatılacaktır.')) return;
+    try {
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-1"></i>Başlatılıyor...';
+        }
+        if (durumEl) {
+            durumEl.className = 'small text-muted';
+            durumEl.textContent = 'Tek tık güncelleme başlatılıyor...';
+        }
+        const res = await fetch('/api/tek-tik-guncelle', { method: 'POST' });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.success) throw new Error(data.message || 'İşlem başlatılamadı.');
+        if (durumEl) {
+            durumEl.className = 'small text-warning fw-semibold';
+            durumEl.textContent = data.message || 'Güncelleme başlatıldı.';
+        }
+        alert('Güncelleme süreci başlatıldı. Uygulama birkaç saniye içinde yeniden açılacaktır.');
+    } catch (err) {
+        if (durumEl) {
+            durumEl.className = 'small text-danger';
+            durumEl.textContent = `Tek tık güncelleme hatası: ${err.message || err}`;
+        }
+        alert(`Tek tık güncelleme hatası: ${err.message || err}`);
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = eski || '<i class="fa-solid fa-bolt me-1"></i>Tek Tık Güncelle';
+        }
+    }
+};

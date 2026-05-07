@@ -4,6 +4,7 @@ const sql = require('mssql'); // mysql2 yerine mssql
 const cors = require('cors');
 const fs = require('fs/promises');
 const os = require('os');
+const { spawn } = require('child_process');
 const packageJson = require('./package.json');
 
 const app = express();
@@ -292,6 +293,26 @@ app.get('/api/yedekler', async (req, res) => {
     } catch (err) {
         console.error(err);
         res.status(500).json({ success: false, message: 'Yedek listesi alınamadı.' });
+    }
+});
+
+app.post('/api/tek-tik-guncelle', async (req, res) => {
+    try {
+        const batPath = path.join(__dirname, 'tek-tik-kur-ve-guncelle.bat');
+        const child = spawn('cmd.exe', ['/c', `"${batPath}" --auto`], {
+            cwd: __dirname,
+            detached: true,
+            windowsHide: true,
+            stdio: 'ignore'
+        });
+        child.unref();
+        res.json({
+            success: true,
+            message: 'Güncelleme başlatıldı. Uygulama kısa süre içinde yeniden başlatılacak.'
+        });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ success: false, message: 'Tek tık güncelleme başlatılamadı.' });
     }
 });
 
