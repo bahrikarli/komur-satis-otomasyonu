@@ -32,6 +32,19 @@ set "VER=%VER_RAW: =%"
 set "VER=%VER:"=%"
 set "TAG=v%VER%"
 
+:TAG_KONTROL
+git rev-parse "%TAG%" >nul 2>&1
+if not errorlevel 1 (
+  call npm version patch --no-git-tag-version >nul
+  for /f "tokens=2 delims=:," %%A in ('findstr /i "\"version\"" package.json') do (
+    set "VER_RAW=%%A"
+  )
+  set "VER=%VER_RAW: =%"
+  set "VER=%VER:"=%"
+  set "TAG=v%VER%"
+  goto TAG_KONTROL
+)
+
 echo Yeni surum: %VER%
 echo Yeni tag  : %TAG%
 echo.
@@ -55,7 +68,7 @@ if errorlevel 1 (
 echo [4/7] Tag olusturuluyor...
 git tag -a %TAG% -m "komur surum %TAG%"
 if errorlevel 1 (
-  echo HATA: Tag olusturulamadi. (Belki ayni tag zaten var)
+  echo HATA: Tag olusturulamadi.
   pause
   exit /b 1
 )
