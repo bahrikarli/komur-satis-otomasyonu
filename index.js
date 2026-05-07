@@ -298,8 +298,7 @@ app.get('/api/yedekler', async (req, res) => {
 
 app.post('/api/tek-tik-guncelle', async (req, res) => {
     try {
-        const batPath = path.join(__dirname, 'tek-tik-kur-ve-guncelle.bat');
-        const child = spawn('cmd.exe', ['/c', `"${batPath}" --auto`], {
+        const child = spawn('cmd.exe', ['/c', 'schtasks /run /tn "Komur-Otomatik-Guncelleme"'], {
             cwd: __dirname,
             detached: true,
             windowsHide: true,
@@ -308,7 +307,7 @@ app.post('/api/tek-tik-guncelle', async (req, res) => {
         child.unref();
         res.json({
             success: true,
-            message: 'Güncelleme başlatıldı. Uygulama kısa süre içinde yeniden başlatılacak.'
+            message: 'Güncelleme görevi tetiklendi. Uygulama kısa süre içinde yeniden başlatılacak.'
         });
     } catch (err) {
         console.error(err);
