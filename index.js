@@ -124,7 +124,7 @@ const config = {
     user: process.env.MSSQL_USER || 'sa',
     password: process.env.MSSQL_PASSWORD || '189189',
     // Ortam değişkeni yoksa eski kurulum davranışı için SERVER kullan.
-    server: process.env.MSSQL_SERVER || process.env.DB_SERVER || 'YENISERVER',
+    server: process.env.MSSQL_SERVER || process.env.DB_SERVER || 'localhost',
     database: process.env.MSSQL_DATABASE || process.env.DB_NAME || 'komur',
     port: process.env.MSSQL_PORT ? Number(process.env.MSSQL_PORT) : undefined,
     options: {
