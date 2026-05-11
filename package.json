@@ -1,11 +1,13 @@
 {
   "name": "komur-satis-otomasyonu",
-  "version": "1.0.19",
+  "version": "1.0.20",
   "description": "",
   "main": "index.js",
   "bin": "index.js",
   "scripts": {
-    "start": "nodemon index.js"
+    "start": "nodemon index.js",
+    "set-version": "node scripts/set-version.js",
+    "build:exe": "pkg index.js --targets node18-win-x64 --output dist/komur-satis-otomasyonu.exe"
   },
   "pkg": {
     "assets": [
