@@ -7057,6 +7057,7 @@ window.surumModalAc = async function() {
         set('surumGeneratedAt', '-');
     }
     yedekListele();
+    desktopGuncellemeKontrolBaslat();
     bootstrap.Modal.getOrCreateInstance(document.getElementById('surumModal')).show();
 };
 
@@ -7162,4 +7163,110 @@ window.tekTikGuncelle = async function() {
             btn.innerHTML = eski || '<i class="fa-solid fa-bolt me-1"></i>Tek Tık Güncelle';
         }
     }
+};
+
+// ─── Desktop (Electron) Güncelleme ───
+
+let _desktopUpdateInterval = null;
+
+function formatBytes(bytes) {
+    if (!bytes || bytes <= 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+async function desktopGuncellemeKontrolBaslat() {
+    try {
+        const res = await fetch('/api/desktop-update-status');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!data.success) return;
+        const area = document.getElementById('desktopUpdateArea');
+        if (area) area.style.display = '';
+        desktopGuncellemeDurumGuncelle(data);
+        if (data.status === 'downloading' || data.status === 'checking') {
+            if (!_desktopUpdateInterval) {
+                _desktopUpdateInterval = setInterval(desktopGuncellemePollEt, 1500);
+            }
+        }
+    } catch (_) {}
+}
+
+async function desktopGuncellemePollEt() {
+    try {
+        const res = await fetch('/api/desktop-update-status');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!data.success) return;
+        desktopGuncellemeDurumGuncelle(data);
+        if (data.status !== 'downloading' && data.status !== 'checking') {
+            clearInterval(_desktopUpdateInterval);
+            _desktopUpdateInterval = null;
+        }
+    } catch (_) {}
+}
+
+function desktopGuncellemeDurumGuncelle(data) {
+    const statusEl = document.getElementById('desktopUpdateStatus');
+    const progressWrap = document.getElementById('desktopUpdateProgressWrap');
+    const progressBar = document.getElementById('desktopUpdateProgress');
+    const detailsEl = document.getElementById('desktopUpdateDetails');
+    const installBtn = document.getElementById('desktopUpdateInstallBtn');
+    if (!statusEl) return;
+
+    switch (data.status) {
+        case 'checking':
+            statusEl.innerHTML = '<span class="text-info">Güncelleme kontrol ediliyor...</span>';
+            if (progressWrap) progressWrap.style.display = 'none';
+            if (installBtn) installBtn.style.display = 'none';
+            break;
+        case 'downloading':
+            const pct = data.progress ? Math.round(data.progress.percent || 0) : 0;
+            statusEl.innerHTML = '<span class="text-primary">İndiriliyor... %' + pct + '</span>';
+            if (progressWrap) { progressWrap.style.display = ''; }
+            if (progressBar) { progressBar.style.width = pct + '%'; }
+            if (detailsEl && data.progress) {
+                detailsEl.innerText = formatBytes(data.progress.transferred) + ' / ' + formatBytes(data.progress.total) + ' (' + formatBytes(data.progress.bytesPerSecond) + '/s)';
+            }
+            if (installBtn) installBtn.style.display = 'none';
+            break;
+        case 'ready':
+            statusEl.innerHTML = '<span class="text-success">Güncelleme hazır! v' + (data.version || '') + '</span>';
+            if (progressWrap) progressWrap.style.display = 'none';
+            if (installBtn) installBtn.style.display = '';
+            break;
+        case 'up-to-date':
+            statusEl.innerHTML = '<span class="text-success">✅ Uygulama güncel.</span>';
+            if (progressWrap) progressWrap.style.display = 'none';
+            if (installBtn) installBtn.style.display = 'none';
+            break;
+        case 'error':
+            statusEl.innerHTML = '<span class="text-danger">⚠ ' + (data.error || 'Bilinmeyen hata') + '</span>';
+            if (progressWrap) progressWrap.style.display = 'none';
+            if (installBtn) installBtn.style.display = 'none';
+            break;
+        default:
+            statusEl.innerHTML = '<span class="text-muted">Henüz kontrol edilmedi.</span>';
+            if (progressWrap) progressWrap.style.display = 'none';
+            if (installBtn) installBtn.style.display = 'none';
+    }
+}
+
+window.desktopGuncellemKur = async function() {
+    try {
+        const res = await fetch('/api/desktop-update-install', { method: 'POST' });
+        const data = await res.json();
+        if (!data.success) alert(data.message || 'Hata');
+    } catch (e) { alert('Güncelleme kurulamadı: ' + e.message); }
+};
+
+window.desktopGuncellemeKontrolEt = async function() {
+    try {
+        const res = await fetch('/api/desktop-update-check', { method: 'POST' });
+        if (!_desktopUpdateInterval) {
+            _desktopUpdateInterval = setInterval(desktopGuncellemePollEt, 1500);
+        }
+    } catch (_) {}
 };

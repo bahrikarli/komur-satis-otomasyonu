@@ -145,9 +145,9 @@ app.whenReady().then(async () => {
     serverInstance = null;
   }
 
-  registerDesktopUpdateAPI();
+  try { registerDesktopUpdateAPI(); } catch (e) { console.error('Desktop API kayit hatasi:', e); }
   createWindow();
-  setupAutoUpdater();
+  try { setupAutoUpdater(); } catch (e) { console.error('Auto-updater hatasi:', e); }
 
   if (!serverInstance && mainWindow) {
     dialog.showErrorBox(
