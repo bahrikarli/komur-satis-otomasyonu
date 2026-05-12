@@ -1,14 +1,22 @@
 const express = require('express');
 const path = require('path');
-const sql = require('mssql'); // mysql2 yerine mssql
+const sql = require('mssql');
 const cors = require('cors');
 const fs = require('fs/promises');
 const os = require('os');
 const { spawn } = require('child_process');
+
+const APP_ROOT = process.pkg
+  ? path.dirname(process.execPath)
+  : (process.versions && process.versions.electron)
+    ? path.dirname(process.execPath)
+    : __dirname;
+require('dotenv').config({ path: path.join(APP_ROOT, '.env') });
+
 const packageJson = require('./package.json');
 
 const app = express();
-const PORT = 3007;
+const PORT = process.env.PORT || 3007;
 
 app.use(cors());
 app.use(express.json());
@@ -70,7 +78,7 @@ app.use((req, res, next) => {
     next();
 });
 
-app.use(express.static('public'));
+app.use(express.static(path.join(__dirname, 'public')));
 
 // --- Müşteri cari notları tablosu (ilk API çağrısında oluşturulur) ---
 let musteriNotlariTablosuHazir = false;
@@ -2615,7 +2623,25 @@ app.delete('/api/musteri-not/:notId', async (req, res) => {
     }
 });
 
-app.listen(PORT, () => {
-    console.log(`Sunucu http://localhost:${PORT} adresinde aktif.`);
-    sistemLogYaz('bilgi', `Sunucu http://localhost:${PORT} üzerinde dinliyor`);
-});
+async function sunucuyuBaslat({ exitOnError = true } = {}) {
+    return new Promise((resolve, reject) => {
+        const server = app.listen(PORT, () => {
+            console.log(`Sunucu http://localhost:${PORT} adresinde aktif.`);
+            sistemLogYaz('bilgi', `Sunucu http://localhost:${PORT} üzerinde dinliyor`);
+            resolve(server);
+        });
+        server.on('error', (err) => {
+            if (exitOnError) {
+                console.error('Sunucu baslatilamadi:', err.message);
+                process.exit(1);
+            }
+            reject(err);
+        });
+    });
+}
+
+if (require.main === module) {
+    sunucuyuBaslat();
+}
+
+module.exports = { app, sunucuyuBaslat };

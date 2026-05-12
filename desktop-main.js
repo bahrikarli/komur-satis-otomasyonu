@@ -115,7 +115,29 @@ function stopServer() {
   serverInstance = null;
 }
 
+function killPortProcess(port) {
+  return new Promise((resolve) => {
+    const { execSync } = require('child_process');
+    try {
+      const result = execSync(`netstat -ano | findstr :${port} | findstr LISTENING`, { encoding: 'utf8' });
+      const lines = result.trim().split('\n');
+      const pids = new Set();
+      for (const line of lines) {
+        const parts = line.trim().split(/\s+/);
+        const pid = parts[parts.length - 1];
+        if (pid && pid !== '0' && pid !== String(process.pid)) pids.add(pid);
+      }
+      for (const pid of pids) {
+        try { execSync(`taskkill /F /PID ${pid}`, { encoding: 'utf8' }); } catch (_) {}
+      }
+    } catch (_) {}
+    setTimeout(resolve, 1000);
+  });
+}
+
 app.whenReady().then(async () => {
+  await killPortProcess(PORT);
+
   try {
     const { sunucuyuBaslat } = require('./index');
     serverInstance = await sunucuyuBaslat({ exitOnError: false });
