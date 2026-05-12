@@ -49,6 +49,8 @@ if (yetki && yetki.toLowerCase() === 'admin') {
     if (aktifKullanici && adKutusu) {
         adKutusu.innerText = aktifKullanici;
         yetkiKutusu.innerText = (yetki === 'Admin') ? '👑 Yönetici' : '👤 Personel';
+        const hosgeldinEl = document.getElementById('hosgeldinBaslik');
+        if (hosgeldinEl) hosgeldinEl.innerText = 'Hoşgeldiniz, ' + aktifKullanici;
         
         if (!sessionStorage.getItem('aktifKullanici')) {
             sessionStorage.setItem('aktifKullanici', aktifKullanici);
