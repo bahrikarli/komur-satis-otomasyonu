@@ -1,1 +1,9 @@
 node_modules/
+dist/
+dist-desktop/
+dist-desktop-*/
+release-v*/
+*.exe
+komur-satis-otomasyonu-*.zip
+.env
+.gh-token
