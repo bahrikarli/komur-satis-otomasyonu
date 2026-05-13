@@ -6,7 +6,7 @@
     <title>KARAARSLAN KÖMÜR - Satış Otomasyonu</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="style.css?v=1.0.30">
+    <link rel="stylesheet" href="style.css?v=1.0.31">
     <style>
         /* nth-of-type(even) ile z-index şişirmek backdrop’u modalın üstüne taşıyabiliyordu; katmanlamayı JS (guvenliModalAc) ve Bootstrap varsayılanı yönetir. */
 
@@ -88,7 +88,7 @@
     </style>
     <link rel="icon" href="data:," type="image/x-icon">
 </head>
-<body>
+<body class="ana-sayfa-tasarim-deneme">
 
 
 
@@ -327,17 +327,17 @@
     });
 </script>
 
-<div class="container my-5">
-    <div class="row mb-4">
+<div class="container my-5 ana-sayfa-icerik">
+    <div class="row mb-4 ana-sayfa-hero align-items-end">
         <div class="col-md-8">
-            <h1 class="display-5 fw-bold text-dark-custom" id="hosgeldinBaslik">Hoşgeldiniz</h1>
-            <p class="lead text-muted">KARAARSLAN KÖMÜR günlük operasyon paneli.</p>
+            <h1 class="display-5 fw-bold text-dark-custom mb-2" id="hosgeldinBaslik">Hoşgeldiniz</h1>
+            <p class="lead text-muted mb-0 ana-sayfa-altbaslik">KARAARSLAN KÖMÜR günlük operasyon paneli.</p>
         </div>
     </div>
 
-    <div class="row g-4 mb-5">
+    <div class="row g-4 mb-3 ana-sayfa-ozet-satir">
         <div class="col-12 col-md-4">
-            <div class="card border-0 shadow-sm h-100">
+            <div class="card border-0 h-100 ana-ozet-kart">
                 <div class="card-body d-flex align-items-center">
                     <div class="icon-box bg-warning-light text-warning me-3">
                         <i class="fas fa-boxes fa-2x"></i>
@@ -351,7 +351,8 @@
         </div>
 
         <div class="col-12 col-md-4">
-            <div class="card card-custom h-100 border-start border-4 border-success shadow-sm" onclick="gunlukOzetModalAc()" style="cursor: pointer; transition: transform 0.2s;" onmouseover="this.style.transform='scale(1.02)'" onmouseout="this.style.transform='scale(1)'">
+            <div class="card card-custom h-100 border-start border-4 border-success shadow-sm ana-ozet-kart ana-ozet-kart-tiklanabilir" onclick="gunlukOzetModalAc()" role="button" tabindex="0"
+                 onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();gunlukOzetModalAc();}">
                 <div class="card-body d-flex align-items-center">
                     <div class="icon-box bg-success-light text-success me-3">
                         <i class="fas fa-hand-holding-usd fa-2x"></i>
@@ -366,11 +367,10 @@
         </div>
 
         <div class="col-12 col-md-4">
-            <div class="card card-custom h-100 border-start border-4 border-info shadow-sm" 
-     style="cursor: pointer; transition: 0.2s;" 
+            <div class="card card-custom h-100 border-start border-4 border-info shadow-sm ana-ozet-kart ana-ozet-kart-tiklanabilir" 
      onclick="musteriRehberiniAc()" 
-     onmouseover="this.style.transform='scale(1.02)'" 
-     onmouseout="this.style.transform='scale(1)'" 
+     role="button" tabindex="0"
+     onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();musteriRehberiniAc();}"
      title="Müşteri Rehberini Aç">
                 <div class="card-body d-flex align-items-center">
                     <div class="icon-box bg-info-light text-info me-3">
@@ -385,9 +385,17 @@
         </div>
     </div>
 
+    <div class="row mb-5 ana-sayfa-piyasa-satir">
+        <div class="col-12">
+            <div id="anaPiyasaSeridi" class="ana-piyasa-serit" aria-live="polite" title="Bilgi amaçlı; kaynaklar sunucu üzerinden güncellenir.">
+                <span class="ana-piyasa-placeholder text-muted small">Piyasa yükleniyor…</span>
+            </div>
+        </div>
+    </div>
+
     <div class="row">
     <div class="col-12">
-        <div class="card card-custom shadow">
+        <div class="card card-custom shadow ana-stok-panel">
             
             <div class="card-header bg-white border-0 pt-4">
                 <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
@@ -496,58 +504,59 @@
 
 <div class="modal fade" id="musterilerModal" tabindex="-1" data-bs-backdrop="true" data-bs-keyboard="true">
     <div class="modal-dialog modal-xl modal-dialog-scrollable modal-dialog-centered"> 
-        <div class="modal-content border-0 shadow-lg" style="border-radius: 20px; overflow: hidden;">
+        <div class="modal-content border-0 shadow" style="border-radius: 18px; overflow: hidden; box-shadow: 0 12px 40px rgba(45, 52, 54, 0.12) !important;">
             
-            <div class="modal-header border-0 py-3 px-4" style="background: linear-gradient(135deg, #1a1c1e 0%, #2c2e30 100%);">
+            <div class="modal-header border-0 py-4 px-4" style="background: linear-gradient(145deg, #4a5568 0%, #718096 100%);">
                 <div class="d-flex align-items-center">
-                    <div class="bg-warning rounded-circle p-2 me-3 d-flex align-items-center justify-content-center" style="width: 40px; height: 40px;">
-                        <i class="fas fa-users text-dark fs-5"></i>
+                    <div class="rounded-circle p-2 me-3 d-flex align-items-center justify-content-center bg-white bg-opacity-90" style="width: 44px; height: 44px;">
+                        <i class="fas fa-users text-secondary fs-5"></i>
                     </div>
                     <div>
-                        <h5 class="modal-title fw-bold text-white mb-0" style="letter-spacing: 0.5px;">Müşteri Rehberi</h5>
-                        <small class="text-white-50" style="font-size: 0.75rem;">Cari bakiyeler ve müşteri hareketleri</small>
+                        <h5 class="modal-title fw-semibold text-white mb-0" style="letter-spacing: 0.02em;">Müşteri Rehberi</h5>
+                        <small class="text-white" style="font-size: 0.8rem; opacity: 0.88;">Cari bakiyeler ve müşteri hareketleri</small>
                     </div>
                 </div>
-                <button type="button" class="btn-close btn-close-white shadow-none" data-bs-dismiss="modal" aria-label="Close"></button>
+                <button type="button" class="btn-close btn-close-white shadow-none opacity-75" data-bs-dismiss="modal" aria-label="Kapat"></button>
             </div>
 
-            <div class="modal-body bg-white p-4">
-                <div class="row g-3 mb-4 align-items-center">
+            <div class="modal-body p-4" style="background: #f8f9fb;">
+                <div class="row g-3 mb-3 align-items-end">
                     <div class="col-md-8">
-                        <div class="input-group input-group-lg shadow-sm border rounded-pill overflow-hidden bg-light">
-                            <span class="input-group-text bg-transparent border-0 ps-3">
-                                <i class="fas fa-search text-muted"></i>
+                        <label class="form-label small text-muted mb-1 ms-1">Ara</label>
+                        <div class="input-group input-group-lg border rounded-pill overflow-hidden bg-white shadow-sm" style="border-color: #e2e8f0 !important;">
+                            <span class="input-group-text bg-white border-0 ps-3">
+                                <i class="fas fa-search text-secondary opacity-75"></i>
                             </span>
-                            <input type="text" class="form-control bg-transparent border-0 fs-6 shadow-none" 
-                                   id="cariAramaKutusu" placeholder="İsim veya telefon yazarak anında bulun..." onkeyup="cariAra()">
+                            <input type="text" class="form-control bg-white border-0 fs-6 shadow-none" 
+                                   id="cariAramaKutusu" placeholder="İsim, firma, telefon veya mahalle…" onkeyup="cariAra()" autocomplete="off">
                         </div>
+                        <small class="text-muted ms-1 mt-1 d-block" style="font-size: 0.78rem;">Satıra çift tıklayarak cari kartını açabilirsiniz.</small>
                     </div>
-                    <div class="col-md-4 text-end">
-                        <button class="btn btn-dark btn-lg w-100 rounded-pill fw-bold shadow-sm" 
-                                onclick="guvenliModalAc('yeniMusteriModal')" style="transition: 0.3s;">
-                            <i class="fas fa-user-plus me-2 text-warning"></i> Yeni Müşteri Ekle
+                    <div class="col-md-4">
+                        <button class="btn btn-secondary btn-lg w-100 rounded-pill fw-semibold shadow-sm border-0" 
+                                onclick="guvenliModalAc('yeniMusteriModal')" style="background: linear-gradient(145deg, #5a6578 0%, #7c8899 100%);">
+                            <i class="fas fa-user-plus me-2"></i> Yeni Müşteri Ekle
                         </button>
                     </div>
                 </div>
 
-                <div class="border rounded-4 overflow-hidden shadow-sm bg-white">
+                <div class="border rounded-4 overflow-hidden bg-white shadow-sm" style="border-color: #e8ecf1 !important;">
                     <div class="table-responsive" style="max-height: 55vh;">
                         <table class="table table-hover align-middle mb-0" id="cariTablosu">
-                            <thead class="bg-light border-bottom">
-                                <tr style="font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px;">
-                                    <th class="ps-4 py-3 text-secondary fw-bold">Müşteri / Firma</th>
-                                    <th class="py-3 text-secondary fw-bold">İletişim</th>
-                                    <th class="py-3 text-secondary fw-bold text-end">Borç</th>
-                                    <th class="py-3 text-secondary fw-bold text-end">Ödenen</th>
-                                    <th class="py-3 text-dark fw-bolder text-center" style="width: 150px;">Bakiye Durumu</th>
-                                    <th class="text-center pe-4 py-3 text-secondary fw-bold">Yönetim</th>
+                            <thead style="background: #f1f4f8; border-bottom: 1px solid #e8ecf1;">
+                                <tr style="font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.06em;">
+                                    <th class="ps-4 py-3 text-secondary fw-semibold">Müşteri / Firma</th>
+                                    <th class="py-3 text-secondary fw-semibold">İletişim</th>
+                                    <th class="py-3 text-secondary fw-semibold text-end">Borç</th>
+                                    <th class="py-3 text-secondary fw-semibold text-end">Ödenen</th>
+                                    <th class="pe-4 py-3 text-secondary fw-semibold text-center" style="width: 150px;">Bakiye</th>
                                 </tr>
                             </thead>
                             <tbody id="cariTabloGövdesi" style="font-size: 0.95rem;">
                                 <tr>
-                                    <td colspan="6" class="text-center py-5">
-                                        <div class="spinner-grow text-warning spinner-grow-sm" role="status"></div>
-                                        <div class="text-muted small mt-2">Müşteri listesi taranıyor...</div>
+                                    <td colspan="5" class="text-center py-5">
+                                        <div class="spinner-grow text-secondary spinner-grow-sm" role="status"></div>
+                                        <div class="text-muted small mt-2">Müşteri listesi yükleniyor…</div>
                                     </td>
                                 </tr>
                             </tbody>
@@ -556,9 +565,9 @@
                 </div>
             </div>
 
-            <div class="modal-footer bg-light border-0 py-2 px-4 justify-content-between">
-                <small class="text-muted"><i class="fas fa-info-circle me-1"></i> Toplam kayıt sayısına göre otomatik filtrelenir.</small>
-                <button type="button" class="btn btn-outline-secondary btn-sm rounded-pill px-4" data-bs-dismiss="modal">Kapat</button>
+            <div class="modal-footer border-0 py-3 px-4 justify-content-between" style="background: #f8f9fb;">
+                <small class="text-muted" style="font-size: 0.8rem;"><i class="fas fa-filter me-1 opacity-75"></i> Yazdıkça liste anında filtrelenir.</small>
+                <button type="button" class="btn btn-light border rounded-pill px-4 shadow-sm" data-bs-dismiss="modal">Kapat</button>
             </div>
         </div>
     </div>
@@ -1262,7 +1271,7 @@
 </div>
 
 <div class="modal fade" id="gunlukOzetModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-xl modal-fullscreen-lg-down modal-dialog-centered modal-dialog-scrollable" style="max-width: 85vw; width: 85%;"> 
+    <div class="modal-dialog modal-xl modal-fullscreen-lg-down modal-dialog-centered modal-dialog-scrollable" style="max-width: min(1040px, 97vw);"> 
         <div class="modal-content border-0 shadow-lg" style="border-radius: 15px;">
             
             <div class="modal-header bg-success text-white border-0 py-3 px-4">
@@ -1327,8 +1336,8 @@
                     <table class="table table-hover align-middle mb-0">
                             <thead class="table-light sticky-top" style="top: 0; z-index: 10;">
     <tr class="small text-muted text-uppercase">
-        <th class="ps-3" style="width: 120px;">Tarih / Saat</th>
-        <th style="width: 30%;">Kişi / Firma</th> <th style="width: 20%;">İşlem Detayı</th>
+        <th class="ps-3" style="width: 110px;">Tarih / Saat</th>
+        <th style="width: 28%; min-width: 180px;">Kişi / Firma</th> <th style="width: 22%;">İşlem Detayı</th>
         <th class="text-center" style="width: 150px;">İşlemi Yapan</th>
         <th class="text-end text-danger" style="width: 130px;">Satış / Borç</th>
         <th class="text-end pe-3 text-success" style="width: 140px;">Giren / Çıkan</th>
@@ -2716,7 +2725,7 @@
 
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-<script src="adres-sozlugu.js?v=1.0.30"></script>
-<script src="script.js?v=1.0.30"></script>
+<script src="adres-sozlugu.js?v=1.0.31"></script>
+<script src="script.js?v=1.0.31"></script>
 </body>
 </html>
