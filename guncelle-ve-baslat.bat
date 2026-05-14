@@ -3,8 +3,10 @@ title Komur Guncelle ve Baslat
 setlocal EnableDelayedExpansion
 
 :: Bu dosya repoda durur; isyeri PC'sine tum klasorle birlikte kopyalanir.
-:: AMAÇ: GitHub'daki son kodu cekip npm + baslat. GELISTIRME PC'sinde gunluk calistirmayin;
-::       commitlenmemis yerel is varsa pull catisma riski tasir.
+:: AMAÇ: GitHub'daki son kodu cekip npm + baslat.
+:: GUVENLIK: Yerel commitlenmemis / kaydedilmemis degisiklik varsa git pull YAPILMAZ
+:: ^(kayip veya catisma riski^). Once commit+push veya degisiklikleri geri alin.
+:: Istisna ^(risk size ait^): cmd de once  set KOMUR_GUNCELLEME_ZORLA=1
 :: Git HTTPS: token.txt varsa ^(tek satir, .gitignore'da^) otomatik kimlik dogrulama.
 
 set "ROOT=%~dp0"
@@ -23,17 +25,29 @@ echo KOMUR - GUNCELLE VE BASLAT
 echo ==========================================
 echo.
 
-:: Yerel commitlenmemis degisiklik var mi? (temiz repo: findstr eslesmez, errorlevel 1)
+:: Yerel degisiklik var mi? (temiz: findstr eslesmez ^> errorlevel 1)
 git status --porcelain 2>nul | findstr /r "." >nul
 if errorlevel 1 goto GIT_PULL
 
-echo *** UYARI ***
-echo Bu klasorde commitlenmemis dosya degisiklikleri goruldu.
-echo git pull catisma cikarsa dosyalari elle birlestirmeniz gerekebilir.
-echo Gelistirme makinesindeyseniz: once git add / git commit / git push yapin; bu bat'i simdilik calistirmayin.
-echo Isyeri kurulumunda genelde bu uyari cikmaz; yine de devam etmek icin bir tusa basin...
-pause
+if /I "%KOMUR_GUNCELLEME_ZORLA%"=="1" (
+  echo *** KOMUR_GUNCELLEME_ZORLA=1 *** git pull riski size ait, devam ediliyor...
+  echo.
+  goto GIT_PULL
+)
+
+echo *** GUNCELLEME IPTAL ***
+echo Bu klasorde commitlenmemis veya izlenmeyen dosya degisiklikleri var.
+echo git pull YAPILMADI ^(yerel isinizin uzerine yazilmasin diye^).
 echo.
+echo Ne yapmalisiniz:
+echo   - Gelistirme PC: kaydet-ve-githuba-gonder.bat veya git commit + git push
+echo   - Gecici dosyalari silin / .gitignore a ekleyin
+echo   - Gercekten bu halde cekmek istiyorsaniz ^(onerilmez^):
+echo       cmd:  set KOMUR_GUNCELLEME_ZORLA=1
+echo       sonra bu bat'i yeniden calistirin.
+echo.
+pause
+exit /b 1
 
 :GIT_PULL
 echo [1/4] GitHub'dan guncel kod aliniyor...

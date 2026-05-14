@@ -1,0 +1,27 @@
+Geliştirme bilgisayarı (siz — kod + sürüm)
+
+	1-Kod üzerinde çalışın (Cursor / VS Code).
+	2-GitHub’a göndermek için: kaydet-ve-githuba-gonder.bat
+		git add → commit mesajı → git push origin main
+	3-Müşterilere / işyerine kurulum paketi (EXE + ZIP + release) çıkarmak için: release-all.bat
+		Sürümü artırır, EXE + ZIP üretir, GitHub Release’e yükler, main + tag dener.
+	4-token.txt (veya local-release.bat) sadece bu makinede dursun; Git’e commitlenmez (.gitignore).
+
+İşyeri / kasa bilgisayarı (güncelleme + açma)
+	1-ilk kurulum (bir kez): Repoyu git clone ile alın, .env, npm install.
+	2-Günlük güncelleme: guncelle-ve-baslat.bat
+		git pull → npm install → baslat.bat (sunucu + tarayıcı).
+	3-Burada token.txt genelde gerekmez; GitHub’a push yapmıyorsanız Credential Manager veya HTTPS yeterli olabilir. (Pull 	için token.txt kullanımı sizin bat’larda tanımlıysa, sadece o PC’de gerekir.)
+
+
+Kim ne zaman hangi dosyayı çalıştırır?
+Kim				Ne zaman			Dosya
+Geliştirici			Kod bitince GitHub’a		kaydet-ve-githuba-gonder.bat	
+Geliştirici			Yeni sürüm (ZIP/release)	release-all.bat
+İşyeri				“Son kodu al, aç”		guncelle-ve-baslat.bat
+İşyeri				Sadece sunucuyu aç		baslat.bat
+
+Bu logda gördükleriniz (kısa not)
+main push başarılı → GitHub’daki kod güncel.
+Tag v1.0.50 zaten vardı → Aynı sürümü ikinci kez release ettiğinizde normal; betik bunu BILGI diye geçiyor, sonuç yine BAŞARILI.
+Özet cümle: Siz geliştirmede kaydet… + gerektiğinde release-all…; işyerinde sadece guncelle-ve-baslat (ve gerekirse baslat).

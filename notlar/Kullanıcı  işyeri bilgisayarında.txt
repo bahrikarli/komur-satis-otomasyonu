@@ -1,0 +1,23 @@
+Kullanıcı / işyeri bilgisayarında siz kodu GitHub’a gönderdikten sonra yapılacaklar şöyle:
+
+Her güncellemede (en sık kullanılan)
+
+1-guncelle-ve-baslat.bat çalıştırın.
+	GitHub’dan son kodu çeker (git pull).
+	Gerekirse paketleri günceller (npm install).
+	Sunucuyu açar (baslat.bat → tarayıcı).
+Başka bir şey yapmanız gerekmez; değişiklikleri siz geliştirme PC’sinde kaydet-ve-githuba-gonder.bat ile göndermiş olursunuz.
+
+O bilgisayarda ilk kez kurulum yapılıyorsa
+
+1-git clone ile repoyu indirin (veya size verilen tam klasörü kullanın — içinde .git olsun).
+2-Kökte .env dosyasını oluşturun (örnek: .env.ornek varsa ona göre).
+3-Klasörde bir kez: npm install.
+4-Bundan sonra güncellemeler için yukarıdaki gibi guncelle-ve-baslat.bat.
+
+Kısa özet
+Nerede		Ne yaparsınız
+Sizin PC	Kod → kaydet-ve-githuba-gonder.bat (ve gerekiyorsa release-all.bat)
+Kullanıcı PC	guncelle-ve-baslat.bat
+
+Kullanıcı PC’sinde Cursor ile commit/push gerekmez; sadece güncelle ve başlat yeterli.
