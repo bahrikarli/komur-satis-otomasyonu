@@ -1,0 +1,3 @@
+version çıkarken,
+1-kaydet-ve-githuba-gönder.bat (kedni pcm)çalışacak sonrada
+2-guncelle-ve-baslat.bat (kullanıcı)
