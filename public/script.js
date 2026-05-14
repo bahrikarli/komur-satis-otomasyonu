@@ -307,37 +307,96 @@ function anaPiyasaMetinKacir(s) {
         .replace(/"/g, '&quot;');
 }
 
-async function anaPiyasaSeridiniYukle() {
+function anaPiyasaParaStr(n) {
+    if (n == null || !Number.isFinite(n)) return '—';
+    return n.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ₺';
+}
+
+function anaPiyasaDegisimHtml(meta) {
+    if (!meta || meta.yon === 'sabit' || meta.yuzde == null) {
+        return '<span class="ana-piyasa-degisim-sabit text-muted small">→ %0</span>';
+    }
+    const cls = meta.yon === 'yukari' ? 'ana-piyasa-degisim-yukari' : 'ana-piyasa-degisim-asagi';
+    const ok = meta.yon === 'yukari' ? '↑' : '↓';
+    const imz = (meta.yuzde >= 0 ? '+' : '') + meta.yuzde.toFixed(2).replace('.', ',') + '%';
+    return `<span class="${cls} small fw-semibold">${ok} ${imz}</span>`;
+}
+
+function anaPiyasaHucreTcmb(baslik, alisStr, satisStr, degisimMeta) {
+    return `
+        <div class="ana-piyasa-hucre">
+            <div class="ana-piyasa-hucre-baslik">${anaPiyasaMetinKacir(baslik)}</div>
+            <div class="ana-piyasa-hucre-satir"><span class="text-muted">Alış</span> <span class="ana-piyasa-alis fw-semibold">${anaPiyasaMetinKacir(alisStr)}</span></div>
+            <div class="ana-piyasa-hucre-satir"><span class="text-muted">Satış</span> <span class="ana-piyasa-satis fw-semibold">${anaPiyasaMetinKacir(satisStr)}</span></div>
+            <div class="ana-piyasa-hucre-degisim">${anaPiyasaDegisimHtml(degisimMeta)}</div>
+        </div>`;
+}
+
+function anaPiyasaTcmbSeridiniGuncelle(raw) {
+    const el = document.getElementById('anaPiyasaSeridi');
+    if (!el) return;
+    if (!raw || raw.ok === false) {
+        const h = raw && raw.hata ? anaPiyasaMetinKacir(raw.hata) : 'Piyasa verisi alınamadı.';
+        el.innerHTML = `<span class="ana-piyasa-hata text-muted small">${h}</span>`;
+        return;
+    }
+    const simdi = new Date();
+    const tarihStr = simdi.toLocaleDateString('tr-TR');
+    const saatStr = simdi.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+    const gramStr = anaPiyasaParaStr(raw.gramHasAltin);
+    const ceyrekStr = anaPiyasaParaStr(raw.ceyrekAltinYaklasik);
+    el.innerHTML = `
+        <div class="ana-piyasa-tcmb-grid">
+            ${anaPiyasaHucreTcmb('USD / TL', raw.usd?.alis ?? '—', raw.usd?.satis ?? '—', raw.usd?.degisim)}
+            ${anaPiyasaHucreTcmb('EUR / TL', raw.eur?.alis ?? '—', raw.eur?.satis ?? '—', raw.eur?.degisim)}
+            ${anaPiyasaHucreTcmb('Gram (has)', gramStr, gramStr, raw.gramDegisim)}
+            ${anaPiyasaHucreTcmb('Çeyrek (yaklaşık)', ceyrekStr, ceyrekStr, raw.ceyrekDegisim)}
+        </div>
+        <div class="ana-piyasa-foot d-flex flex-wrap align-items-center justify-content-between gap-2">
+            <span class="ana-piyasa-foot-kaynak text-muted">${anaPiyasaMetinKacir(raw.kaynak || 'TCMB')}</span>
+            <span class="ana-piyasa-foot-kaynak text-muted">${anaPiyasaMetinKacir(raw.tarihGunluk || '')} · ${tarihStr} ${saatStr}</span>
+        </div>`;
+}
+
+window.anaPiyasaSeridiniYukle = async function anaPiyasaSeridiniYukle() {
     const el = document.getElementById('anaPiyasaSeridi');
     if (!el) return;
     try {
-        const res = await fetch('/api/piyasa-ozet?_=' + Date.now());
-        const data = await res.json();
-        if (!data.ok || !Array.isArray(data.ozet) || data.ozet.length === 0) {
-            const h = data && data.hata ? anaPiyasaMetinKacir(data.hata) : 'Piyasa verisi şu an alınamadı.';
-            el.innerHTML = `<span class="ana-piyasa-hata text-muted small">${h}</span>`;
+        const response = await fetch('/api/tcmb-piyasa?_t=' + Date.now());
+        const raw = await response.json().catch(() => ({}));
+        if (!response.ok || raw.ok === false) {
+            let hataMsg = raw.hata || `Sunucu yanıtı (${response.status})`;
+            if (response.status === 404) {
+                hataMsg =
+                    'Piyasa API bulunamadı (404). Sunucuyu yeniden başlatın (`node index.js`). Sayfayı sunucunun verdiği http://localhost… adresinden açın.';
+            }
+            anaPiyasaTcmbSeridiniGuncelle({ ok: false, hata: hataMsg });
             return;
         }
-        const rozetler = data.ozet.map((o) => {
-            const d = o.degisim ? String(o.degisim).trim() : '';
-            const cls = d.startsWith('%-') || d.startsWith('-') ? 'text-danger' : 'text-success';
-            return `<span class="ana-piyasa-badge"><span class="ana-piyasa-etiket">${anaPiyasaMetinKacir(o.etiket)}</span><span class="ana-piyasa-fiyat fw-bold">${anaPiyasaMetinKacir(o.satis)}</span>${d ? `<span class="ana-piyasa-degis small ${cls}">${anaPiyasaMetinKacir(d)}</span>` : ''}</span>`;
-        }).join('');
-        const meta = data.guncelleme
-            ? `<div class="ana-piyasa-meta text-muted small">${anaPiyasaMetinKacir(data.guncelleme)}${data.kaynak ? ' · ' + anaPiyasaMetinKacir(data.kaynak) : ''}</div>`
-            : '';
-        el.innerHTML = `<div class="ana-piyasa-icerik">${rozetler}</div>${meta}`;
+        anaPiyasaTcmbSeridiniGuncelle(raw);
     } catch (e) {
-        console.error('Piyasa şeridi:', e);
-        el.innerHTML = '<span class="text-muted small">Piyasa yüklenemedi (bağlantı).</span>';
+        console.error('TCMB piyasa şeridi:', e);
+        anaPiyasaTcmbSeridiniGuncelle({ ok: false, hata: e.message || String(e) });
     }
-}
+};
 
 // --- CARİ VE MÜŞTERİ YÖNETİMİ (MSSQL'e GÖRE GÜNCELLENDİ) ---
 
 document.addEventListener('DOMContentLoaded', () => {
     const musterilerModalEl = document.getElementById('musterilerModal');
     if (musterilerModalEl) musterilerModalEl.addEventListener('show.bs.modal', cariListesiniYukle);
+    const cariTabloGovdesi = document.getElementById('cariTabloGövdesi');
+    if (cariTabloGovdesi) {
+        cariTabloGovdesi.addEventListener('dblclick', (e) => {
+            const tr = e.target.closest('tr.cari-rehber-satiri');
+            if (!tr || !tr.dataset.musteriId) return;
+            const id = parseInt(tr.dataset.musteriId, 10);
+            if (!Number.isFinite(id) || id <= 0) return;
+            const ad = tr.dataset.musteriAd || '';
+            const tel = tr.dataset.musteriTel || '';
+            if (typeof window.cariDetayaGit === 'function') window.cariDetayaGit(id, ad, tel);
+        });
+    }
     ['yeniMusteri', 'duzenle', 'hizliAdres'].forEach((p) => {
         if (typeof window.konyaAdresFormunuVarsayilan === 'function') window.konyaAdresFormunuVarsayilan(p);
     });
@@ -1010,8 +1069,9 @@ function odemeAlModalAc() {
         return;
     }
     document.getElementById('tahsilatMusteriAd').innerText = aktifMusteriAd;
-    document.getElementById('tahsilatTutar').value = ""; 
-    document.getElementById('tahsilatAciklama').value = ""; 
+    document.getElementById('tahsilatTutar').value = "";
+    const tahsilatOdemeTuru = document.getElementById('tahsilatAciklama');
+    if (tahsilatOdemeTuru) tahsilatOdemeTuru.value = 'Nakit';
 
     // YENİ: Tarih kutusuna bugünü otomatik atıyoruz
     const tarihKutusu = document.getElementById('odemeTarihi');
@@ -1211,7 +1271,7 @@ let tumMusteriler = [];
 
 async function cariListesiniYukle() {
     const tabloGövdesi = document.getElementById('cariTabloGövdesi');
-    tabloGövdesi.innerHTML = '<tr><td colspan="6" class="text-center py-4">Veriler yükleniyor, lütfen bekleyin...</td></tr>';
+    tabloGövdesi.innerHTML = '<tr><td colspan="5" class="text-center py-4">Veriler yükleniyor, lütfen bekleyin...</td></tr>';
     
     try {
         const response = await fetch('/api/musteriler'); 
@@ -1223,7 +1283,7 @@ async function cariListesiniYukle() {
 
     } catch (error) {
         console.error("Müşteri listesi çekilirken hata:", error);
-        tabloGövdesi.innerHTML = `<tr><td colspan="6" class="text-center text-danger">Hata oluştu! Veritabanı bağlantısını kontrol edin.</td></tr>`;
+        tabloGövdesi.innerHTML = `<tr><td colspan="5" class="text-center text-danger">Hata oluştu! Veritabanı bağlantısını kontrol edin.</td></tr>`;
     }
 }
 
@@ -1238,6 +1298,14 @@ function mahalleGorunumStr(ham) {
 /** Rapor/seçicide eksik adres satırı etiketi (mahalle değil). */
 function mahalleRaporEksikEtiketi() {
     return 'Girilmeyenler';
+}
+
+function metinHtmlAttributeIcin(metin) {
+    return String(metin ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;')
+        .replace(/'/g, '&#39;');
 }
 
 // Tabloyu çizen ana fonksiyon (Hem ilk yüklemede hem aramada burası çalışır)
@@ -1270,7 +1338,10 @@ function tabloyuGuncelle(liste) {
             : `<span class="text-success fw-bold">Borcu Yok</span>`;
 
         tabloIcerigi += `
-            <tr>
+            <tr class="cari-rehber-satiri" style="cursor: pointer;" title="Cari kartı için çift tıklayın"
+                data-musteri-id="${musteri.Kimlik}"
+                data-musteri-ad="${metinHtmlAttributeIcin(adi)}"
+                data-musteri-tel="${metinHtmlAttributeIcin(musteri.CEPTEL || '')}">
                 <td>${musteriGosterim}</td>
                 <td>
                     <div class="fw-bold">${musteri.CEPTEL || '-'}</div>
@@ -1278,12 +1349,7 @@ function tabloyuGuncelle(liste) {
                 </td>
                 <td class="text-danger">${toplamBorc.toLocaleString('tr-TR')} ₺</td>
                 <td class="text-success">${toplamOdenen.toLocaleString('tr-TR')} ₺</td>
-                <td>${bakiyeMetni}</td>
-                <td class="text-center">
-                    <button class="btn btn-sm btn-outline-primary" onclick="cariDetayaGit(${musteri.Kimlik}, '${adi.replace(/'/g, "\\'")}', '${musteri.CEPTEL}')">
-                        <i class="fas fa-folder-open me-1"></i> Detay
-                    </button>
-                </td>
+                <td class="text-center">${bakiyeMetni}</td>
             </tr>
         `;
     });

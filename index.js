@@ -5,6 +5,7 @@ const cors = require('cors');
 const fs = require('fs/promises');
 const os = require('os');
 const { spawn } = require('child_process');
+const https = require('https');
 
 const APP_ROOT = process.pkg
   ? path.dirname(process.execPath)
@@ -78,61 +79,356 @@ app.use((req, res, next) => {
     next();
 });
 
-// --- Ana sayfa piyasa şeridi (dolar / euro / altın; sunucu üzerinden, tarayıcı CORS yok) ---
-const PIYASA_ONBELLEK_MS = 90 * 1000;
-let piyasaOzetOnbellek = { zaman: 0, veri: null };
-const PIYASA_KAYNAK_URL = 'https://finans.truncgil.com/today.json';
+// --- Ana sayfa piyasa: TCMB döviz (today.xml) + altın tamamlayıcı (Truncgil); static’ten önce ---
+const TCMB_CEYREK_HAS_GRAM_KATSAYI = 1.6035;
+const REESKONT_XML_URLS = [
+    'https://www.tcmb.gov.tr/kurlar/reeskont.xml',
+    'https://www.tcmb.gov.tr/kurlar/Reeskont.xml'
+];
 
-app.get('/api/piyasa-ozet', async (_req, res) => {
-    try {
-        const simdi = Date.now();
-        if (piyasaOzetOnbellek.veri && (simdi - piyasaOzetOnbellek.zaman) < PIYASA_ONBELLEK_MS) {
-            return res.json(piyasaOzetOnbellek.veri);
+function httpsTcmbMetin(url, timeoutMs = 16000) {
+    return new Promise((resolve, reject) => {
+        const req = https.get(
+            url,
+            { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; komur-satis/1.0)' } },
+            (res) => {
+                let d = '';
+                res.setEncoding('utf8');
+                res.on('data', (c) => {
+                    d += c;
+                });
+                res.on('end', () => {
+                    if (res.statusCode && res.statusCode >= 400) {
+                        reject(new Error(`HTTP ${res.statusCode}`));
+                        return;
+                    }
+                    resolve(d);
+                });
+            }
+        );
+        const t = setTimeout(() => {
+            req.destroy();
+            reject(new Error('timeout'));
+        }, timeoutMs);
+        req.on('error', (e) => {
+            clearTimeout(t);
+            reject(e);
+        });
+        req.on('close', () => clearTimeout(t));
+    });
+}
+
+function tcmbXmlKokEtik(xml, etik) {
+    if (!xml) return '';
+    const m = xml.match(new RegExp(`<${etik}>([^<]*)</${etik}>`, 'i'));
+    return m ? m[1].trim() : '';
+}
+
+function tcmbXmlTarihGun(xml) {
+    if (!xml) return '';
+    const m = xml.match(/<Tarih_Date\b[^>]*\bTarih="([^"]+)"/i);
+    if (m) return m[1].trim();
+    const m2 = xml.match(/<Tarih_Date\b[^>]*\bDate="([^"]+)"/i);
+    if (m2) return m2[1].trim();
+    return tcmbXmlKokEtik(xml, 'Tarih_Date') || tcmbXmlKokEtik(xml, 'Date') || '';
+}
+
+function tcmbEtikIci(blok, etik) {
+    if (!blok) return '';
+    const m = blok.match(new RegExp(`<${etik}>([^<]*)</${etik}>`, 'i'));
+    return m ? m[1].trim() : '';
+}
+
+function tcmbKurBloku(xml, kodUpper) {
+    const upper = kodUpper.toUpperCase();
+    const curRegex = /<Currency\b([^>]*)>([\s\S]*?)<\/Currency>/gi;
+    let m;
+    while ((m = curRegex.exec(xml)) !== null) {
+        const attrs = m[1];
+        const inner = m[2];
+        const am = attrs.match(/\bKod="([^"]+)"/i);
+        const km = am || inner.match(/<Kod>([^<]+)<\/Kod>/i);
+        if (!km) continue;
+        if (String(km[1]).trim().toUpperCase() !== upper) continue;
+        return inner;
+    }
+    return null;
+}
+
+function tcmbSayiKur(val) {
+    if (val == null) return null;
+    const t = String(val).trim();
+    if (!t || t === '') return null;
+    const sonVirg = t.lastIndexOf(',');
+    const sonNok = t.lastIndexOf('.');
+    let s = t;
+    if (sonVirg > sonNok) {
+        s = t.replace(/\./g, '').replace(',', '.');
+    } else if (sonNok > sonVirg) {
+        s = t.replace(/,/g, '');
+    } else {
+        s = t.replace(',', '.');
+    }
+    const n = parseFloat(s);
+    return Number.isFinite(n) ? n : null;
+}
+
+function tcmbBirimKur(cblock) {
+    if (!cblock) return null;
+    return {
+        forexAlis: tcmbEtikIci(cblock, 'ForexBuying'),
+        forexSatis: tcmbEtikIci(cblock, 'ForexSelling'),
+        banknotAlis: tcmbEtikIci(cblock, 'BanknoteBuying'),
+        banknotSatis: tcmbEtikIci(cblock, 'BanknoteSelling')
+    };
+}
+
+function tcmbReferansAlis(k) {
+    if (!k) return null;
+    const a = tcmbSayiKur(k.forexAlis);
+    const b = tcmbSayiKur(k.banknotAlis);
+    return a != null ? a : b;
+}
+
+function tcmbReferansSatis(k) {
+    if (!k) return null;
+    const a = tcmbSayiKur(k.forexSatis);
+    const b = tcmbSayiKur(k.banknotSatis);
+    return a != null ? a : b;
+}
+
+function istanbulTakvimGunu(ref = new Date()) {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Europe/Istanbul',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+    }).formatToParts(ref);
+    const get = (t) => Number(parts.find((p) => p.type === t)?.value || 0);
+    return new Date(get('year'), get('month') - 1, get('day'));
+}
+
+function tcmbArsivUrlFromDate(t) {
+    const y = t.getFullYear();
+    const m = String(t.getMonth() + 1).padStart(2, '0');
+    const d = String(t.getDate()).padStart(2, '0');
+    const folder = `${y}${m}`;
+    const file = `${d}${m}${y}.xml`;
+    return `https://www.tcmb.gov.tr/kurlar/${folder}/${file}`;
+}
+
+function tcmbFormatKur(n) {
+    if (n == null || !Number.isFinite(n)) return '—';
+    return n.toLocaleString('tr-TR', { minimumFractionDigits: 4, maximumFractionDigits: 4 });
+}
+
+function tcmbDegisimMeta(eskiSatis, yeniSatis) {
+    if (eskiSatis == null || yeniSatis == null) return { yuzde: null, yon: 'sabit' };
+    if (eskiSatis === 0) return { yuzde: null, yon: 'sabit' };
+    const yuzde = ((yeniSatis - eskiSatis) / eskiSatis) * 100;
+    const eps = 0.0005;
+    let yon = 'sabit';
+    if (yuzde > eps) yon = 'yukari';
+    else if (yuzde < -eps) yon = 'asagi';
+    return { yuzde: Math.round(yuzde * 100) / 100, yon };
+}
+
+function tcmbDegisimMetaGram(eski, yeni) {
+    if (eski == null || yeni == null) return { yuzde: null, yon: 'sabit' };
+    return tcmbDegisimMeta(eski, yeni);
+}
+
+async function tcmbGunlukDovizXmldenGunluk() {
+    const xml = await httpsTcmbMetin('https://www.tcmb.gov.tr/kurlar/today.xml');
+    const tarihHam = tcmbXmlTarihGun(xml);
+    const usd = tcmbBirimKur(tcmbKurBloku(xml, 'USD'));
+    const eur = tcmbBirimKur(tcmbKurBloku(xml, 'EUR'));
+    return { tarih: tarihHam, usd, eur };
+}
+
+async function tcmbGunlukOncekiIsGunuDoviz() {
+    const base = istanbulTakvimGunu(new Date());
+    for (let i = 1; i <= 14; i += 1) {
+        const d = new Date(base);
+        d.setDate(d.getDate() - i);
+        const url = tcmbArsivUrlFromDate(d);
+        try {
+            const xml = await httpsTcmbMetin(url, 12000);
+            const tarihHam = tcmbXmlTarihGun(xml);
+            const usd = tcmbBirimKur(tcmbKurBloku(xml, 'USD'));
+            const eur = tcmbBirimKur(tcmbKurBloku(xml, 'EUR'));
+            if (usd && tcmbReferansSatis(usd) != null) {
+                return { tarih: tarihHam, usd, eur };
+            }
+        } catch (_) {
+            /* bir sonraki güne dene */
         }
+    }
+    return null;
+}
+
+async function tcmbReeskontSimdiki() {
+    let xml = '';
+    for (const u of REESKONT_XML_URLS) {
+        try {
+            const got = await httpsTcmbMetin(u, 14000);
+            if (got && /<Currency\b/i.test(got)) {
+                xml = got;
+                break;
+            }
+        } catch (_) {
+            xml = '';
+        }
+    }
+    if (!xml || !/<Currency\b/i.test(xml)) return { gram: null, gramKodu: null, saat: '', gecerlilik: '' };
+    const curRegex = /<Currency\b([^>]*)>([\s\S]*?)<\/Currency>/gi;
+    let secim = null;
+    let m;
+    while ((m = curRegex.exec(xml)) !== null) {
+        const attrs = m[1];
+        const inner = m[2];
+        const am = attrs.match(/\bKod="([^"]+)"/i);
+        const km = am || inner.match(/<Kod>([^<]+)<\/Kod>/i);
+        if (!km) continue;
+        const kod = String(km[1]).trim().toUpperCase();
+        const al =
+            tcmbSayiKur(tcmbEtikIci(inner, 'ForexBuying')) ||
+            tcmbSayiKur(tcmbEtikIci(inner, 'BanknoteBuying')) ||
+            tcmbSayiKur(tcmbEtikIci(inner, 'ForexSelling'));
+        if (al == null) continue;
+        if (kod === 'XAU') {
+            secim = { gram: al, gramKodu: kod };
+            break;
+        }
+        if (!secim && (kod === 'XAG' || kod.includes('HAS'))) {
+            secim = { gram: al, gramKodu: kod };
+        }
+    }
+    const saat = tcmbXmlKokEtik(xml, 'Saat') || tcmbXmlKokEtik(xml, 'Time') || '';
+    const gecerlilik = tcmbXmlTarihGun(xml) || tcmbXmlKokEtik(xml, 'Tarih_Date') || '';
+    return {
+        gram: secim ? secim.gram : null,
+        gramKodu: secim ? secim.gramKodu : null,
+        saat,
+        gecerlilik
+    };
+}
+
+function truncgilDegisimiMeta(obj) {
+    if (!obj || typeof obj !== 'object') return { yuzde: null, yon: 'sabit' };
+    const d = obj.Değişim != null ? obj.Değişim : obj['Değişim'];
+    if (d == null || String(d).trim() === '') return { yuzde: null, yon: 'sabit' };
+    const t = String(d)
+        .replace(/%/g, '')
+        .replace(/\s/g, '')
+        .replace(',', '.');
+    const n = parseFloat(t);
+    if (!Number.isFinite(n)) return { yuzde: null, yon: 'sabit' };
+    let yon = 'sabit';
+    if (n > 0.0005) yon = 'yukari';
+    else if (n < -0.0005) yon = 'asagi';
+    return { yuzde: Math.round(n * 100) / 100, yon };
+}
+
+async function truncgilAltinYardim() {
+    const bos = {
+        gram: null,
+        ceyrek: null,
+        gramDegisim: { yuzde: null, yon: 'sabit' },
+        ceyrekDegisim: { yuzde: null, yon: 'sabit' },
+        kaynak: null
+    };
+    try {
         const ctrl = new AbortController();
-        const zamanAsimi = setTimeout(() => ctrl.abort(), 15000);
-        const r = await fetch(PIYASA_KAYNAK_URL, {
+        const tid = setTimeout(() => ctrl.abort(), 14000);
+        const r = await fetch('https://finans.truncgil.com/today.json', {
             signal: ctrl.signal,
             headers: {
                 Accept: 'application/json',
                 'User-Agent': `komur-satis-otomasyonu/${packageJson.version || '1.0'}`
             }
         });
-        clearTimeout(zamanAsimi);
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        clearTimeout(tid);
+        if (!r.ok) return bos;
         const js = await r.json();
-        const guncelleme = js.Update_Date ? String(js.Update_Date) : '';
-        const satirlar = [
-            { anahtar: 'USD', etiket: 'Dolar (TL)' },
-            { anahtar: 'EUR', etiket: 'Euro (TL)' },
-            { anahtar: 'GBP', etiket: 'Sterlin (TL)' },
-            { anahtar: 'gram-altin', etiket: 'Gram altın' },
-            { anahtar: 'ceyrek-altin', etiket: 'Çeyrek' },
-            { anahtar: 'ons', etiket: 'Ons (USD)' }
-        ];
-        const ozet = [];
-        for (const { anahtar, etiket } of satirlar) {
-            const o = js[anahtar];
-            if (!o || typeof o !== 'object') continue;
-            const satis = String(o.Satış != null ? o.Satış : o['Satış'] || '').trim();
-            const degisim = String(o.Değişim != null ? o.Değişim : o['Değişim'] || '').trim();
-            if (satis) ozet.push({ etiket, satis, degisim: degisim || null });
-        }
-        const cikti = {
-            ok: ozet.length > 0,
-            kaynak: 'finans.truncgil.com',
-            guncelleme,
-            ozet,
-            hata: ozet.length === 0 ? 'Beklenen alanlar gelmedi' : null
+        const pickSat = (obj) => {
+            if (!obj || typeof obj !== 'object') return null;
+            const s = obj.Satış != null ? obj.Satış : obj['Satış'];
+            if (s == null) return null;
+            const temiz = String(s).replace(/[^\d.,]/g, '').trim();
+            return tcmbSayiKur(temiz);
         };
-        piyasaOzetOnbellek = { zaman: simdi, veri: cikti };
-        res.json(cikti);
-    } catch (err) {
-        const msg = err && err.name === 'AbortError' ? 'Zaman aşımı' : (err.message || String(err));
-        sistemLogYaz('uyari', '/api/piyasa-ozet', msg);
-        res.json({ ok: false, kaynak: PIYASA_KAYNAK_URL, guncelleme: '', ozet: [], hata: msg });
+        const g = js['gram-altin'];
+        const c = js['ceyrek-altin'];
+        return {
+            gram: pickSat(g),
+            ceyrek: pickSat(c),
+            gramDegisim: truncgilDegisimiMeta(g),
+            ceyrekDegisim: truncgilDegisimiMeta(c),
+            kaynak: null
+        };
+    } catch {
+        return bos;
     }
-});
+}
+
+async function tcmbPiyasaApiYaniti(_req, res) {
+    try {
+        const dovBugun = await tcmbGunlukDovizXmldenGunluk();
+        const dovOnce = await tcmbGunlukOncekiIsGunuDoviz();
+        const usdSatisBug = tcmbReferansSatis(dovBugun.usd);
+        const usdSatisOnc = dovOnce ? tcmbReferansSatis(dovOnce.usd) : null;
+        const eurSatisBug = tcmbReferansSatis(dovBugun.eur);
+        const eurSatisOnc = dovOnce ? tcmbReferansSatis(dovOnce.eur) : null;
+
+        const rr = await tcmbReeskontSimdiki();
+        const tg = await truncgilAltinYardim();
+
+        let gram = rr.gram != null ? rr.gram : tg.gram;
+        let gramKodu = rr.gramKodu || (tg.gram != null ? 'gram-altın' : null);
+        let ceyrek = tg.ceyrek;
+        if (ceyrek == null && gram != null) {
+            ceyrek = Math.round(gram * TCMB_CEYREK_HAS_GRAM_KATSAYI * 100) / 100;
+        }
+
+        const gramDegisim = tg.gram != null ? tg.gramDegisim : { yuzde: null, yon: 'sabit' };
+        const ceyrekDegisim = tg.ceyrek != null ? tg.ceyrekDegisim : gramDegisim;
+
+        res.json({
+            ok: true,
+            kaynak: 'TCMB + tamamlayıcı',
+            tarihGunluk: dovBugun.tarih,
+            tarihKarsilastirmaDoviz: dovOnce?.tarih ?? null,
+            usd: {
+                alis: tcmbFormatKur(tcmbReferansAlis(dovBugun.usd)),
+                satis: tcmbFormatKur(usdSatisBug),
+                degisim: tcmbDegisimMeta(usdSatisOnc, usdSatisBug)
+            },
+            eur: {
+                alis: tcmbFormatKur(tcmbReferansAlis(dovBugun.eur)),
+                satis: tcmbFormatKur(eurSatisBug),
+                degisim: tcmbDegisimMeta(eurSatisOnc, eurSatisBug)
+            },
+            gramHasAltin: gram,
+            gramKodu,
+            gramDegisim,
+            ceyrekAltinYaklasik: ceyrek,
+            ceyrekKatsayiHasGram: TCMB_CEYREK_HAS_GRAM_KATSAYI,
+            ceyrekDegisim,
+            reeskontSaat: rr.saat || null,
+            reeskontGecerlilik: rr.gecerlilik || null,
+            reeskontYok: gram == null && ceyrek == null,
+            reeskontOncekiEtiket: null,
+            altinKaynak: null
+        });
+    } catch (e) {
+        sistemLogYaz('uyari', '/api/tcmb-piyasa', e.message || String(e));
+        res.status(502).json({ ok: false, kaynak: 'TCMB', hata: e.message || String(e) });
+    }
+}
+
+app.get('/api/tcmb-piyasa', tcmbPiyasaApiYaniti);
+app.get('/api/piyasa-ozet', tcmbPiyasaApiYaniti);
 
 app.use(express.static(path.join(__dirname, 'public')));
 

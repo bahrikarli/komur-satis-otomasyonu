@@ -139,3 +139,83 @@ body {
     text-align: center;
     padding-top: 0.35rem;
 }
+
+/* TCMB şeridi: alış / satış + ok */
+.ana-piyasa-tcmb-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.5rem;
+    width: 100%;
+    align-items: stretch;
+}
+
+@media (max-width: 992px) {
+    .ana-piyasa-tcmb-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 576px) {
+    .ana-piyasa-tcmb-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.ana-piyasa-hucre {
+    border-radius: 10px;
+    padding: 0.45rem 0.5rem;
+    background: rgba(44, 62, 80, 0.04);
+    border: 1px solid rgba(44, 62, 80, 0.08);
+    min-width: 0;
+}
+
+.ana-piyasa-hucre-baslik {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #6c757d;
+    font-weight: 700;
+    margin-bottom: 0.25rem;
+}
+
+.ana-piyasa-hucre-satir {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.35rem;
+    font-size: 0.82rem;
+    line-height: 1.35;
+}
+
+.ana-piyasa-alis {
+    color: #0d6efd;
+}
+
+.ana-piyasa-satis {
+    color: #198754;
+}
+
+.ana-piyasa-hucre-degisim {
+    margin-top: 0.2rem;
+}
+
+.ana-piyasa-degisim-yukari {
+    color: #198754;
+}
+
+.ana-piyasa-degisim-asagi {
+    color: #dc3545;
+}
+
+.ana-piyasa-degisim-sabit {
+    color: #6c757d;
+}
+
+.ana-piyasa-foot {
+    margin-top: 0.4rem;
+    padding-top: 0.35rem;
+    border-top: 1px solid rgba(44, 62, 80, 0.08);
+}
+
+.ana-piyasa-foot-kaynak {
+    font-size: 0.72rem;
+}
