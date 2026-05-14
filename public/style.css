@@ -69,3 +69,73 @@ body {
     font-size: 0.8rem;
     padding: 0.5em 0.75em;
 }
+
+/* Ana sayfa — dolar / euro / altın şeridi */
+.ana-sayfa-piyasa-satir {
+    margin-top: 0.25rem;
+}
+
+.ana-piyasa-serit {
+    background: linear-gradient(135deg, #fff 0%, #f8fafc 100%);
+    border: 1px solid rgba(44, 62, 80, 0.08);
+    border-radius: 12px;
+    padding: 0.55rem 0.75rem;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.ana-piyasa-icerik {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 0.45rem;
+    width: 100%;
+    align-items: stretch;
+}
+
+@media (max-width: 992px) {
+    .ana-piyasa-icerik {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 576px) {
+    .ana-piyasa-icerik {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+.ana-piyasa-badge {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    gap: 0.15rem;
+    padding: 0.45rem 0.35rem;
+    border-radius: 10px;
+    background: rgba(44, 62, 80, 0.04);
+    border: 1px solid rgba(44, 62, 80, 0.06);
+    min-width: 0;
+}
+
+.ana-piyasa-etiket {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #6c757d;
+    font-weight: 600;
+}
+
+.ana-piyasa-fiyat {
+    font-size: 0.95rem;
+    color: var(--dark-custom);
+    white-space: nowrap;
+}
+
+.ana-piyasa-degis {
+    font-size: 0.7rem;
+}
+
+.ana-piyasa-meta {
+    text-align: center;
+    padding-top: 0.35rem;
+}

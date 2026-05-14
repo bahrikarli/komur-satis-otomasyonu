@@ -78,6 +78,62 @@ app.use((req, res, next) => {
     next();
 });
 
+// --- Ana sayfa piyasa şeridi (dolar / euro / altın; sunucu üzerinden, tarayıcı CORS yok) ---
+const PIYASA_ONBELLEK_MS = 90 * 1000;
+let piyasaOzetOnbellek = { zaman: 0, veri: null };
+const PIYASA_KAYNAK_URL = 'https://finans.truncgil.com/today.json';
+
+app.get('/api/piyasa-ozet', async (_req, res) => {
+    try {
+        const simdi = Date.now();
+        if (piyasaOzetOnbellek.veri && (simdi - piyasaOzetOnbellek.zaman) < PIYASA_ONBELLEK_MS) {
+            return res.json(piyasaOzetOnbellek.veri);
+        }
+        const ctrl = new AbortController();
+        const zamanAsimi = setTimeout(() => ctrl.abort(), 15000);
+        const r = await fetch(PIYASA_KAYNAK_URL, {
+            signal: ctrl.signal,
+            headers: {
+                Accept: 'application/json',
+                'User-Agent': `komur-satis-otomasyonu/${packageJson.version || '1.0'}`
+            }
+        });
+        clearTimeout(zamanAsimi);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const js = await r.json();
+        const guncelleme = js.Update_Date ? String(js.Update_Date) : '';
+        const satirlar = [
+            { anahtar: 'USD', etiket: 'Dolar (TL)' },
+            { anahtar: 'EUR', etiket: 'Euro (TL)' },
+            { anahtar: 'GBP', etiket: 'Sterlin (TL)' },
+            { anahtar: 'gram-altin', etiket: 'Gram altın' },
+            { anahtar: 'ceyrek-altin', etiket: 'Çeyrek' },
+            { anahtar: 'ons', etiket: 'Ons (USD)' }
+        ];
+        const ozet = [];
+        for (const { anahtar, etiket } of satirlar) {
+            const o = js[anahtar];
+            if (!o || typeof o !== 'object') continue;
+            const satis = String(o.Satış != null ? o.Satış : o['Satış'] || '').trim();
+            const degisim = String(o.Değişim != null ? o.Değişim : o['Değişim'] || '').trim();
+            if (satis) ozet.push({ etiket, satis, degisim: degisim || null });
+        }
+        const cikti = {
+            ok: ozet.length > 0,
+            kaynak: 'finans.truncgil.com',
+            guncelleme,
+            ozet,
+            hata: ozet.length === 0 ? 'Beklenen alanlar gelmedi' : null
+        };
+        piyasaOzetOnbellek = { zaman: simdi, veri: cikti };
+        res.json(cikti);
+    } catch (err) {
+        const msg = err && err.name === 'AbortError' ? 'Zaman aşımı' : (err.message || String(err));
+        sistemLogYaz('uyari', '/api/piyasa-ozet', msg);
+        res.json({ ok: false, kaynak: PIYASA_KAYNAK_URL, guncelleme: '', ozet: [], hata: msg });
+    }
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 // --- Müşteri cari notları tablosu (ilk API çağrısında oluşturulur) ---

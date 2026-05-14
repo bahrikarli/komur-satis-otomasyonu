@@ -67,6 +67,7 @@ if (yetki && yetki.toLowerCase() === 'admin') {
     // 3. TABLOLARI YÜKLE
     if (typeof stoklariYukle === 'function') stoklariYukle();
     if (typeof ozetBilgileriYukle === 'function') ozetBilgileriYukle();
+    if (typeof anaPiyasaSeridiniYukle === 'function') anaPiyasaSeridiniYukle();
 
     // 4. AYARLARI VE MODÜL GİZLEMEYİ ÇALIŞTIR
     try {
@@ -294,6 +295,41 @@ async function ozetBilgileriYukle() {
         
     } catch (error) {
         console.error('Özet bilgileri yükleme hatası:', error);
+    }
+}
+
+function anaPiyasaMetinKacir(s) {
+    if (s == null) return '';
+    return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+async function anaPiyasaSeridiniYukle() {
+    const el = document.getElementById('anaPiyasaSeridi');
+    if (!el) return;
+    try {
+        const res = await fetch('/api/piyasa-ozet?_=' + Date.now());
+        const data = await res.json();
+        if (!data.ok || !Array.isArray(data.ozet) || data.ozet.length === 0) {
+            const h = data && data.hata ? anaPiyasaMetinKacir(data.hata) : 'Piyasa verisi şu an alınamadı.';
+            el.innerHTML = `<span class="ana-piyasa-hata text-muted small">${h}</span>`;
+            return;
+        }
+        const rozetler = data.ozet.map((o) => {
+            const d = o.degisim ? String(o.degisim).trim() : '';
+            const cls = d.startsWith('%-') || d.startsWith('-') ? 'text-danger' : 'text-success';
+            return `<span class="ana-piyasa-badge"><span class="ana-piyasa-etiket">${anaPiyasaMetinKacir(o.etiket)}</span><span class="ana-piyasa-fiyat fw-bold">${anaPiyasaMetinKacir(o.satis)}</span>${d ? `<span class="ana-piyasa-degis small ${cls}">${anaPiyasaMetinKacir(d)}</span>` : ''}</span>`;
+        }).join('');
+        const meta = data.guncelleme
+            ? `<div class="ana-piyasa-meta text-muted small">${anaPiyasaMetinKacir(data.guncelleme)}${data.kaynak ? ' · ' + anaPiyasaMetinKacir(data.kaynak) : ''}</div>`
+            : '';
+        el.innerHTML = `<div class="ana-piyasa-icerik">${rozetler}</div>${meta}`;
+    } catch (e) {
+        console.error('Piyasa şeridi:', e);
+        el.innerHTML = '<span class="text-muted small">Piyasa yüklenemedi (bağlantı).</span>';
     }
 }
 
@@ -981,9 +1017,26 @@ function odemeAlModalAc() {
     const tarihKutusu = document.getElementById('odemeTarihi');
     if(tarihKutusu) tarihKutusu.value = bugununTarihiFormati();
 
-    const tahsilatModal = new bootstrap.Modal(document.getElementById('tahsilatModal'));
     guvenliModalAc('tahsilatModal');
 }
+
+// Tahsilat modalı kapanınca (X, İptal, ESC, dışarı tıklama) müşteri detayı tekrar açılsın;
+// guvenliModalAc tahsilatı açarken detay modalını kapattığı için burada geri yükleme şart.
+(function tahsilatModalKapanincaDetayaDon() {
+    const el = document.getElementById('tahsilatModal');
+    if (!el || el.dataset.detayaDonBagli === '1') return;
+    el.dataset.detayaDonBagli = '1';
+    el.addEventListener('hidden.bs.modal', () => {
+        if (typeof aktifMusteriId === 'undefined' || aktifMusteriId === null) return;
+        const telEl = document.getElementById('detayTelefon');
+        const tel = telEl ? telEl.innerText : '-';
+        setTimeout(() => {
+            if (typeof window.musteriDetayGoster === 'function' && aktifMusteriId) {
+                window.musteriDetayGoster(aktifMusteriId, aktifMusteriAd, tel);
+            }
+        }, 400);
+    });
+})();
 
 // =========================================================
 // 💰 TAHSİLAT KAYDI (MAKBUZ VE PERSONEL İMZALI)
