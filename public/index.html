@@ -6,7 +6,7 @@
     <title>KARAARSLAN KÖMÜR - Satış Otomasyonu</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="style.css?v=1.0.67">
+    <link rel="stylesheet" href="style.css?v=1.0.68">
     <style>
         /* nth-of-type(even) ile z-index şişirmek backdrop’u modalın üstüne taşıyabiliyordu; katmanlamayı JS (guvenliModalAc) ve Bootstrap varsayılanı yönetir. */
 
@@ -2701,41 +2701,46 @@
 
 
 <div class="modal fade" id="surumModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
         <div class="modal-content border-0 shadow">
             <div class="modal-header bg-secondary text-white">
                 <h5 class="modal-title"><i class="fa-solid fa-tag me-2"></i>Sürüm Bilgisi</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-                <div class="small text-muted">Uygulama</div>
-                <div class="fw-bold mb-2" id="surumAppName">-</div>
-                <div class="small text-muted">Versiyon</div>
-                <div class="fw-bold mb-2" id="surumVersion">-</div>
-                <div class="small text-muted">Açıklama</div>
-                <div class="mb-2" id="surumDesc">-</div>
-                <div class="small text-muted">Node.js</div>
-                <div class="mb-2" id="surumNode">-</div>
-                <div class="small text-muted">Rapor zamanı</div>
-                <div class="mb-2" id="surumGeneratedAt">-</div>
-                <hr class="my-3">
-                <div class="small text-muted mb-1">Yazılım güncellemesi</div>
-                <div id="surumGuncellemeDurum" class="small mb-2 text-muted">Henüz kontrol edilmedi.</div>
-                <div id="surumGuncellemeProgressWrap" class="progress mt-2 mb-2" style="height:10px;display:none;">
-                    <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary" id="surumGuncellemeProgress" style="width:0%"></div>
+                <div class="row g-3">
+                    <div class="col-md-7">
+                        <div class="small text-muted">Uygulama</div>
+                        <div class="fw-bold mb-2" id="surumAppName">-</div>
+                        <div class="small text-muted">Versiyon</div>
+                        <div class="fw-bold mb-2" id="surumVersion">-</div>
+                        <div class="small text-muted">Açıklama</div>
+                        <div class="mb-2" id="surumDesc">-</div>
+                        <div class="small text-muted">Node.js</div>
+                        <div class="mb-2" id="surumNode">-</div>
+                        <div class="small text-muted">Rapor zamanı</div>
+                        <div class="mb-2" id="surumGeneratedAt">-</div>
+                        <hr class="my-3">
+                        <div class="small text-muted mb-1">Yazılım güncellemesi</div>
+                        <div id="surumGuncellemeDurum" class="small mb-2 text-muted">Henüz kontrol edilmedi.</div>
+                        <div id="surumGuncellemeProgressWrap" class="progress mt-2 mb-2" style="height:10px;display:none;">
+                            <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary" id="surumGuncellemeProgress" style="width:0%"></div>
+                        </div>
+                        <div id="surumGuncellemeDetay" class="small text-muted mb-2"></div>
+                        <div class="d-flex flex-wrap gap-2">
+                            <button type="button" class="btn btn-sm btn-outline-primary" id="surumKontrolBtn" onclick="guncellemeKontrolEt()">
+                                <i class="fas fa-sync-alt me-1"></i>Kontrol et
+                            </button>
+                        </div>
+                    </div>
+                    <div class="col-md-5 border-md-start ps-md-3">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <div class="small fw-semibold text-muted mb-0">Yedekler</div>
+                            <button type="button" class="btn btn-sm btn-outline-success" onclick="yedekAl()"><i class="fa-solid fa-floppy-disk me-1"></i>Yedek Al</button>
+                        </div>
+                        <div id="surumYedekListe" class="surum-yedek-liste small text-muted">Yükleniyor…</div>
+                    </div>
                 </div>
-                <div id="surumGuncellemeDetay" class="small text-muted mb-2"></div>
-                <div class="d-flex flex-wrap gap-2 mb-2">
-                    <button type="button" class="btn btn-sm btn-outline-primary" id="surumKontrolBtn" onclick="guncellemeKontrolEt()">
-                        <i class="fas fa-sync-alt me-1"></i>Kontrol et
-                    </button>
-                </div>
-                <hr>
-                <div class="d-flex justify-content-between align-items-center mb-2">
-                    <div class="small text-muted">Yedekler</div>
-                    <button type="button" class="btn btn-sm btn-outline-success" onclick="yedekAl()"><i class="fa-solid fa-floppy-disk me-1"></i>Yedek Al</button>
-                </div>
-                <div id="surumYedekListe" class="small text-muted">Yükleniyor…</div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Kapat</button>
@@ -2746,7 +2751,7 @@
 
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-<script src="adres-sozlugu.js?v=1.0.67"></script>
-    <script src="script.js?v=1.0.67"></script>
+<script src="adres-sozlugu.js?v=1.0.68"></script>
+    <script src="script.js?v=1.0.68"></script>
 </body>
 </html>
