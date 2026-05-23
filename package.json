@@ -1,13 +1,14 @@
 {
   "name": "komur-satis-otomasyonu",
-  "version": "1.0.57",
+  "version": "1.0.58",
   "description": "Karaarslan Kömür Satış Otomasyonu",
   "main": "index.js",
   "bin": "index.js",
   "scripts": {
     "start": "nodemon index.js",
     "set-version": "node scripts/set-version.js",
-    "build:exe": "npx pkg index.js --targets node18-win-x64 --output dist/komur-satis-otomasyonu.exe",
+    "build:exe": "npx pkg pkg-main.js --targets node18-win-x64 --output dist/komur-satis-otomasyonu.exe && node scripts/patch-exe-gui.js",
+    "patch:exe": "node scripts/patch-exe-gui.js",
     "desktop": "electron desktop-main.js",
     "build:desktop": "taskkill /F /IM \"Karaarslan Komur.exe\" >nul 2>&1 & set CSC_IDENTITY_AUTO_DISCOVERY=false && electron-builder --win nsis",
     "build:desktop:fresh": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$ts=Get-Date -Format yyyyMMdd-HHmmss; $env:CSC_IDENTITY_AUTO_DISCOVERY='false'; npx electron-builder --win nsis --config.directories.output=dist-desktop-$ts\"",
@@ -15,7 +16,8 @@
   },
   "pkg": {
     "assets": [
-      "public/**/*"
+      "public/**/*",
+      "polyfill-abort.js"
     ]
   },
   "build": {
