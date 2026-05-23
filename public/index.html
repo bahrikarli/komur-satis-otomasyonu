@@ -6,7 +6,7 @@
     <title>KARAARSLAN KÖMÜR - Satış Otomasyonu</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="style.css?v=1.0.53">
+    <link rel="stylesheet" href="style.css?v=1.0.54">
     <style>
         /* nth-of-type(even) ile z-index şişirmek backdrop’u modalın üstüne taşıyabiliyordu; katmanlamayı JS (guvenliModalAc) ve Bootstrap varsayılanı yönetir. */
 
@@ -602,6 +602,9 @@
                         </button>
                         <ul class="dropdown-menu dropdown-menu-end shadow border-0" aria-labelledby="musteriDetayMenuDropdown">
                             <li><button type="button" class="dropdown-item" onclick="musteriNotlarModalAc()"><i class="fas fa-sticky-note text-warning me-2"></i>Notları aç</button></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><h6 class="dropdown-header text-muted small mb-1">Raporlar</h6></li>
+                            <li><button type="button" class="dropdown-item" onclick="musteriCariEkstreRaporuYazdir()"><i class="fas fa-file-invoice text-primary me-2"></i>Cari ekstre (yazdır)</button></li>
                         </ul>
                     </div>
                     <button class="btn btn-sm btn-outline-light rounded-pill px-3 me-2" onclick="detaydanListeyeDon()">
@@ -2744,7 +2747,7 @@
 
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-<script src="adres-sozlugu.js?v=1.0.53"></script>
-    <script src="script.js?v=1.0.53"></script>
+<script src="adres-sozlugu.js?v=1.0.54"></script>
+    <script src="script.js?v=1.0.54"></script>
 </body>
 </html>
