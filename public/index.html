@@ -6,7 +6,7 @@
     <title>KARAARSLAN KÖMÜR - Satış Otomasyonu</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="style.css?v=1.0.64">
+    <link rel="stylesheet" href="style.css?v=1.0.65">
     <style>
         /* nth-of-type(even) ile z-index şişirmek backdrop’u modalın üstüne taşıyabiliyordu; katmanlamayı JS (guvenliModalAc) ve Bootstrap varsayılanı yönetir. */
 
@@ -226,6 +226,22 @@
     </div>
 </nav>
 
+<div id="guncellemeBildirim" class="alert alert-info shadow-sm mx-3 mt-2 mb-0 d-none" role="alert" style="max-width:920px;margin-left:auto;margin-right:auto;">
+    <div class="d-flex flex-wrap align-items-start justify-content-between gap-2">
+        <div class="flex-grow-1">
+            <div id="guncellemeBildirimMetin" class="fw-semibold"></div>
+            <div id="guncellemeBildirimYuzde" class="fw-bold text-primary small"></div>
+            <div class="progress mt-2" style="height:12px;display:none;" id="guncellemeBildirimProgressWrap">
+                <div class="progress-bar progress-bar-striped progress-bar-animated" id="guncellemeBildirimProgress" style="width:0%"></div>
+            </div>
+            <div id="guncellemeBildirimDetay" class="small text-muted mt-1"></div>
+        </div>
+        <div class="d-flex flex-column gap-1">
+            <button type="button" class="btn btn-sm btn-success d-none" id="guncellemeSimdiBtn" onclick="guncellemeSimdiKur()">Şimdi kur</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="guncellemeSonraHatirlat()">Sonra</button>
+        </div>
+    </div>
+</div>
 
 <div class="modal fade" id="personelYonetimModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="true">
     <div class="modal-dialog modal-lg modal-dialog-centered">
@@ -2705,12 +2721,13 @@
                 <hr class="my-3">
                 <div class="small text-muted mb-1">Yazılım güncellemesi</div>
                 <div id="surumGuncellemeDurum" class="small mb-2 text-muted">Henüz kontrol edilmedi.</div>
+                <div id="surumGuncellemeProgressWrap" class="progress mt-2 mb-2" style="height:10px;display:none;">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary" id="surumGuncellemeProgress" style="width:0%"></div>
+                </div>
+                <div id="surumGuncellemeDetay" class="small text-muted mb-2"></div>
                 <div class="d-flex flex-wrap gap-2 mb-2">
                     <button type="button" class="btn btn-sm btn-outline-primary" id="surumKontrolBtn" onclick="guncellemeKontrolEt()">
                         <i class="fas fa-sync-alt me-1"></i>Kontrol et
-                    </button>
-                    <button type="button" class="btn btn-sm btn-success" id="surumGuncelleBtn" style="display:none;" onclick="guncellemeUygula()">
-                        <i class="fas fa-download me-1"></i>Güncelle ve yeniden başlat
                     </button>
                 </div>
                 <hr>
@@ -2729,7 +2746,7 @@
 
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-<script src="adres-sozlugu.js?v=1.0.64"></script>
-    <script src="script.js?v=1.0.64"></script>
+<script src="adres-sozlugu.js?v=1.0.65"></script>
+    <script src="script.js?v=1.0.65"></script>
 </body>
 </html>
