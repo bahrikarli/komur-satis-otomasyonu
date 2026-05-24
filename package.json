@@ -1,6 +1,6 @@
 {
   "name": "komur-satis-otomasyonu",
-  "version": "1.0.71",
+  "version": "1.0.72",
   "description": "Karaarslan Kömür Satış Otomasyonu",
   "main": "index.js",
   "bin": "index.js",
@@ -17,7 +17,8 @@
   "pkg": {
     "assets": [
       "public/**/*",
-      "polyfill-abort.js"
+      "polyfill-abort.js",
+      "suppress-fetch-warning.js"
     ]
   },
   "build": {
