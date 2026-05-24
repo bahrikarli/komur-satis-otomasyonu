@@ -1,6 +1,6 @@
 {
   "name": "komur-satis-otomasyonu",
-  "version": "1.0.73",
+  "version": "1.0.74",
   "description": "Karaarslan Kömür Satış Otomasyonu",
   "main": "index.js",
   "bin": "index.js",
