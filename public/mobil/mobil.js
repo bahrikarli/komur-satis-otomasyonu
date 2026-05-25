@@ -6,6 +6,8 @@
     let stokCache = [];
     let aktifMusteri = null;
     let aktifMusteriEkstreRows = [];
+    let sonEkstreDosyaAd = 'Cari_Ekstre.pdf';
+    let aktifPanel = 'ana';
 
     function $(id) { return document.getElementById(id); }
 
@@ -40,6 +42,22 @@
 
     async function apiFetch(yol, opts) {
         return fetch(sunucuUrl() + yol, opts);
+    }
+
+    async function apiJson(res, varsayilanHata) {
+        const metin = await res.text();
+        if (!metin.trim()) {
+            if (!res.ok) throw new Error(varsayilanHata || `HTTP ${res.status}`);
+            return {};
+        }
+        try {
+            return JSON.parse(metin);
+        } catch {
+            if (metin.trimStart().startsWith('<')) {
+                throw new Error('Sunucu HTML döndü — adres veya API eksik. Sunucuyu yeniden başlatın.');
+            }
+            throw new Error(varsayilanHata || 'Sunucu yanıtı okunamadı');
+        }
     }
 
     function formatSayi(n) {
@@ -105,17 +123,37 @@
         }
     }
 
+    function fabGeriDurumGuncelle() {
+        const overlayAcik = !!document.querySelector('.overlay.overlay-active');
+        const ekstreAcik = $('ekstreOnizleme')?.classList.contains('active');
+        fabGeriGoster(overlayAcik || ekstreAcik || aktifPanel !== 'ana');
+    }
+
+    function fabGeriTikla() {
+        if ($('ekstreOnizleme')?.classList.contains('active')) {
+            ekstreOnizlemeKapat();
+            return;
+        }
+        if (document.querySelector('.overlay.overlay-active')) {
+            overlayKapat();
+            return;
+        }
+        if (aktifPanel !== 'ana') {
+            panelGoster('ana');
+        }
+    }
+
     function overlayAc(id) {
         document.querySelectorAll('.overlay').forEach((o) => o.classList.remove('overlay-active'));
         const el = $(id);
         if (el) el.classList.add('overlay-active');
-        fabGeriGoster(true);
+        fabGeriDurumGuncelle();
     }
 
     function overlayKapat() {
         document.querySelectorAll('.overlay').forEach((o) => o.classList.remove('overlay-active'));
         modallariKapat();
-        fabGeriGoster(false);
+        fabGeriDurumGuncelle();
     }
 
     function modalAc(id) {
@@ -264,6 +302,180 @@
         }
     }
 
+    function ekstreToplamlariHesapla(rows, musteri) {
+        let toplamAlis = Number(musteri?.ToplamBorc) || 0;
+        let toplamOdeme = Number(musteri?.ToplamOdeme) || 0;
+        if (Array.isArray(rows) && rows.length) {
+            let borcSatir = 0;
+            let odemeSatir = 0;
+            rows.forEach((h) => {
+                borcSatir += Number(h.BORÇ) || 0;
+                odemeSatir += Number(h.ÖDEME) || 0;
+            });
+            if (!toplamAlis) toplamAlis = borcSatir;
+            if (!toplamOdeme) toplamOdeme = odemeSatir;
+        }
+        let kalan = Number(musteri?.Bakiye);
+        if (!Number.isFinite(kalan)) kalan = toplamAlis - toplamOdeme;
+        return { toplamAlis, toplamOdeme, kalan };
+    }
+
+    function cariEkstreHtmlOlustur(rows, musteri) {
+        const { toplamAlis, toplamOdeme, kalan } = ekstreToplamlariHesapla(rows, musteri);
+        const ad = musteriAdi(musteri);
+        const tel = musteri.CEPTEL || '—';
+        const konum = [musteri.Ilce, musteri.Mahalle].filter(Boolean).join(' / ') || '—';
+        const satirlar = rows.map(ekstreRaporSatir).sort(ekstreRaporSiralama);
+        const unvan = (musteri.Unvan || '').trim();
+        const anaAd = unvan || ad;
+        const altAd = (unvan && ad && ad !== unvan) ? ad : '';
+
+        const tabloSatir = satirlar.map((s) => `
+            <tr>
+                <td style="white-space:nowrap;">
+                    <div style="font-weight:700;color:#111;">${ekstreRaporKacis(s.tarihGunu)}</div>
+                    <div style="font-size:9px;color:#666;margin-top:2px;">${ekstreRaporKacis(s.saatKismi)}</div>
+                </td>
+                <td style="color:#111;">${ekstreRaporKacis(s.islemTipi)}</td>
+                <td style="color:#111;">${ekstreRaporKacis(s.aciklama)}</td>
+                <td class="c" style="color:#111;">${s.miktar != null ? formatSayi(s.miktar) : '—'}</td>
+                <td style="color:#111;">${ekstreRaporKacis(s.birim)}</td>
+                <td class="c" style="color:#111;">${s.birimFiyat != null ? formatSayi(s.birimFiyat) : '—'}</td>
+                <td class="c" style="color:#c0392b;font-weight:700;">${s.borc > 0 ? formatSayi(s.borc) : '—'}</td>
+                <td class="c" style="color:#27ae60;font-weight:700;">${s.odeme > 0 ? formatSayi(s.odeme) : '—'}</td>
+            </tr>`).join('');
+
+        return `
+            <div class="ekstre-print-root" style="font-family:Segoe UI,Arial,sans-serif;color:#111;padding:4px;">
+                <h2 style="text-align:center;margin:0 0 4px;font-size:18px;color:#2c3e50;border-bottom:2px solid #e67e22;padding-bottom:8px;">
+                    KARAARSLAN KÖMÜR — CARİ EKSTRE
+                </h2>
+                <p style="text-align:right;font-size:10px;color:#555;margin:0 0 12px;">
+                    ${new Date().toLocaleString('tr-TR')}
+                </p>
+                <div style="margin:0 0 14px;padding:10px 12px;background:#f8f9fa;border:1px solid #dee2e6;border-radius:6px;">
+                    <div style="font-size:20px;font-weight:800;color:#1a5276;text-transform:uppercase;">${ekstreRaporKacis(anaAd)}</div>
+                    ${altAd ? `<div style="font-size:13px;font-weight:600;color:#495057;margin:6px 0 8px;">${ekstreRaporKacis(altAd)}</div>` : ''}
+                    <div style="font-size:12px;margin:4px 0;color:#111;"><b>Telefon</b> ${ekstreRaporKacis(tel)}</div>
+                    <div style="font-size:12px;margin:4px 0;color:#111;"><b>Adres</b> ${ekstreRaporKacis(konum)}</div>
+                </div>
+                <table style="width:100%;border-collapse:collapse;margin:12px 0;font-size:11px;">
+                    <tr>
+                        <td style="border:1px solid #ccc;padding:8px;background:#fde8e8;text-align:center;color:#111;"><b>Toplam alış</b><br><span style="color:#c0392b;font-weight:800;font-size:14px;">${formatPara(toplamAlis)}</span></td>
+                        <td style="border:1px solid #ccc;padding:8px;background:#e8f8ee;text-align:center;color:#111;"><b>Toplam ödeme</b><br><span style="color:#27ae60;font-weight:800;font-size:14px;">${formatPara(toplamOdeme)}</span></td>
+                        <td style="border:1px solid #ccc;padding:8px;background:#e8eef8;text-align:center;color:#111;"><b>Kalan bakiye</b><br><span style="color:${kalan > 0 ? '#c0392b' : (kalan < 0 ? '#27ae60' : '#333')};font-weight:800;font-size:14px;">${formatPara(Math.abs(kalan))}${kalan < 0 ? ' (Alacak)' : ''}</span></td>
+                    </tr>
+                </table>
+                <table style="width:100%;border-collapse:collapse;font-size:10px;">
+                    <thead>
+                        <tr style="background:#ecf0f1;">
+                            <th style="border:1px solid #bdc3c7;padding:5px;color:#111;">Tarih</th>
+                            <th style="border:1px solid #bdc3c7;padding:5px;color:#111;">İşlem</th>
+                            <th style="border:1px solid #bdc3c7;padding:5px;color:#111;">Açıklama</th>
+                            <th style="border:1px solid #bdc3c7;padding:5px;color:#111;">Miktar</th>
+                            <th style="border:1px solid #bdc3c7;padding:5px;color:#111;">Birim</th>
+                            <th style="border:1px solid #bdc3c7;padding:5px;color:#111;">B.Fiyat</th>
+                            <th style="border:1px solid #bdc3c7;padding:5px;color:#111;">Borç</th>
+                            <th style="border:1px solid #bdc3c7;padding:5px;color:#111;">Alacak</th>
+                        </tr>
+                    </thead>
+                    <tbody>${tabloSatir || '<tr><td colspan="8" style="padding:12px;text-align:center;color:#111;">Hareket yok</td></tr>'}</tbody>
+                    <tfoot>
+                        <tr style="background:#f1f3f5;font-weight:800;">
+                            <td colspan="6" style="border:1px solid #bdc3c7;padding:6px;text-align:right;color:#111;">TOPLAM</td>
+                            <td style="border:1px solid #bdc3c7;padding:6px;text-align:right;color:#c0392b;">${formatPara(toplamAlis)}</td>
+                            <td style="border:1px solid #bdc3c7;padding:6px;text-align:right;color:#27ae60;">${formatPara(toplamOdeme)}</td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>`;
+    }
+
+    function ekstreOnizlemeKapat() {
+        const ov = $('ekstreOnizleme');
+        if (ov) {
+            ov.classList.remove('active');
+            ov.setAttribute('aria-hidden', 'true');
+        }
+        document.body.classList.remove('ekstre-yazdir-modu');
+        fabGeriDurumGuncelle();
+    }
+
+    function ekstreOnizlemeAc(html) {
+        const icerik = $('ekstreOnizlemeIcerik');
+        const ov = $('ekstreOnizleme');
+        if (!icerik || !ov) throw new Error('Ekstre önizleme alanı yok');
+        icerik.innerHTML = html;
+        ov.classList.add('active');
+        ov.setAttribute('aria-hidden', 'false');
+        icerik.scrollTop = 0;
+        fabGeriGoster(false);
+    }
+
+    function ekstreMobilYazdirBaslat() {
+        document.body.classList.add('ekstre-yazdir-modu');
+        setTimeout(() => {
+            try {
+                window.print();
+            } finally {
+                setTimeout(() => document.body.classList.remove('ekstre-yazdir-modu'), 500);
+            }
+        }, 200);
+    }
+
+    async function ekstrePdfBlobUret() {
+        const el = $('ekstreOnizlemeIcerik');
+        if (!el || !el.innerHTML.trim()) throw new Error('Ekstre içeriği yok');
+        if (typeof html2pdf === 'undefined') throw new Error('PDF hazırlanamıyor (kütüphane yok)');
+        const root = el.querySelector('.ekstre-print-root') || el;
+        return html2pdf().set({
+            margin: [6, 6, 6, 6],
+            filename: sonEkstreDosyaAd,
+            image: { type: 'jpeg', quality: 0.92 },
+            html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false },
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        }).from(root).outputPdf('blob');
+    }
+
+    async function ekstreMobilPaylas() {
+        const btn = $('btnEkstreOnizlemePaylas');
+        const btnHtml = btn ? btn.innerHTML : '';
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> …';
+        }
+        try {
+            const blob = await ekstrePdfBlobUret();
+            const file = new File([blob], sonEkstreDosyaAd, { type: 'application/pdf' });
+            const paylas = { files: [file], title: 'Cari ekstre', text: 'Karaarslan Kömür — cari ekstre' };
+
+            if (navigator.share && (!navigator.canShare || navigator.canShare(paylas))) {
+                await navigator.share(paylas);
+                toast('WhatsApp veya başka uygulamayı seçin');
+                return;
+            }
+
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = sonEkstreDosyaAd;
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 8000);
+            toast('PDF indirildi — WhatsApp’ta 📎 ile dosyayı ekleyin');
+        } catch (err) {
+            console.warn('Ekstre paylaş:', err);
+            toast(err.message || 'Paylaşım başarısız');
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = btnHtml || '<i class="fab fa-whatsapp"></i> Paylaş';
+            }
+        }
+    }
+
     async function cariEkstrePdfIndir() {
         if (!aktifMusteri) {
             toast('Müşteri seçili değil');
@@ -279,118 +491,21 @@
             if (!rows || !rows.length) {
                 const id = musteriKimlik(aktifMusteri);
                 const res = await apiFetch(`/api/musteri-ekstre/${id}?_t=${Date.now()}`);
-                rows = await res.json();
-                if (!Array.isArray(rows) || !rows.length) {
-                    toast('Hesap hareketi yok');
+                rows = await apiJson(res, 'Ekstre alınamadı');
+                if (!res.ok || !Array.isArray(rows) || !rows.length) {
+                    toast((rows && rows.hata) ? rows.hata : 'Hesap hareketi yok');
                     return;
                 }
                 aktifMusteriEkstreRows = rows;
             }
 
-            const toplamAlis = Number(aktifMusteri.ToplamBorc) || 0;
-            const toplamOdeme = Number(aktifMusteri.ToplamOdeme) || 0;
-            const kalan = Number(aktifMusteri.Bakiye) || 0;
             const ad = musteriAdi(aktifMusteri);
-            const tel = aktifMusteri.CEPTEL || '—';
-            const konum = [aktifMusteri.Ilce, aktifMusteri.Mahalle].filter(Boolean).join(' / ') || '—';
-
-            const satirlar = rows.map(ekstreRaporSatir).sort(ekstreRaporSiralama);
-            const unvan = (aktifMusteri.Unvan || '').trim();
-            const anaAd = unvan || ad;
-            const altAd = (unvan && ad && ad !== unvan) ? ad : '';
-
-            const tabloSatir = satirlar.map((s) => `
-                <tr>
-                    <td style="white-space:nowrap;">
-                        <div style="font-weight:700;">${ekstreRaporKacis(s.tarihGunu)}</div>
-                        <div style="font-size:9px;color:#666;margin-top:2px;">${ekstreRaporKacis(s.saatKismi)}</div>
-                    </td>
-                    <td>${ekstreRaporKacis(s.islemTipi)}</td>
-                    <td>${ekstreRaporKacis(s.aciklama)}</td>
-                    <td class="c">${s.miktar != null ? formatSayi(s.miktar) : '—'}</td>
-                    <td>${ekstreRaporKacis(s.birim)}</td>
-                    <td class="c">${s.birimFiyat != null ? formatSayi(s.birimFiyat) : '—'}</td>
-                    <td class="c borc">${s.borc > 0 ? formatSayi(s.borc) : '—'}</td>
-                    <td class="c odeme">${s.odeme > 0 ? formatSayi(s.odeme) : '—'}</td>
-                </tr>`).join('');
-
-            const html = `
-                <div style="font-family:Segoe UI,Arial,sans-serif;color:#111;padding:8px;">
-                    <h2 style="text-align:center;margin:0 0 4px;font-size:18px;color:#2c3e50;border-bottom:2px solid #e67e22;padding-bottom:8px;">
-                        KARAARSLAN KÖMÜR — CARİ EKSTRE
-                    </h2>
-                    <p style="text-align:right;font-size:10px;color:#555;margin:0 0 12px;">
-                        ${new Date().toLocaleString('tr-TR')}
-                    </p>
-                    <div style="margin:0 0 14px;padding:10px 12px;background:#f8f9fa;border:1px solid #dee2e6;border-radius:6px;">
-                        <div style="font-size:20px;font-weight:800;color:#1a5276;text-transform:uppercase;">${ekstreRaporKacis(anaAd)}</div>
-                        ${altAd ? `<div style="font-size:13px;font-weight:600;color:#495057;margin:6px 0 8px;">${ekstreRaporKacis(altAd)}</div>` : ''}
-                        <div style="font-size:12px;margin:4px 0;"><b>Telefon</b> ${ekstreRaporKacis(tel)}</div>
-                        <div style="font-size:12px;margin:4px 0;"><b>Adres</b> ${ekstreRaporKacis(konum)}</div>
-                    </div>
-                    <table style="width:100%;border-collapse:collapse;margin:12px 0;font-size:11px;">
-                        <tr>
-                            <td style="border:1px solid #ccc;padding:8px;background:#fde8e8;text-align:center;"><b>Toplam alış</b><br><span style="color:#c0392b;font-weight:800;font-size:14px;">${formatPara(toplamAlis)}</span></td>
-                            <td style="border:1px solid #ccc;padding:8px;background:#e8f8ee;text-align:center;"><b>Toplam ödeme</b><br><span style="color:#27ae60;font-weight:800;font-size:14px;">${formatPara(toplamOdeme)}</span></td>
-                            <td style="border:1px solid #ccc;padding:8px;background:#e8eef8;text-align:center;"><b>Kalan bakiye</b><br><span style="color:${kalan > 0 ? '#c0392b' : (kalan < 0 ? '#27ae60' : '#333')};font-weight:800;font-size:14px;">${formatPara(Math.abs(kalan))}${kalan < 0 ? ' (Alacak)' : ''}</span></td>
-                        </tr>
-                    </table>
-                    <table style="width:100%;border-collapse:collapse;font-size:10px;">
-                        <thead>
-                            <tr style="background:#ecf0f1;">
-                                <th style="border:1px solid #bdc3c7;padding:5px;">Tarih</th>
-                                <th style="border:1px solid #bdc3c7;padding:5px;">İşlem</th>
-                                <th style="border:1px solid #bdc3c7;padding:5px;">Açıklama</th>
-                                <th style="border:1px solid #bdc3c7;padding:5px;">Miktar</th>
-                                <th style="border:1px solid #bdc3c7;padding:5px;">Birim</th>
-                                <th style="border:1px solid #bdc3c7;padding:5px;">B.Fiyat</th>
-                                <th style="border:1px solid #bdc3c7;padding:5px;">Borç</th>
-                                <th style="border:1px solid #bdc3c7;padding:5px;">Alacak</th>
-                            </tr>
-                        </thead>
-                        <tbody>${tabloSatir}</tbody>
-                        <tfoot>
-                            <tr style="background:#f1f3f5;font-weight:800;">
-                                <td colspan="6" style="border:1px solid #bdc3c7;padding:6px;text-align:right;">TOPLAM</td>
-                                <td style="border:1px solid #bdc3c7;padding:6px;text-align:right;color:#c0392b;">${formatPara(toplamAlis)}</td>
-                                <td style="border:1px solid #bdc3c7;padding:6px;text-align:right;color:#27ae60;">${formatPara(toplamOdeme)}</td>
-                            </tr>
-                        </tfoot>
-                    </table>
-                </div>`;
-
-            const sablon = $('ekstrePdfSablon');
-            sablon.innerHTML = html;
-
-            const dosyaAd = `Cari_Ekstre_${ad.replace(/[^\w\u00C0-\u024F\s-]/gi, '').trim().replace(/\s+/g, '_') || 'musteri'}.pdf`;
-
-            if (typeof html2pdf !== 'undefined') {
-                await html2pdf().set({
-                    margin: [8, 8, 8, 8],
-                    filename: dosyaAd,
-                    image: { type: 'jpeg', quality: 0.95 },
-                    html2canvas: { scale: 2, useCORS: true },
-                    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-                }).from(sablon).save();
-                toast('PDF indirildi');
-            } else {
-                const tamHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Cari Ekstre</title></head><body>${html}</body></html>`;
-                let frame = document.getElementById('ekstreYazdirFrame');
-                if (!frame) {
-                    frame = document.createElement('iframe');
-                    frame.id = 'ekstreYazdirFrame';
-                    frame.style.cssText = 'position:fixed;left:-9999px;width:1px;height:1px;border:0;';
-                    document.body.appendChild(frame);
-                }
-                const win = frame.contentWindow;
-                win.document.open();
-                win.document.write(tamHtml);
-                win.document.close();
-                setTimeout(() => { win.focus(); win.print(); }, 400);
-                toast('Yazdırma penceresi açılıyor…');
-            }
+            sonEkstreDosyaAd = `Cari_Ekstre_${ad.replace(/[^\w\u00C0-\u024F\s-]/gi, '').trim().replace(/\s+/g, '_') || 'musteri'}.pdf`;
+            const html = cariEkstreHtmlOlustur(rows, aktifMusteri);
+            ekstreOnizlemeAc(html);
+            toast('Önizleme — Paylaş (WhatsApp) veya Yazdır');
         } catch (err) {
-            toast(err.message || 'PDF oluşturulamadı');
+            toast(err.message || 'Ekstre hazırlanamadı');
         } finally {
             if (btn) {
                 btn.disabled = false;
@@ -409,15 +524,17 @@
     }
 
     function panelGoster(panel) {
+        aktifPanel = panel || 'ana';
         document.querySelectorAll('.panel').forEach((p) => p.classList.remove('panel-active'));
-        const el = $(`panel-${panel}`);
+        const el = $(`panel-${aktifPanel}`);
         if (el) el.classList.add('panel-active');
         document.querySelectorAll('.nav-item').forEach((n) => {
-            n.classList.toggle('nav-active', n.dataset.panel === panel);
+            n.classList.toggle('nav-active', n.dataset.panel === aktifPanel);
         });
-        if (panel === 'stok') stokYukle();
-        if (panel === 'sevk') sevkYukle();
-        if (panel === 'musteri') musteriYukle();
+        if (aktifPanel === 'stok') stokYukle();
+        if (aktifPanel === 'sevk') sevkYukle();
+        if (aktifPanel === 'musteri') musteriYukle();
+        fabGeriDurumGuncelle();
     }
 
     async function sunucuCanliMi() {
@@ -606,32 +723,33 @@
         const cards = $('ozetCards');
         try {
             const res = await apiFetch('/api/mobil-ozet', { cache: 'no-store' });
-            const d = await res.json();
+            const d = await apiJson(res, 'Özet alınamadı.');
             if (!res.ok) throw new Error(d.hata || d.message || 'Özet alınamadı.');
 
-            const komurTxt = `${formatSayi(d.bugunKomur)} kömür · ${formatSayi(d.bugunUn)} un`;
             cards.innerHTML = `
-                <div class="card-stat wide tiklanabilir" id="cardBugun" role="button" tabindex="0">
-                    <div class="lbl">Bugünkü satış · detay için dokun</div>
-                    <div class="val" style="font-size:1.1rem">${komurTxt}</div>
+                <div class="ozet-rozet tiklanabilir" id="cardBugun" role="button" tabindex="0" title="Bugünkü hareketler">
+                    <div class="rozet-baslik">Bugünkü satış</div>
+                    <div class="rozet-deger">${formatSayi(d.bugunKomur)}</div>
+                    <div class="rozet-detay">kömür</div>
+                    <div class="rozet-deger rozet-deger-alt">${formatSayi(d.bugunUn)}</div>
+                    <div class="rozet-detay">un</div>
                 </div>
-                <div class="card-stat">
-                    <div class="lbl">Müşteri</div>
-                    <div class="val">${formatSayi(d.toplamMusteri)}</div>
+                <div class="ozet-rozet tiklanabilir" id="cardMusteri" role="button" tabindex="0" title="Müşteri listesi">
+                    <div class="rozet-baslik">Müşteri</div>
+                    <div class="rozet-deger">${formatSayi(d.toplamMusteri)}</div>
+                    <div class="rozet-detay">kayıtlı cari · dokun</div>
                 </div>
-                <div class="card-stat">
-                    <div class="lbl">Bekleyen sevk</div>
-                    <div class="val">${formatSayi(d.bekleyenSevk)}</div>
-                </div>
-                <div class="card-stat wide">
-                    <div class="lbl">Toplam stok (birim)</div>
-                    <div class="val">${formatSayi(d.toplamStok)}</div>
-                    <div class="subval">${formatSayi(d.stokKalem)} ürün takipte</div>
+                <div class="ozet-rozet tiklanabilir" id="cardSevk" role="button" tabindex="0" title="Bekleyen sevkiyat">
+                    <div class="rozet-baslik">Bekleyen sevk</div>
+                    <div class="rozet-deger">${formatSayi(d.bekleyenSevk)}</div>
+                    <div class="rozet-detay">teslimat · dokun</div>
                 </div>
             `;
             $('cardBugun').addEventListener('click', bugunGoster);
+            $('cardMusteri').addEventListener('click', () => panelGoster('musteri'));
+            $('cardSevk').addEventListener('click', () => panelGoster('sevk'));
         } catch (err) {
-            cards.innerHTML = `<div class="card-stat wide"><div class="lbl">Hata</div><div class="subval">${err.message}</div></div>`;
+            cards.innerHTML = `<div class="ozet-rozet" style="grid-column:1/-1"><div class="rozet-baslik">Hata</div><div class="rozet-detay">${ekstreRaporKacis(err.message)}</div></div>`;
         }
         piyasaYukle();
         stokOzetYukle();
@@ -649,8 +767,8 @@
                 apiFetch('/api/mobil-ozet', { cache: 'no-store' }),
                 apiFetch(`/api/gunluk-hareketler?baslangic=${gun}&bitis=${gun}`)
             ]);
-            const ozet = await ozetRes.json();
-            const hareketler = await hareketRes.json();
+            const ozet = await apiJson(ozetRes, 'Özet alınamadı.');
+            const hareketler = await apiJson(hareketRes, 'Hareket listesi alınamadı.');
 
             if (ozetRes.ok) {
                 $('bugunOzet').innerHTML = `
@@ -680,16 +798,46 @@
             `;
 
             $('bugunListe').innerHTML = hareketler.map((h) => {
-                const ad = [h.Adı, h.Soyadı].filter(Boolean).join(' ') || '—';
+                const ad = [h.Adı, h.Soyadı].filter(Boolean).join(' ') || h.Unvan || '—';
                 const borc = Number(h.BORÇ) || 0;
                 const odeme = Number(h.ÖDEME) || 0;
-                let tutarHtml = '';
+                let tutarHtml = '—';
                 if (borc > 0) tutarHtml = `<span class="borc">+${formatPara(borc)}</span>`;
-                if (odeme > 0) tutarHtml = `<span class="odeme">-${formatPara(odeme)}</span>`;
-                return `<div class="ekstre-item">
-                    <div class="ust"><span>${tarihGoster(h.TARİH)}</span><span>${ad}</span></div>
-                    <div class="aciklama">${h.AÇIKLAMA || '—'} ${h.notlar ? '· ' + h.notlar : ''}</div>
-                    <div class="alt">${tutarHtml || '—'}<span>${h.IslemiYapan || ''}</span></div>
+                else if (odeme > 0) tutarHtml = `<span class="odeme">-${formatPara(odeme)}</span>`;
+
+                let aciklama = h.AÇIKLAMA || '—';
+                let miktar = Number(h.ADET) || 0;
+                const birim = (h.birimtür || h.BirimTur || '').trim();
+                if (aciklama.includes(' x ')) {
+                    const parcalar = aciklama.split(' x ');
+                    if (miktar === 0) miktar = parseFloat(parcalar[0]) || 0;
+                    aciklama = parcalar.slice(1).join(' x ').trim() || aciklama;
+                }
+                if (h.notlar && String(h.notlar).trim()) {
+                    aciklama += ` · ${h.notlar}`;
+                }
+
+                let miktarHtml = '';
+                if (borc > 0 && miktar > 0) {
+                    const bf = borc / miktar;
+                    const birimLbl = birim || 'adet';
+                    miktarHtml = `<div class="bugun-miktar">${formatSayi(miktar)} ${ekstreRaporKacis(birimLbl)} · ${formatPara(bf)}/${ekstreRaporKacis(birimLbl)}</div>`;
+                } else if (borc > 0 && birim) {
+                    miktarHtml = `<div class="bugun-miktar">${ekstreRaporKacis(birim)}</div>`;
+                }
+
+                const yapan = h.IslemiYapan ? ekstreRaporKacis(h.IslemiYapan) : '';
+                return `<div class="bugun-item">
+                    <div class="bugun-sol">
+                        <div class="bugun-musteri">${ekstreRaporKacis(ad)}</div>
+                        ${yapan ? `<div class="bugun-yapan">${yapan}</div>` : ''}
+                    </div>
+                    <div class="bugun-sag">
+                        <div class="bugun-tarih">${ekstreRaporKacis(tarihGoster(h.TARİH))}</div>
+                        <div class="bugun-aciklama">${ekstreRaporKacis(aciklama)}</div>
+                        ${miktarHtml}
+                        <div class="bugun-tutar">${tutarHtml}</div>
+                    </div>
                 </div>`;
             }).join('');
         } catch (err) {
@@ -701,7 +849,7 @@
         const el = $('piyasaBar');
         try {
             const res = await apiFetch('/api/piyasa-ozet', { cache: 'no-store' });
-            const d = await res.json();
+            const d = await apiJson(res, 'Piyasa alınamadı.');
             const usd = d.usd?.satis ?? d.usd;
             const eur = d.eur?.satis ?? d.eur;
             const gram = d.gramHasAltin ?? d.gramHas;
@@ -1034,8 +1182,11 @@
 
         $('btnMusteriKapat').addEventListener('click', overlayKapat);
         $('btnBugunKapat').addEventListener('click', overlayKapat);
-        $('btnFabGeri').addEventListener('click', overlayKapat);
+        $('btnFabGeri').addEventListener('click', fabGeriTikla);
         $('btnCariEkstrePdf').addEventListener('click', cariEkstrePdfIndir);
+        $('btnEkstreOnizlemeKapat')?.addEventListener('click', ekstreOnizlemeKapat);
+        $('btnEkstreOnizlemePaylas')?.addEventListener('click', ekstreMobilPaylas);
+        $('btnEkstreOnizlemeYazdir')?.addEventListener('click', ekstreMobilYazdirBaslat);
         $('btnModalSatis').addEventListener('click', modalSatisAc);
         $('btnModalOdeme').addEventListener('click', modalOdemeAc);
         $('btnSatisKaydet').addEventListener('click', satisKaydet);

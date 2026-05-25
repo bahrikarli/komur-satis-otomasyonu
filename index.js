@@ -1238,6 +1238,48 @@ app.get('/api/ozet', async (req, res) => {
     }
 });
 
+// Mobil ana sayfa özeti (PWA — /api/ozet + sevk + stok)
+app.get('/api/mobil-ozet', async (req, res) => {
+    try {
+        const musteriRes = await sql.query('SELECT COUNT(*) as toplam FROM [komur].[dbo].[Kimlik]');
+        const satisQuery = `
+            SELECT 
+                ISNULL(SUM(CASE WHEN UPPER(AÇIKLAMA) LIKE '%UN%' THEN ADET ELSE 0 END), 0) as UnSatis,
+                ISNULL(SUM(CASE WHEN UPPER(AÇIKLAMA) NOT LIKE '%UN%' THEN ADET ELSE 0 END), 0) as KomurSatis
+            FROM [komur].[dbo].[MusteriHareket]
+            WHERE CAST(TARİH as DATE) = CAST(GETDATE() as DATE) 
+              AND BORÇ > 0 
+        `;
+        const satisRes = await sql.query(satisQuery);
+        const sevkRes = await sql.query(`
+            SELECT COUNT(*) as adet
+            FROM [komur].[dbo].[MusteriHareket] MH
+            WHERE MH.TeslimDurumu = N'Bekliyor'
+              AND (MH.KalanTeslimat > 0 OR MH.KalanTeslimat IS NULL)
+        `);
+        await ensureStokEsikKolonlari();
+        const stokRes = await sql.query(`
+            SELECT 
+                COUNT(*) as kalem,
+                ISNULL(SUM(ISNULL(S.BaslangicStogu, 0)), 0) as toplam
+            FROM [komur].[dbo].[StokListesi] S
+            WHERE S.TakipEdilsinMi = 1
+        `);
+
+        res.json({
+            toplamMusteri: musteriRes.recordset[0].toplam,
+            bugunUn: satisRes.recordset[0].UnSatis,
+            bugunKomur: satisRes.recordset[0].KomurSatis,
+            bekleyenSevk: sevkRes.recordset[0].adet,
+            toplamStok: stokRes.recordset[0].toplam,
+            stokKalem: stokRes.recordset[0].kalem
+        });
+    } catch (err) {
+        console.error('Mobil özet yükleme hatası:', err);
+        res.status(500).json({ hata: err.message });
+    }
+});
+
 // --- YENİ SATIŞ YAPMA (Cariye Borç, Stoktan Düşüm) API'Sİ ---
 
 // --- YENİ MÜŞTERİ EKLEME API'Sİ (Kimlik Tablosuna Kayıt) ---
@@ -1482,10 +1524,12 @@ app.get('/api/gunluk-hareketler', async (req, res) => {
             K.Adı,
             K.Soyadı,
             MH.AÇIKLAMA,
+            MH.ADET,
+            MH.birimtür,
             MH.BORÇ,
             MH.ÖDEME,
             MH.notlar,
-            MH.IslemiYapan -- <--- BU SATIRIN OLDUĞUNDAN EMİN OL!
+            MH.IslemiYapan
         FROM [komur].[dbo].[MusteriHareket] MH
         LEFT JOIN [komur].[dbo].[Kimlik] K ON MH.Kisi = K.Kimlik
         WHERE CAST(MH.TARİH as DATE) BETWEEN @bas AND @bit

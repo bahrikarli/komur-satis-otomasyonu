@@ -14,7 +14,7 @@
     <link rel="icon" type="image/png" sizes="512x512" href="/mobil/icon-512.png">
     <link rel="apple-touch-icon" href="/mobil/icon-192.png">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="/mobil/mobil.css?v=6">
+    <link rel="stylesheet" href="/mobil/mobil.css?v=10">
 </head>
 <body>
     <div id="app">
@@ -61,9 +61,9 @@
             <div class="view-scroll with-nav" id="mainScroll">
                 <div id="panel-ana" class="panel panel-active">
                     <div class="cards-row" id="ozetCards">
-                        <div class="card-stat skeleton"></div>
-                        <div class="card-stat skeleton"></div>
-                        <div class="card-stat skeleton"></div>
+                        <div class="ozet-rozet skeleton"></div>
+                        <div class="ozet-rozet skeleton"></div>
+                        <div class="ozet-rozet skeleton"></div>
                     </div>
                     <div class="section-title">Piyasa</div>
                     <div class="piyasa-bar" id="piyasaBar">Yükleniyor…</div>
@@ -145,6 +145,15 @@
 
     <div id="ekstrePdfSablon" class="ekstre-pdf-sablon" aria-hidden="true"></div>
 
+    <div id="ekstreOnizleme" class="ekstre-onizleme" aria-hidden="true">
+        <header class="ekstre-onizleme-bar">
+            <button type="button" class="btn btn-ghost" id="btnEkstreOnizlemeKapat"><i class="fas fa-times"></i> Kapat</button>
+            <button type="button" class="btn btn-whatsapp" id="btnEkstreOnizlemePaylas"><i class="fab fa-whatsapp"></i> Paylaş</button>
+            <button type="button" class="btn btn-primary" id="btnEkstreOnizlemeYazdir"><i class="fas fa-print"></i> Yazdır</button>
+        </header>
+        <div id="ekstreOnizlemeIcerik" class="ekstre-onizleme-icerik"></div>
+    </div>
+
     <!-- Satış modal -->
     <div id="modal-satis" class="modal" aria-hidden="true">
         <div class="modal-backdrop" data-modal-kapat="modal-satis"></div>
@@ -209,6 +218,6 @@
 
     <div id="toast" class="toast d-none"></div>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js" crossorigin="anonymous"></script>
-    <script src="/mobil/mobil.js?v=9"></script>
+    <script src="/mobil/mobil.js?v=17"></script>
 </body>
 </html>
