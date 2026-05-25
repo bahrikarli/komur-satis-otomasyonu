@@ -1,0 +1,221 @@
+/* Genel Ayarlar */
+body {
+    background-color: #f4f6f9;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+}
+
+/* Renk Tanımlamaları */
+:root {
+    --dark-custom: #2c3e50; /* Antrasit Kömür Grisi */
+    --orange-custom: #f39c12; /* Enerji Turuncusu/Uyanı */
+    --orange-hover: #e67e22;
+}
+
+.text-dark-custom { color: var(--dark-custom); }
+.bg-dark-custom { background-color: var(--dark-custom) !important; }
+.table-dark-custom thead { background-color: var(--dark-custom); color: white; }
+
+/* Buton Özelleştirme */
+.btn-orange {
+    background-color: var(--orange-custom);
+    color: white;
+    border: none;
+    transition: all 0.3s;
+}
+
+.btn-orange:hover {
+    background-color: var(--orange-hover);
+    color: white;
+    transform: translateY(-2px);
+}
+
+/* Kart Özelleştirmeleri */
+.card-custom {
+    border: none;
+    border-radius: 10px;
+    transition: transform 0.2s;
+}
+
+.card-custom:hover {
+    transform: translateY(-3px);
+}
+
+/* İkon Kutuları (Summary Cards) */
+.icon-box {
+    width: 60px;
+    height: 60px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.bg-warning-light { background-color: rgba(243, 156, 18, 0.15); }
+.bg-success-light { background-color: rgba(40, 167, 69, 0.15); }
+.bg-info-light { background-color: rgba(23, 162, 184, 0.15); }
+
+/* Tablo Stilleri */
+#stokTablosu thead th {
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 0.85rem;
+    letter-spacing: 1px;
+}
+
+.badge-stok {
+    font-size: 0.8rem;
+    padding: 0.5em 0.75em;
+}
+
+/* Ana sayfa — dolar / euro / altın şeridi */
+.ana-sayfa-piyasa-satir {
+    margin-top: 0.25rem;
+}
+
+.ana-piyasa-serit {
+    background: linear-gradient(135deg, #fff 0%, #f8fafc 100%);
+    border: 1px solid rgba(44, 62, 80, 0.08);
+    border-radius: 12px;
+    padding: 0.55rem 0.75rem;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.ana-piyasa-icerik {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 0.45rem;
+    width: 100%;
+    align-items: stretch;
+}
+
+@media (max-width: 992px) {
+    .ana-piyasa-icerik {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 576px) {
+    .ana-piyasa-icerik {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+.ana-piyasa-badge {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    gap: 0.15rem;
+    padding: 0.45rem 0.35rem;
+    border-radius: 10px;
+    background: rgba(44, 62, 80, 0.04);
+    border: 1px solid rgba(44, 62, 80, 0.06);
+    min-width: 0;
+}
+
+.ana-piyasa-etiket {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #6c757d;
+    font-weight: 600;
+}
+
+.ana-piyasa-fiyat {
+    font-size: 0.95rem;
+    color: var(--dark-custom);
+    white-space: nowrap;
+}
+
+.ana-piyasa-degis {
+    font-size: 0.7rem;
+}
+
+.ana-piyasa-meta {
+    text-align: center;
+    padding-top: 0.35rem;
+}
+
+/* TCMB şeridi: alış / satış + ok */
+.ana-piyasa-tcmb-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.5rem;
+    width: 100%;
+    align-items: stretch;
+}
+
+@media (max-width: 992px) {
+    .ana-piyasa-tcmb-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 576px) {
+    .ana-piyasa-tcmb-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.ana-piyasa-hucre {
+    border-radius: 10px;
+    padding: 0.45rem 0.5rem;
+    background: rgba(44, 62, 80, 0.04);
+    border: 1px solid rgba(44, 62, 80, 0.08);
+    min-width: 0;
+}
+
+.ana-piyasa-hucre-baslik {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #6c757d;
+    font-weight: 700;
+    margin-bottom: 0.25rem;
+}
+
+.ana-piyasa-hucre-satir {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.35rem;
+    font-size: 0.82rem;
+    line-height: 1.35;
+}
+
+.ana-piyasa-alis {
+    color: #0d6efd;
+}
+
+.ana-piyasa-satis {
+    color: #198754;
+}
+
+.ana-piyasa-hucre-degisim {
+    margin-top: 0.2rem;
+}
+
+.ana-piyasa-degisim-yukari {
+    color: #198754;
+}
+
+.ana-piyasa-degisim-asagi {
+    color: #dc3545;
+}
+
+.ana-piyasa-degisim-sabit {
+    color: #6c757d;
+}
+
+.ana-piyasa-foot {
+    margin-top: 0.4rem;
+    padding-top: 0.35rem;
+    border-top: 1px solid rgba(44, 62, 80, 0.08);
+}
+
+.ana-piyasa-foot-kaynak {
+    font-size: 0.72rem;
+}

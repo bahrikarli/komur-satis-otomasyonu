@@ -4,6 +4,7 @@ title Komur - Musteri Paketi Olustur
 set "ROOT=%~dp0"
 set "EXE_NAME=komur-satis-otomasyonu"
 set "PAKET=%ROOT%musteri-paketi"
+set "DIST_EXE=%ROOT%dist\%EXE_NAME%.exe"
 cd /d "%ROOT%"
 
 echo.
@@ -20,21 +21,35 @@ if /I "%~1"=="release" (
     exit /b 1
   )
   echo.
+  goto :paket_hazirla
 )
 
+if /I "%~1"=="hizli" (
+  echo [1] Hizli mod: EXE yeniden DERLENMEZ, sadece public + bat kopyalanir.
+  if not exist "%DIST_EXE%" (
+    echo HATA: dist\%EXE_NAME%.exe yok. Once normal calistirin veya: npm run build:exe
+    exit /b 1
+  )
+  goto :paket_hazirla
+)
+
+echo [1] EXE yeniden derleniyor ^(index.js degisiklikleri pakete girer^)...
+taskkill /F /IM "%EXE_NAME%.exe" >nul 2>nul
+call npm run build:exe
+if errorlevel 1 (
+  echo HATA: npm run build:exe basarisiz.
+  exit /b 1
+)
+if not exist "%DIST_EXE%" (
+  echo HATA: Build sonrasi dist\%EXE_NAME%.exe bulunamadi.
+  exit /b 1
+)
+for %%F in ("%DIST_EXE%") do echo    OK: dist\%%~nxF  ^(%%~zF byte, %%~tF^)
+
+:paket_hazirla
 set "VER="
 for /f "usebackq delims=" %%i in (`node -p "require('./package.json').version"`) do set "VER=%%i"
 if "%VER%"=="" set "VER=0.0.0"
-
-if not exist "%ROOT%dist\%EXE_NAME%.exe" (
-  echo [1] EXE yok, build aliniyor...
-  call npm run build:exe
-  if errorlevel 1 (
-    echo HATA: npm run build:exe basarisiz.
-    exit /b 1
-  )
-)
-echo    OK: dist\%EXE_NAME%.exe
 
 echo [2] Paket klasoru hazirlaniyor: %PAKET%
 if exist "%PAKET%" rmdir /s /q "%PAKET%"
@@ -42,8 +57,19 @@ mkdir "%PAKET%"
 mkdir "%PAKET%\public"
 mkdir "%PAKET%\scripts"
 
-copy /y "%ROOT%dist\%EXE_NAME%.exe" "%PAKET%\" >nul
+copy /y "%DIST_EXE%" "%PAKET%\" >nul
+if errorlevel 1 (
+  echo HATA: EXE kopyalanamadi. Dosya acik olabilir ^(ACILIS.bat kapatin^).
+  exit /b 1
+)
+for %%F in ("%PAKET%\%EXE_NAME%.exe") do echo    OK: paket\%%~nxF  ^(%%~zF byte, %%~tF^)
+
 xcopy "%ROOT%public" "%PAKET%\public\" /E /I /Y /Q >nul
+if errorlevel 1 (
+  echo HATA: public klasoru kopyalanamadi.
+  exit /b 1
+)
+echo    OK: public\
 
 if exist "%ROOT%baslat.bat" copy /y "%ROOT%baslat.bat" "%PAKET%\" >nul
 if exist "%ROOT%baslat.vbs" copy /y "%ROOT%baslat.vbs" "%PAKET%\" >nul
@@ -68,8 +94,16 @@ set /p KOPYA=%HEDEF% klasorune de kopyalansin mi? (E/H):
 if /I "!KOPYA!"=="E" (
   echo [3] %HEDEF% guncelleniyor...
   if not exist "%HEDEF%" mkdir "%HEDEF%"
+  if exist "%HEDEF%\.env" (
+    echo    .env korunuyor ^(ustune yazilmiyor^)
+    copy /y "%HEDEF%\.env" "%ROOT%_env_musteri_bak.tmp" >nul
+  )
   xcopy "%PAKET%\*" "%HEDEF%\" /E /I /Y /Q >nul
-  echo    OK: %HEDEF%
+  if exist "%ROOT%_env_musteri_bak.tmp" (
+    copy /y "%ROOT%_env_musteri_bak.tmp" "%HEDEF%\.env" >nul
+    del /f /q "%ROOT%_env_musteri_bak.tmp" >nul
+  )
+  for %%F in ("%HEDEF%\%EXE_NAME%.exe") do echo    OK: %%F  ^(%%~zF byte, %%~tF^)
 )
 
 if exist "%ROOT%scripts\masaustu-kisayol.ps1" (
@@ -85,7 +119,8 @@ echo   Paket: %PAKET%
 echo   Musteri: ACILIS.bat veya masaustu kisayolu
 echo   Mobil:  mobil-ac.bat
 echo.
-echo   Yayin + paket birlikte:  musteri-paketi-olustur.bat release
+echo   Sadece arayuz ^(public^), EXE dokunma:  musteri-paketi-olustur.bat hizli
+echo   Yayin + paket birlikte:           musteri-paketi-olustur.bat release
 echo ============================================
 pause
 endlocal

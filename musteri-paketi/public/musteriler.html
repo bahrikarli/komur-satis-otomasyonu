@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Müşteriler & Cari Hesaplar - KARAARSLAN KÖMÜR</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark-custom shadow-sm">
+    <div class="container">
+        <a class="navbar-brand fw-bold" href="index.html">
+            <i class="fas fa-industry me-2 text-warning"></i>KARAARSLAN KÖMÜR
+        </a>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="navbarNav">
+            <ul class="navbar-nav ms-auto">
+                <li class="nav-item">
+                    <a class="nav-link" href="index.html"><i class="fas fa-home me-1"></i> Ana Sayfa</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link active" href="musteriler.html"><i class="fas fa-users me-1"></i> Müşteriler & Cari</a>
+                </li>
+            </ul>
+        </div>
+    </div>
+</nav>
+
+<div class="container my-5">
+    <div class="row mb-4">
+        <div class="col-md-8">
+            <h2 class="fw-bold text-dark-custom"><i class="fas fa-address-book text-warning me-2"></i>Cari Hesap Takibi</h2>
+            <p class="text-muted">Müşteri borç ve alacak durumlarını buradan yönetebilirsiniz.</p>
+        </div>
+        <div class="col-md-4 text-md-end align-self-center">
+            <button class="btn btn-success shadow" onclick="yeniMusteriEkle()">
+                <i class="fas fa-user-plus me-2"></i>Yeni Müşteri Ekle
+            </button>
+        </div>
+    </div>
+
+    <div class="card card-custom shadow">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-striped table-hover align-middle mb-0" id="cariTablosu">
+                    <thead class="table-dark-custom">
+                        <tr>
+                            <th>Müşteri Adı Soyadı</th>
+                            <th>Telefon</th>
+                            <th>Toplam Alışveriş (Borç)</th>
+                            <th>Yapılan Ödeme (Alacak)</th>
+                            <th>Kalan Bakiye</th>
+                            <th class="text-center">İşlemler</th>
+                        </tr>
+                    </thead>
+                    <tbody id="cariTabloGövdesi">
+                        <tr>
+                            <td colspan="6" class="text-center text-muted py-4">Veriler yükleniyor...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+<div class="modal fade" id="ekstreModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable"> <div class="modal-content">
+            <div class="modal-header bg-info text-white">
+                <h5 class="modal-title fw-bold">
+                    <i class="fas fa-list-alt me-2"></i> Hesap Ekstresi: <span id="ekstreMusteriAd">Müşteri</span>
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Kapat"></button>
+            </div>
+            <div class="modal-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-striped table-hover mb-0" style="font-size: 0.9rem;">
+                        <thead class="table-dark">
+                            <tr>
+                                <th>Tarih</th>
+                                <th>İşlem Tipi</th>
+                                <th>Açıklama</th>
+                                <th class="text-end text-danger">Borç (₺)</th>
+                                <th class="text-end text-success">Alacak (₺)</th>
+                                <th class="text-end text-primary">Bakiye (₺)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="ekstreTabloGovdesi">
+                            </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer bg-light">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Kapat</button>
+                <button type="button" class="btn btn-primary" onclick="window.print()">
+                    <i class="fas fa-print me-1"></i> Yazdır
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="musteriler.js"></script> </body>
+</html>

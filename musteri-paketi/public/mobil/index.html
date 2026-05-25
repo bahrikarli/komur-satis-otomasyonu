@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+    <base href="/mobil/">
+    <meta name="theme-color" content="#2c3e50">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Karaarslan Kömür">
+    <title>Karaarslan Kömür</title>
+    <link rel="manifest" href="/mobil/manifest.webmanifest">
+    <link rel="icon" type="image/png" sizes="192x192" href="/mobil/icon-192.png">
+    <link rel="icon" type="image/png" sizes="512x512" href="/mobil/icon-512.png">
+    <link rel="apple-touch-icon" href="/mobil/icon-192.png">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="/mobil/mobil.css?v=10">
+</head>
+<body>
+    <div id="app">
+        <section id="view-setup" class="view view-active">
+            <div class="view-scroll">
+                <div class="brand-block">
+                    <div class="brand-icon"><i class="fas fa-mobile-screen"></i></div>
+                    <h1>KARAARSLAN <span>KÖMÜR</span></h1>
+                    <p class="sub">Mobil bağlantı</p>
+                </div>
+                <label class="field-label" for="sunucuUrl">Sunucu adresi</label>
+                <input id="sunucuUrl" class="field-input" type="url" inputmode="url" placeholder="http://192.168.1.10:3017" autocomplete="off">
+                <p class="hint">Aynı Wi‑Fi’de sunucu IP’si ve port (varsayılan 3017).</p>
+                <button type="button" class="btn btn-primary btn-block" id="btnSunucuKaydet">Devam et</button>
+                <button type="button" class="btn btn-ghost btn-block" id="btnSunucuBuCihaz">Bu adresi kullan</button>
+            </div>
+        </section>
+
+        <section id="view-login" class="view">
+            <div class="view-scroll">
+                <div class="brand-block compact">
+                    <div class="brand-icon sm"><i class="fas fa-industry"></i></div>
+                    <h1>KÖMÜR <span>MOBİL</span></h1>
+                </div>
+                <p class="server-pill" id="loginServerPill"></p>
+                <label class="field-label" for="kAdi">Kullanıcı</label>
+                <input id="kAdi" class="field-input" type="text" autocomplete="username" placeholder="Kullanıcı adı">
+                <label class="field-label" for="sifre">Şifre</label>
+                <input id="sifre" class="field-input" type="password" autocomplete="current-password" placeholder="Şifre">
+                <button type="button" class="btn btn-primary btn-block" id="btnGiris">Giriş yap</button>
+                <p id="loginHata" class="msg-error d-none"></p>
+                <button type="button" class="btn btn-ghost btn-block mt-2" id="btnSunucuDegistir">Sunucu adresini değiştir</button>
+            </div>
+        </section>
+
+        <section id="view-main" class="view">
+            <header class="top-bar">
+                <div>
+                    <div class="top-title">KARAARSLAN KÖMÜR</div>
+                    <div class="top-user" id="headerUser">—</div>
+                </div>
+                <button type="button" class="icon-btn" id="btnCikis" title="Çıkış"><i class="fas fa-right-from-bracket"></i></button>
+            </header>
+            <div class="view-scroll with-nav" id="mainScroll">
+                <div id="panel-ana" class="panel panel-active">
+                    <div class="cards-row" id="ozetCards">
+                        <div class="ozet-rozet skeleton"></div>
+                        <div class="ozet-rozet skeleton"></div>
+                        <div class="ozet-rozet skeleton"></div>
+                    </div>
+                    <div class="section-title">Piyasa</div>
+                    <div class="piyasa-bar" id="piyasaBar">Yükleniyor…</div>
+                    <div class="section-title">Stok özeti</div>
+                    <div id="stokOzetListe" class="mini-list">—</div>
+                </div>
+                <div id="panel-stok" class="panel">
+                    <div class="section-title">Stok listesi</div>
+                    <div id="stokListe" class="stok-list">Yükleniyor…</div>
+                </div>
+                <div id="panel-sevk" class="panel">
+                    <div class="section-title">Bekleyen sevkiyat</div>
+                    <div id="sevkListe" class="sevk-list">Yükleniyor…</div>
+                </div>
+                <div id="panel-musteri" class="panel">
+                    <input type="search" id="musteriAra" class="field-input search" placeholder="Müşteri ara (ad, unvan, tel)…">
+                    <div id="musteriListe" class="musteri-list">Yükleniyor…</div>
+                </div>
+            </div>
+            <nav class="bottom-nav">
+                <button type="button" class="nav-item nav-active" data-panel="ana"><i class="fas fa-house"></i><span>Ana</span></button>
+                <button type="button" class="nav-item" data-panel="stok"><i class="fas fa-boxes-stacked"></i><span>Stok</span></button>
+                <button type="button" class="nav-item" data-panel="sevk"><i class="fas fa-truck"></i><span>Sevk</span></button>
+                <button type="button" class="nav-item" data-panel="musteri"><i class="fas fa-users"></i><span>Müşteri</span></button>
+            </nav>
+        </section>
+
+        <!-- Müşteri cari -->
+        <section id="overlay-musteri" class="overlay">
+            <header class="overlay-bar">
+                <button type="button" class="icon-btn" id="btnMusteriKapat" aria-label="Geri"><i class="fas fa-arrow-left"></i></button>
+                <div class="overlay-title-wrap">
+                    <div class="overlay-title" id="musteriDetayAd">Müşteri</div>
+                    <div class="overlay-sub" id="musteriDetayTel">—</div>
+                </div>
+            </header>
+            <div class="overlay-scroll">
+                <div class="cari-ozet">
+                    <div class="cari-ozet-kutu">
+                        <div class="lbl">Toplam alış</div>
+                        <div class="val borc" id="ozetToplamAlis">—</div>
+                    </div>
+                    <div class="cari-ozet-kutu">
+                        <div class="lbl">Toplam ödeme</div>
+                        <div class="val odeme" id="ozetToplamOdeme">—</div>
+                    </div>
+                    <div class="cari-ozet-kutu wide">
+                        <div class="lbl">Bakiye</div>
+                        <div class="val" id="ozetBakiye">—</div>
+                    </div>
+                </div>
+                <div class="action-row action-row-3">
+                    <button type="button" class="btn btn-primary flex-btn" id="btnModalSatis"><i class="fas fa-cart-plus me-1"></i>Satış yap</button>
+                    <button type="button" class="btn btn-success flex-btn" id="btnModalOdeme"><i class="fas fa-hand-holding-dollar me-1"></i>Ödeme al</button>
+                </div>
+                <button type="button" class="btn btn-outline btn-block mb-2" id="btnCariEkstrePdf"><i class="fas fa-file-pdf me-1"></i>Cari ekstre (PDF)</button>
+                <div class="section-title">Cari hareketler</div>
+                <div id="musteriEkstre" class="ekstre-list">Yükleniyor…</div>
+            </div>
+        </section>
+
+        <section id="overlay-bugun" class="overlay">
+            <header class="overlay-bar">
+                <button type="button" class="icon-btn" id="btnBugunKapat" aria-label="Geri"><i class="fas fa-arrow-left"></i></button>
+                <div class="overlay-title-wrap">
+                    <div class="overlay-title">Bugün</div>
+                    <div class="overlay-sub" id="bugunTarihLbl">—</div>
+                </div>
+            </header>
+            <div class="overlay-scroll">
+                <div id="bugunOzet" class="bugun-ozet"></div>
+                <div class="section-title">Hareketler</div>
+                <div id="bugunListe" class="ekstre-list">Yükleniyor…</div>
+            </div>
+        </section>
+
+        <button type="button" class="fab-geri d-none" id="btnFabGeri" aria-label="Geri"><i class="fas fa-arrow-left"></i></button>
+    </div>
+
+    <div id="ekstrePdfSablon" class="ekstre-pdf-sablon" aria-hidden="true"></div>
+
+    <div id="ekstreOnizleme" class="ekstre-onizleme" aria-hidden="true">
+        <header class="ekstre-onizleme-bar">
+            <button type="button" class="btn btn-ghost" id="btnEkstreOnizlemeKapat"><i class="fas fa-times"></i> Kapat</button>
+            <button type="button" class="btn btn-whatsapp" id="btnEkstreOnizlemePaylas"><i class="fab fa-whatsapp"></i> Paylaş</button>
+            <button type="button" class="btn btn-primary" id="btnEkstreOnizlemeYazdir"><i class="fas fa-print"></i> Yazdır</button>
+        </header>
+        <div id="ekstreOnizlemeIcerik" class="ekstre-onizleme-icerik"></div>
+    </div>
+
+    <!-- Satış modal -->
+    <div id="modal-satis" class="modal" aria-hidden="true">
+        <div class="modal-backdrop" data-modal-kapat="modal-satis"></div>
+        <div class="modal-sheet">
+            <div class="modal-head">
+                <h3>Satış yap</h3>
+                <button type="button" class="icon-btn modal-kapat" data-modal-kapat="modal-satis"><i class="fas fa-times"></i></button>
+            </div>
+            <label class="field-label" for="satisUrun">Ürün</label>
+            <select id="satisUrun" class="field-input"></select>
+            <label class="field-label" for="satisMiktar">Miktar</label>
+            <input id="satisMiktar" class="field-input" type="number" min="0.01" step="0.01" placeholder="0">
+            <label class="field-label" for="satisTutar">Satış tutarı (₺)</label>
+            <input id="satisTutar" class="field-input" type="number" min="0" step="0.01" placeholder="0">
+            <label class="field-label" for="satisTeslim">Teslimat</label>
+            <select id="satisTeslim" class="field-input">
+                <option value="Teslim Edildi">Teslim edildi</option>
+                <option value="Bekliyor">Bekliyor (sevk)</option>
+            </select>
+            <label class="field-label" for="satisNot">Not</label>
+            <input id="satisNot" class="field-input" type="text" placeholder="İsteğe bağlı">
+            <div class="modal-divider">Tahsilat</div>
+            <label class="check-row">
+                <input type="checkbox" id="satisOdemeAl" checked>
+                <span>Aynı anda ödeme al</span>
+            </label>
+            <div id="satisOdemeBlok">
+                <label class="field-label" for="satisOdemeTuru">Ödeme türü</label>
+                <select id="satisOdemeTuru" class="field-input">
+                    <option value="Nakit">Nakit</option>
+                    <option value="Havale/EFT">Havale/EFT</option>
+                    <option value="Kredi Kartı">Kredi Kartı</option>
+                </select>
+                <label class="field-label" for="satisOdemeTutar">Ödeme tutarı (₺)</label>
+                <input id="satisOdemeTutar" class="field-input" type="number" min="0" step="0.01" placeholder="0">
+            </div>
+            <button type="button" class="btn btn-primary btn-block mt-2" id="btnSatisKaydet">Kaydet</button>
+        </div>
+    </div>
+
+    <!-- Ödeme modal -->
+    <div id="modal-odeme" class="modal" aria-hidden="true">
+        <div class="modal-backdrop" data-modal-kapat="modal-odeme"></div>
+        <div class="modal-sheet">
+            <div class="modal-head">
+                <h3>Ödeme al</h3>
+                <button type="button" class="icon-btn modal-kapat" data-modal-kapat="modal-odeme"><i class="fas fa-times"></i></button>
+            </div>
+            <label class="field-label" for="odemeTutar">Tutar (₺)</label>
+            <input id="odemeTutar" class="field-input" type="number" min="0.01" step="0.01" placeholder="0">
+            <label class="field-label" for="odemeTuru">Ödeme türü</label>
+            <select id="odemeTuru" class="field-input">
+                <option value="Nakit">Nakit</option>
+                <option value="Havale/EFT">Havale/EFT</option>
+                <option value="Kredi Kartı">Kredi Kartı</option>
+            </select>
+            <label class="field-label" for="odemeNot">Ödeme notu</label>
+            <input id="odemeNot" class="field-input" type="text" placeholder="İsteğe bağlı (banka, açıklama…)">
+            <button type="button" class="btn btn-success btn-block mt-2" id="btnOdemeKaydet">Ödemeyi kaydet</button>
+        </div>
+    </div>
+
+    <div id="toast" class="toast d-none"></div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js" crossorigin="anonymous"></script>
+    <script src="/mobil/mobil.js?v=17"></script>
+</body>
+</html>
