@@ -6,6 +6,13 @@
     let stokCache = [];
     let aktifMusteri = null;
     let aktifMusteriEkstreRows = [];
+    let guncelToplamTaksitBorcu = 0;
+    let aktifTaksitlerCache = [];
+    let musteriNotUyariKuyruk = [];
+    let musteriNotUyariIdx = 0;
+    let raporMod = '';
+    let raporVeriler = [];
+    let overlayGeriHedef = null;
     let sonEkstreDosyaAd = 'Cari_Ekstre.pdf';
     let aktifPanel = 'ana';
 
@@ -76,6 +83,168 @@
         return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
     }
 
+    function mobilAdminMi() {
+        const y = (oturumOku()?.yetki || '').toLowerCase();
+        return y === 'admin';
+    }
+
+    function tarihIsoGoster(iso) {
+        if (!iso) return '—';
+        const p = String(iso).split('-');
+        if (p.length !== 3) return iso;
+        return `${p[2]}.${p[1]}.${p[0]}`;
+    }
+
+    function gunlukOzetAralikMetni(bas, bit) {
+        if (bas === bit) {
+            const d = new Date(bas + 'T12:00:00');
+            if (!Number.isNaN(d.getTime())) {
+                return d.toLocaleDateString('tr-TR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+            }
+            return tarihIsoGoster(bas);
+        }
+        return `${tarihIsoGoster(bas)} – ${tarihIsoGoster(bit)}`;
+    }
+
+    function gunlukOzetTarihleriIlk() {
+        const bugun = bugunIso();
+        const bas = $('bugunBaslangic');
+        const bit = $('bugunBitis');
+        if (bas) bas.value = bugun;
+        if (bit) bit.value = bugun;
+    }
+
+    function gunlukOzetYetkiAyarla() {
+        const filtre = document.querySelector('.gunluk-tarih-filtre');
+        const bitisWrap = $('bugunBitisWrap');
+        const basLbl = $('bugunBaslangicLbl');
+        const admin = mobilAdminMi();
+        if (filtre) filtre.classList.toggle('gunluk-tarih-filtre--tek', !admin);
+        if (bitisWrap) bitisWrap.style.display = admin ? '' : 'none';
+        if (basLbl) basLbl.textContent = admin ? 'Başlangıç' : 'Tarih';
+    }
+
+    function hareketlerdenSatisAdet(hareketler) {
+        let komur = 0;
+        let un = 0;
+        (hareketler || []).forEach((h) => {
+            const borc = Number(h.BORÇ) || 0;
+            if (borc <= 0) return;
+            const adet = Number(h.ADET) || 0;
+            const acik = String(h.AÇIKLAMA || '').toUpperCase();
+            if (acik.includes('UN')) un += adet;
+            else komur += adet;
+        });
+        return { komur, un };
+    }
+
+    function hareketlerdenTahsilatKirilim(hareketler) {
+        let nakit = 0;
+        let kart = 0;
+        let havale = 0;
+        (hareketler || []).forEach((h) => {
+            const odeme = Number(h.ÖDEME) || 0;
+            if (odeme <= 0) return;
+            const aciklama = String(h.AÇIKLAMA || '').toLowerCase();
+            if (aciklama.includes('kart') || aciklama.includes('kredi')) kart += odeme;
+            else if (aciklama.includes('havale') || aciklama.includes('eft')) havale += odeme;
+            else if (!aciklama.includes('iade')) nakit += odeme;
+        });
+        return { nakit, kart, havale };
+    }
+
+    function gunlukOzetRozetHtml(opts) {
+        const { komur, un, nakit, kart, havale, toplamBorc, toplamOdeme, toplamGider, netKasa } = opts;
+        return `
+            <div class="oz oz--mini">
+                <div class="oz-baslik">Birim satış</div>
+                <div class="oz-satir"><span>Kömür</span><b>${formatSayi(komur)}</b></div>
+                <div class="oz-satir"><span>Un</span><b>${formatSayi(un)}</b></div>
+            </div>
+            <div class="oz oz--mini">
+                <div class="oz-baslik">Tahsilat dağılımı</div>
+                <div class="oz-satir"><span>Nakit</span><b>${formatPara(nakit)}</b></div>
+                <div class="oz-satir"><span>Kart</span><b>${formatPara(kart)}</b></div>
+                <div class="oz-satir"><span>Havale</span><b>${formatPara(havale)}</b></div>
+            </div>
+            <div class="oz oz--mini">
+                <div class="oz-baslik">Kasa özeti</div>
+                <div class="oz-satir"><span>Satış</span><b class="oz-v-borc">${formatPara(toplamBorc)}</b></div>
+                <div class="oz-satir"><span>Tahsilat</span><b class="oz-v-odeme">${formatPara(toplamOdeme)}</b></div>
+                <div class="oz-satir"><span>Gider</span><b class="oz-v-gider">${formatPara(toplamGider)}</b></div>
+            </div>
+            <div class="oz oz--mini oz--net">
+                <div class="oz-baslik">Net kasa</div>
+                <div class="oz-net-deger">${formatPara(netKasa)}</div>
+                <div class="oz-net-alt">Tahsilat − Gider</div>
+            </div>`;
+    }
+
+    function gunlukOzetHareketKarti(h) {
+        const musteriHtml = musteriKimlikHtml(h);
+        const borc = Number(h.BORÇ) || 0;
+        const odeme = Number(h.ÖDEME) || 0;
+        let tutarHtml = '—';
+        if (borc > 0) tutarHtml = `<span class="borc">+${formatPara(borc)}</span>`;
+        else if (odeme > 0) tutarHtml = `<span class="odeme">-${formatPara(odeme)}</span>`;
+
+        let aciklama = h.AÇIKLAMA || '—';
+        let miktar = Number(h.ADET) || 0;
+        const birim = (h.birimtür || h.BirimTur || '').trim();
+        if (aciklama.includes(' x ')) {
+            const parcalar = aciklama.split(' x ');
+            if (miktar === 0) miktar = parseFloat(parcalar[0]) || 0;
+            aciklama = parcalar.slice(1).join(' x ').trim() || aciklama;
+        }
+        if (h.notlar && String(h.notlar).trim()) {
+            aciklama += ` · ${h.notlar}`;
+        }
+
+        let miktarHtml = '';
+        if (borc > 0 && miktar > 0) {
+            const bf = borc / miktar;
+            const birimLbl = birim || 'adet';
+            miktarHtml = `<div class="bugun-miktar">${formatSayi(miktar)} ${ekstreRaporKacis(birimLbl)} · ${formatPara(bf)}/${ekstreRaporKacis(birimLbl)}</div>`;
+        } else if (borc > 0 && birim) {
+            miktarHtml = `<div class="bugun-miktar">${ekstreRaporKacis(birim)}</div>`;
+        }
+
+        const yapan = h.IslemiYapan ? ekstreRaporKacis(h.IslemiYapan) : '';
+        return `<div class="bugun-item">
+            <div class="bugun-sol">
+                ${musteriHtml}
+                ${yapan ? `<div class="bugun-yapan">${yapan}</div>` : ''}
+            </div>
+            <div class="bugun-sag">
+                <div class="bugun-tarih">${ekstreRaporKacis(tarihGoster(h.TARİH))}</div>
+                <div class="bugun-aciklama">${ekstreRaporKacis(aciklama)}</div>
+                ${miktarHtml}
+                <div class="bugun-tutar">${tutarHtml}</div>
+            </div>
+        </div>`;
+    }
+
+    function gunlukOzetGiderKarti(g) {
+        const kasadanCikar = g.IslemTipi !== 'Mazot Çıkışı';
+        const tutar = kasadanCikar ? (Number(g.Tutar) || 0) : 0;
+        const baslik = g.FirmaKisi || 'Gider';
+        const aciklama = [g.Kategori, g.Aciklama].filter(Boolean).join(' · ') || '—';
+        const tutarHtml = tutar > 0
+            ? `<span class="borc">-${formatPara(tutar)}</span>`
+            : '<span class="text-muted">—</span>';
+        return `<div class="bugun-item bugun-item--gider">
+            <div class="bugun-sol">
+                <div class="bugun-musteri">${ekstreRaporKacis(baslik)}</div>
+                <div class="bugun-musteri-alt"><span class="gider-rozet">GİDER</span></div>
+            </div>
+            <div class="bugun-sag">
+                <div class="bugun-tarih">${ekstreRaporKacis(tarihGoster(g.Tarih))}</div>
+                <div class="bugun-aciklama">${ekstreRaporKacis(aciklama)}</div>
+                <div class="bugun-tutar">${tutarHtml}</div>
+            </div>
+        </div>`;
+    }
+
     function tarihGoster(v) {
         if (!v) return '—';
         const d = new Date(v);
@@ -83,8 +252,276 @@
         return d.toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
     }
 
+    function musteriKimlikGosterim(kayit) {
+        const unvan = String(kayit?.Unvan ?? kayit?.UNVAN ?? '').replace(/null/gi, '').trim();
+        const adi = String(kayit?.Adı ?? kayit?.ADI ?? '').replace(/null/gi, '').trim();
+        const soyadi = String(kayit?.Soyadı ?? kayit?.SOYADI ?? '').replace(/null/gi, '').trim();
+        const adSoyad = [adi, soyadi].filter(Boolean).join(' ').trim();
+        if (unvan) {
+            const alt = adSoyad && adSoyad.localeCompare(unvan, 'tr', { sensitivity: 'accent' }) !== 0 ? adSoyad : '';
+            return { ana: unvan, alt };
+        }
+        return { ana: adSoyad || 'Müşteri', alt: '' };
+    }
+
+    function musteriKimlikHtml(kayit) {
+        const g = musteriKimlikGosterim(kayit);
+        if (g.alt) {
+            return `<div class="bugun-musteri">${ekstreRaporKacis(g.ana)}</div><div class="bugun-musteri-alt">${ekstreRaporKacis(g.alt)}</div>`;
+        }
+        return `<div class="bugun-musteri">${ekstreRaporKacis(g.ana)}</div>`;
+    }
+
     function musteriAdi(m) {
-        return m.Adı || m.Unvan || [m.Adı, m.Soyadı].filter(Boolean).join(' ') || 'Müşteri';
+        return musteriKimlikGosterim(m).ana;
+    }
+
+    function musteriTelMahalleMeta(m) {
+        const tel = String(m?.CEPTEL ?? '').trim();
+        const telG = tel && tel !== '-' ? tel : '';
+        const mah = String(m?.Mahalle ?? m?.MAHALLE ?? '').trim();
+        const parcalar = [telG, mah].filter(Boolean);
+        return parcalar.length ? parcalar.join(' · ') : '—';
+    }
+
+    function musteriListeKimlikHtml(kayit) {
+        const g = musteriKimlikGosterim(kayit);
+        if (g.alt) {
+            return `<div class="musteri-item-ad">${ekstreRaporKacis(g.ana)}</div><div class="musteri-item-ad-alt">${ekstreRaporKacis(g.alt)}</div>`;
+        }
+        return `<div class="musteri-item-ad">${ekstreRaporKacis(g.ana)}</div>`;
+    }
+
+    function musteriDetayKimlikHtml(kayit) {
+        const g = musteriKimlikGosterim(kayit);
+        if (g.alt) {
+            return `<span class="musteri-detay-ana">${ekstreRaporKacis(g.ana)}</span><span class="musteri-detay-alt">${ekstreRaporKacis(g.alt)}</span>`;
+        }
+        return `<span class="musteri-detay-ana">${ekstreRaporKacis(g.ana)}</span>`;
+    }
+
+    function musteriAlanOku(kayit, ...anahtarlar) {
+        if (!kayit) return '';
+        for (const a of anahtarlar) {
+            const v = kayit[a];
+            if (v != null && String(v).trim() && String(v).toLowerCase() !== 'null') {
+                return String(v).trim();
+            }
+        }
+        return '';
+    }
+
+    function musteriDetayBaslikGuncelle(m) {
+        $('musteriDetayAd').innerHTML = musteriDetayKimlikHtml(m);
+        $('musteriDetayMeta').textContent = musteriTelMahalleMeta(m);
+    }
+
+    function musteriCacheGuncelle(guncel) {
+        const id = musteriKimlik(guncel);
+        if (!id) return;
+        const idx = musteriCache.findIndex((x) => musteriKimlik(x) === id);
+        if (idx >= 0) musteriCache[idx] = { ...musteriCache[idx], ...guncel };
+        else musteriCache.push(guncel);
+    }
+
+    function kIlceListeSira() {
+        if (window.KONYA_ILCELER_ALFABE && window.KONYA_ILCELER_ALFABE.length) {
+            return window.KONYA_ILCELER_ALFABE;
+        }
+        const sozluk = window.ADRES_SOZLUGU_KONYA || {};
+        return Object.keys(sozluk).sort((a, b) => a.localeCompare(b, 'tr', { sensitivity: 'base' }));
+    }
+
+    function mobilKonyaIlceDoldur(ilceEl, korunacakIlce) {
+        if (!ilceEl) return;
+        const list = kIlceListeSira();
+        const kaynak = korunacakIlce != null ? String(korunacakIlce).trim() : String(ilceEl.value || '').trim();
+        ilceEl.innerHTML = list.map((ilce) => {
+            const guvenli = String(ilce).replace(/"/g, '&quot;');
+            return `<option value="${guvenli}">${ilce}</option>`;
+        }).join('');
+        const uyumlu = [...ilceEl.options].find((o) => kaynak && (
+            o.value === kaynak || o.value.localeCompare(kaynak, 'tr', { sensitivity: 'base' }) === 0
+        ));
+        if (uyumlu) {
+            ilceEl.value = uyumlu.value;
+            return;
+        }
+        if (kaynak) {
+            const opt = document.createElement('option');
+            opt.value = kaynak;
+            opt.textContent = `${kaynak} (kayıtta)`;
+            ilceEl.insertBefore(opt, ilceEl.firstChild);
+            ilceEl.value = kaynak;
+            return;
+        }
+        if (list.indexOf('Sarayönü') >= 0) ilceEl.value = 'Sarayönü';
+        else if (list.length) ilceEl.value = list[0];
+    }
+
+    function mobilKonyaMahalleAyarla(mahalleEl, ilceDeger, mahalleKaydi) {
+        if (!mahalleEl) return;
+        const bic = typeof window.mahalleAdiniBiçimlendir === 'function'
+            ? window.mahalleAdiniBiçimlendir
+            : (x) => String(x || '').trim();
+        const mHam = mahalleKaydi != null ? String(mahalleKaydi).trim() : '';
+        const mNorm = mHam ? bic(mHam) : '';
+        const sozluk = window.ADRES_SOZLUGU_KONYA || {};
+        const mh = Array.isArray(sozluk[ilceDeger]) ? sozluk[ilceDeger] : [];
+
+        if (mh.length === 0) {
+            mahalleEl.innerHTML = '';
+            if (mHam) {
+                mahalleEl.disabled = false;
+                mahalleEl.appendChild(new Option('Mahalle seçin…', ''));
+                mahalleEl.appendChild(new Option(`${mNorm} (kayıttaki)`, mNorm));
+                mahalleEl.value = mNorm;
+            } else {
+                mahalleEl.disabled = true;
+                mahalleEl.appendChild(new Option('Bu ilçe için mahalle listesi yok', '', true, true));
+            }
+            return;
+        }
+
+        mahalleEl.disabled = false;
+        mahalleEl.innerHTML = '<option value="">Mahalle seçin…</option>';
+        mh.forEach((m) => mahalleEl.appendChild(new Option(m, m)));
+
+        const bul = mHam
+            ? [...mahalleEl.options].find((o) => o.value && (
+                o.value === mNorm || o.value.localeCompare(mNorm, 'tr', { sensitivity: 'base' }) === 0
+            ))
+            : null;
+        if (bul) {
+            mahalleEl.value = bul.value;
+            return;
+        }
+        if (mHam) {
+            mahalleEl.appendChild(new Option(`${mNorm} (kayıtta)`, mNorm));
+            mahalleEl.value = mNorm;
+            return;
+        }
+        mahalleEl.value = '';
+    }
+
+    function mobilKonyaAdresYukle(ilceKaydi, mahalleKaydi) {
+        const ilceEl = $('mDuzenleIlce');
+        const mahEl = $('mDuzenleMahalleListe');
+        if (!ilceEl || !mahEl) return;
+        mobilKonyaIlceDoldur(ilceEl, ilceKaydi || 'Sarayönü');
+        mobilKonyaMahalleAyarla(mahEl, ilceEl.value, mahalleKaydi);
+        if (!ilceEl.dataset.mobilKonyaOk) {
+            ilceEl.dataset.mobilKonyaOk = '1';
+            ilceEl.addEventListener('change', () => mobilKonyaMahalleAyarla(mahEl, ilceEl.value, ''));
+        }
+    }
+
+    function mobilKonyaAdresOku() {
+        const ilceEl = $('mDuzenleIlce');
+        const mahEl = $('mDuzenleMahalleListe');
+        const ilce = (ilceEl?.value || '').trim();
+        const ham = mahEl && !mahEl.disabled ? (mahEl.value || '').trim() : '';
+        const bic = typeof window.mahalleAdiniBiçimlendir === 'function'
+            ? window.mahalleAdiniBiçimlendir
+            : (x) => String(x || '').trim();
+        return { ilce, mahalle: ham ? bic(ham) : '' };
+    }
+
+    function musteriTelefonTemizle(ham) {
+        let t = String(ham ?? '').replace(/[^0-9]/g, '');
+        if (t.startsWith('0')) t = t.substring(1);
+        return t.substring(0, 10);
+    }
+
+    function musteriDuzenleFormDoldur(m) {
+        const unvanEl = $('mDuzenleUnvan');
+        const adEl = $('mDuzenleAd');
+        const telEl = $('mDuzenleTelefon');
+        const adresEl = $('mDuzenleAdres');
+        if (unvanEl) {
+            unvanEl.value = musteriAlanOku(m, 'Unvan', 'UNVAN', 'unvan');
+            unvanEl.oninput = function () {
+                this.value = this.value.toLocaleUpperCase('tr-TR');
+            };
+        }
+        if (adEl) adEl.value = musteriAlanOku(m, 'Adı', 'ADI', 'ad');
+        if (telEl) {
+            telEl.value = musteriTelefonTemizle(musteriAlanOku(m, 'CEPTEL', 'ceptel', 'Telefon'));
+            telEl.oninput = function () {
+                let val = this.value.replace(/[^0-9]/g, '');
+                if (val.startsWith('0')) val = val.substring(1);
+                this.value = val.substring(0, 10);
+            };
+        }
+        if (adresEl) adresEl.value = musteriAlanOku(m, 'Adres', 'ADRES', 'adres');
+        mobilKonyaAdresYukle(
+            musteriAlanOku(m, 'Ilce', 'ILCE', 'ilce') || 'Sarayönü',
+            musteriAlanOku(m, 'Mahalle', 'MAHALLE', 'mahalle')
+        );
+    }
+
+    function musteriDuzenleAc() {
+        if (!aktifMusteri) {
+            toast('Önce müşteri seçin');
+            return;
+        }
+        musteriMenuKapat();
+        musteriDuzenleFormDoldur(aktifMusteri);
+        modalAc('modal-musteri-duzenle');
+    }
+
+    async function musteriDuzenleKaydet() {
+        if (!aktifMusteri) return;
+        const mid = musteriKimlik(aktifMusteri);
+        const ad = ($('mDuzenleAd')?.value || '').trim();
+        const tel = musteriTelefonTemizle($('mDuzenleTelefon')?.value || '');
+        const unvan = ($('mDuzenleUnvan')?.value || '').trim();
+        const adres = ($('mDuzenleAdres')?.value || '').trim();
+        const { ilce, mahalle } = mobilKonyaAdresOku();
+
+        if (tel && tel.length !== 10) {
+            toast("Telefonu başında 0 olmadan 10 hane girin");
+            return;
+        }
+
+        const btn = $('btnMusteriDuzenleKaydet');
+        if (btn) btn.disabled = true;
+        try {
+            const res = await apiFetch(`/api/musteri-guncelle/${mid}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    ad,
+                    telefon: tel,
+                    unvan,
+                    adres,
+                    ilce,
+                    mahalle
+                })
+            });
+            const data = await apiJson(res, 'Kayıt güncellenemedi');
+            if (!res.ok) throw new Error(data?.hata || 'Kayıt güncellenemedi');
+
+            const guncel = {
+                ...aktifMusteri,
+                Adı: ad,
+                CEPTEL: tel || '-',
+                Unvan: unvan,
+                Adres: adres,
+                Ilce: ilce,
+                Mahalle: mahalle
+            };
+            aktifMusteri = guncel;
+            musteriCacheGuncelle(guncel);
+            musteriDetayBaslikGuncelle(guncel);
+            musteriFiltrele($('musteriAra')?.value || '');
+            modalKapat('modal-musteri-duzenle');
+            toast('Müşteri bilgileri güncellendi');
+        } catch (err) {
+            toast(err.message || 'Kayıt güncellenemedi');
+        } finally {
+            if (btn) btn.disabled = false;
+        }
     }
 
     function musteriKimlik(m) {
@@ -123,9 +560,13 @@
         }
     }
 
-    function fabGeriDurumGuncelle() {
+    function geriTusGuncelle() {
         const overlayAcik = !!document.querySelector('.overlay.overlay-active');
         const ekstreAcik = $('ekstreOnizleme')?.classList.contains('active');
+        const modalAcik = !!document.querySelector('.modal.modal-active');
+        const topGeri = $('btnTopGeri');
+        const gosterAnaGeri = !overlayAcik && !ekstreAcik && !modalAcik && aktifPanel !== 'ana';
+        if (topGeri) topGeri.classList.toggle('d-none', !gosterAnaGeri);
         fabGeriGoster(overlayAcik || ekstreAcik || aktifPanel !== 'ana');
     }
 
@@ -134,7 +575,12 @@
             ekstreOnizlemeKapat();
             return;
         }
-        if (document.querySelector('.overlay.overlay-active')) {
+        const aktifOverlay = document.querySelector('.overlay.overlay-active');
+        if (aktifOverlay?.id === 'overlay-musteri' && overlayGeriHedef) {
+            musteriOverlayKapat();
+            return;
+        }
+        if (aktifOverlay) {
             overlayKapat();
             return;
         }
@@ -143,27 +589,265 @@
         }
     }
 
+    function musteriOverlayKapat() {
+        if (overlayGeriHedef) {
+            const hedef = overlayGeriHedef;
+            overlayGeriHedef = null;
+            musteriMenuKapat();
+            overlayAc(hedef);
+            return;
+        }
+        overlayKapat();
+    }
+
     function overlayAc(id) {
         document.querySelectorAll('.overlay').forEach((o) => o.classList.remove('overlay-active'));
         const el = $(id);
         if (el) el.classList.add('overlay-active');
-        fabGeriDurumGuncelle();
+        geriTusGuncelle();
     }
 
     function overlayKapat() {
+        overlayGeriHedef = null;
+        musteriMenuKapat();
+        anaMenuKapat();
         document.querySelectorAll('.overlay').forEach((o) => o.classList.remove('overlay-active'));
         modallariKapat();
-        fabGeriDurumGuncelle();
+        geriTusGuncelle();
     }
 
     function modalAc(id) {
         const el = $(id);
         if (el) el.classList.add('modal-active');
+        geriTusGuncelle();
     }
 
     function modalKapat(id) {
         const el = $(id);
         if (el) el.classList.remove('modal-active');
+        geriTusGuncelle();
+    }
+
+    function musteriMenuKapat() {
+        const menu = $('musteriMenuDropdown');
+        const btn = $('btnMusteriMenu');
+        if (menu) menu.classList.add('d-none');
+        if (btn) btn.setAttribute('aria-expanded', 'false');
+    }
+
+    function anaMenuKapat() {
+        const menu = $('anaMenuDropdown');
+        const btn = $('btnAnaMenu');
+        if (menu) menu.classList.add('d-none');
+        if (btn) btn.setAttribute('aria-expanded', 'false');
+    }
+
+    function anaMenuToggle() {
+        const menu = $('anaMenuDropdown');
+        const btn = $('btnAnaMenu');
+        if (!menu || !btn) return;
+        if (menu.classList.contains('d-none')) {
+            menu.classList.remove('d-none');
+            btn.setAttribute('aria-expanded', 'true');
+        } else {
+            anaMenuKapat();
+        }
+    }
+
+    function raporVadeTarihGoster(ham) {
+        if (!ham) return '—';
+        const d = new Date(ham);
+        if (Number.isNaN(d.getTime())) return String(ham);
+        return d.toLocaleDateString('tr-TR');
+    }
+
+    function raporBaslikAyarla(mod) {
+        const baslik = $('raporOverlayBaslik');
+        const alt = $('raporOverlayAlt');
+        if (mod === 'borclu') {
+            if (baslik) baslik.textContent = 'Borçlu müşteriler';
+            if (alt) alt.textContent = 'Bakiyesi olan müşteriler';
+        } else {
+            if (baslik) baslik.textContent = 'Vadesi gelen / geçen';
+            if (alt) alt.textContent = 'Ödenmemiş taksit vadeleri';
+        }
+    }
+
+    function raporListeFiltrele() {
+        const q = ($('raporArama')?.value || '').toLocaleLowerCase('tr-TR').trim();
+        if (!q) return raporVeriler;
+        return raporVeriler.filter((r) => {
+            const blob = [r._arama, r.Adı, r.CEPTEL, r.AÇIKLAMA].filter(Boolean).join(' ').toLocaleLowerCase('tr-TR');
+            return blob.includes(q);
+        });
+    }
+
+    function raporOzetGuncelle(liste, toplam) {
+        const sayi = $('raporKayitSayisi');
+        const top = $('raporGenelToplam');
+        if (sayi) sayi.textContent = String(liste.length);
+        if (top) top.textContent = formatPara(toplam);
+    }
+
+    function raporListeCiz() {
+        const el = $('raporListe');
+        if (!el) return;
+        const filtreli = raporListeFiltrele();
+        let toplam = 0;
+        filtreli.forEach((r) => { toplam += Number(r._tutar) || 0; });
+        raporOzetGuncelle(filtreli, toplam);
+
+        if (!filtreli.length) {
+            el.innerHTML = '<div class="empty-msg">Kayıt bulunamadı</div>';
+            return;
+        }
+
+        if (raporMod === 'borclu') {
+            el.innerHTML = filtreli.map((m) => {
+                const id = Number(m.Kimlik) || 0;
+                const bakiye = Number(m.Bakiye) || 0;
+                const cls = bakiye > 5000 ? 'rapor-item--borc-yuksek' : 'rapor-item--borc-orta';
+                const tutarCls = bakiye > 5000 ? 'borc-yuksek' : 'borc-orta';
+                const ad = ekstreRaporKacis(m.Adı || 'İsimsiz');
+                const tel = ekstreRaporKacis(m.CEPTEL || '—');
+                return `<div class="rapor-item ${cls}" data-mid="${id}" role="button" tabindex="0">
+                    <div class="rapor-item-ust">
+                        <div>
+                            <div class="rapor-item-ad">${ad}</div>
+                            <div class="rapor-item-tel">${tel}</div>
+                        </div>
+                        <div class="rapor-item-tutar ${tutarCls}">${formatPara(bakiye)}</div>
+                    </div>
+                </div>`;
+            }).join('');
+            return;
+        }
+
+        el.innerHTML = filtreli.map((r) => {
+            const id = Number(r.MusteriID) || 0;
+            const miktar = Number(r.MIKTAR) || 0;
+            const gecikme = Number(r.GecikmeGunu) || 0;
+            const cls = gecikme > 0 ? 'rapor-item--gecikme' : 'rapor-item--bugun';
+            const vadeCls = gecikme > 0 ? '' : 'bugun';
+            const uyari = gecikme > 0 ? `${gecikme} gün geçti` : 'Ödeme günü bugün';
+            const hamTarih = r.TARIH || r.TARİH || r.ODEMETARİHİ || r.VADETARİHİ;
+            return `<div class="rapor-item ${cls}" data-mid="${id}" role="button" tabindex="0">
+                <div class="rapor-item-ust">
+                    <div>
+                        <div class="rapor-item-ad">${ekstreRaporKacis(r.Adı || 'İsimsiz')}</div>
+                        <div class="rapor-item-tel">${ekstreRaporKacis(r.CEPTEL || '—')}</div>
+                    </div>
+                    <div class="rapor-item-tutar borc-yuksek">${formatPara(miktar)}</div>
+                </div>
+                <div class="rapor-item-alt">
+                    <span class="rapor-item-vade ${vadeCls}">${raporVadeTarihGoster(hamTarih)}</span>
+                    · ${ekstreRaporKacis(uyari)}
+                    ${r.AÇIKLAMA ? `<br>${ekstreRaporKacis(r.AÇIKLAMA)}` : ''}
+                </div>
+                <span class="rapor-rozet">BEKLİYOR</span>
+            </div>`;
+        }).join('');
+    }
+
+    async function raporMusteriDetayAc(musteriId) {
+        const id = Number(musteriId);
+        if (!id) return;
+        let m = musteriCache.find((x) => musteriKimlik(x) === id);
+        if (!m) {
+            try {
+                const res = await apiFetch('/api/musteriler');
+                const liste = await apiJson(res, 'Müşteriler alınamadı');
+                if (res.ok && Array.isArray(liste)) {
+                    musteriCache = liste;
+                    m = musteriCache.find((x) => musteriKimlik(x) === id);
+                }
+            } catch {
+                /* ignore */
+            }
+        }
+        if (!m) {
+            toast('Müşteri bulunamadı');
+            return;
+        }
+        overlayGeriHedef = 'overlay-rapor';
+        await musteriDetayAc(id);
+    }
+
+    async function raporVeriYukle() {
+        const el = $('raporListe');
+        if (!el) return;
+        el.innerHTML = '<div class="empty-msg">Yükleniyor…</div>';
+        const arama = $('raporArama');
+        if (arama) arama.value = '';
+
+        try {
+            const url = raporMod === 'borclu' ? '/api/rapor-borclular' : '/api/rapor-vadesi-gelenler';
+            const res = await apiFetch(url);
+            const veriler = await apiJson(res, 'Rapor alınamadı');
+            if (!res.ok || !Array.isArray(veriler)) {
+                throw new Error(veriler?.hata || 'Rapor alınamadı');
+            }
+
+            raporVeriler = veriler.map((r) => {
+                const ad = r.Adı || '';
+                const tel = r.CEPTEL || '';
+                const acik = r.AÇIKLAMA || '';
+                const tutar = raporMod === 'borclu'
+                    ? (Number(r.Bakiye) || 0)
+                    : (Number(r.MIKTAR) || 0);
+                return {
+                    ...r,
+                    _tutar: tutar,
+                    _arama: [ad, tel, acik].join(' ')
+                };
+            });
+
+            if (!raporVeriler.length) {
+                const bos = raporMod === 'borclu'
+                    ? 'Borçlu müşteri yok — herkes ödemesini yapmış!'
+                    : 'Vadesi geçmiş ödeme yok';
+                el.innerHTML = `<div class="empty-msg">${bos}</div>`;
+                raporOzetGuncelle([], 0);
+                return;
+            }
+
+            let genelToplam = 0;
+            raporVeriler.forEach((r) => { genelToplam += r._tutar; });
+            raporOzetGuncelle(raporVeriler, genelToplam);
+            raporListeCiz();
+        } catch (err) {
+            el.innerHTML = `<div class="empty-msg">${err.message}</div>`;
+            raporOzetGuncelle([], 0);
+        }
+    }
+
+    async function borcluMusterileriAc() {
+        anaMenuKapat();
+        raporMod = 'borclu';
+        raporBaslikAyarla('borclu');
+        overlayAc('overlay-rapor');
+        await raporVeriYukle();
+    }
+
+    async function vadesiGelenleriAc() {
+        anaMenuKapat();
+        raporMod = 'vade';
+        raporBaslikAyarla('vade');
+        overlayAc('overlay-rapor');
+        await raporVeriYukle();
+    }
+
+    function musteriMenuToggle() {
+        const menu = $('musteriMenuDropdown');
+        const btn = $('btnMusteriMenu');
+        if (!menu || !btn) return;
+        const acik = menu.classList.contains('d-none');
+        if (acik) {
+            menu.classList.remove('d-none');
+            btn.setAttribute('aria-expanded', 'true');
+        } else {
+            musteriMenuKapat();
+        }
     }
 
     function modallariKapat() {
@@ -398,7 +1082,7 @@
             ov.setAttribute('aria-hidden', 'true');
         }
         document.body.classList.remove('ekstre-yazdir-modu');
-        fabGeriDurumGuncelle();
+        geriTusGuncelle();
     }
 
     function ekstreOnizlemeAc(html) {
@@ -409,7 +1093,7 @@
         ov.classList.add('active');
         ov.setAttribute('aria-hidden', 'false');
         icerik.scrollTop = 0;
-        fabGeriGoster(false);
+        geriTusGuncelle();
     }
 
     function ekstreMobilYazdirBaslat() {
@@ -437,6 +1121,13 @@
         }).from(root).outputPdf('blob');
     }
 
+    function whatsappAc(metin) {
+        const enc = encodeURIComponent(metin);
+        const ios = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+        const url = ios ? `https://wa.me/?text=${enc}` : `https://api.whatsapp.com/send?text=${enc}`;
+        window.location.href = url;
+    }
+
     async function ekstreMobilPaylas() {
         const btn = $('btnEkstreOnizlemePaylas');
         const btnHtml = btn ? btn.innerHTML : '';
@@ -447,12 +1138,21 @@
         try {
             const blob = await ekstrePdfBlobUret();
             const file = new File([blob], sonEkstreDosyaAd, { type: 'application/pdf' });
-            const paylas = { files: [file], title: 'Cari ekstre', text: 'Karaarslan Kömür — cari ekstre' };
+            const musteriAd = aktifMusteri ? musteriAdi(aktifMusteri) : 'Müşteri';
+            const metin = `Karaarslan Kömür — ${musteriAd} cari ekstre`;
 
-            if (navigator.share && (!navigator.canShare || navigator.canShare(paylas))) {
-                await navigator.share(paylas);
-                toast('WhatsApp veya başka uygulamayı seçin');
-                return;
+            if (navigator.share) {
+                try {
+                    const paylasVeri = { title: 'Cari ekstre', text: metin };
+                    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                        paylasVeri.files = [file];
+                    }
+                    await navigator.share(paylasVeri);
+                    toast('WhatsApp\'ı seçin');
+                    return;
+                } catch (err) {
+                    if (err && err.name === 'AbortError') return;
+                }
             }
 
             const url = URL.createObjectURL(blob);
@@ -463,15 +1163,19 @@
             document.body.appendChild(a);
             a.click();
             a.remove();
-            setTimeout(() => URL.revokeObjectURL(url), 8000);
-            toast('PDF indirildi — WhatsApp’ta 📎 ile dosyayı ekleyin');
+            setTimeout(() => URL.revokeObjectURL(url), 10000);
+
+            toast('WhatsApp açılıyor…');
+            setTimeout(() => {
+                whatsappAc(`${metin}\n\n(PDF indirildi — sohbette 📎 Dosya ekle → İndirilenler)`);
+            }, 450);
         } catch (err) {
             console.warn('Ekstre paylaş:', err);
             toast(err.message || 'Paylaşım başarısız');
         } finally {
             if (btn) {
                 btn.disabled = false;
-                btn.innerHTML = btnHtml || '<i class="fab fa-whatsapp"></i> Paylaş';
+                btn.innerHTML = btnHtml || '<i class="fab fa-whatsapp"></i> WhatsApp';
             }
         }
     }
@@ -503,7 +1207,7 @@
             sonEkstreDosyaAd = `Cari_Ekstre_${ad.replace(/[^\w\u00C0-\u024F\s-]/gi, '').trim().replace(/\s+/g, '_') || 'musteri'}.pdf`;
             const html = cariEkstreHtmlOlustur(rows, aktifMusteri);
             ekstreOnizlemeAc(html);
-            toast('Önizleme — Paylaş (WhatsApp) veya Yazdır');
+            toast('Önizleme — WhatsApp veya Yazdır');
         } catch (err) {
             toast(err.message || 'Ekstre hazırlanamadı');
         } finally {
@@ -523,6 +1227,29 @@
         toast._tm = setTimeout(() => t.classList.add('d-none'), 2800);
     }
 
+    const PANEL_BASLIKLAR = {
+        stok: { title: 'Stok listesi', icon: 'fa-boxes-stacked' },
+        sevk: { title: 'Bekleyen sevkiyat', icon: 'fa-truck' },
+        musteri: { title: 'Müşteri rehberi', icon: 'fa-users' }
+    };
+
+    function panelBaslikGuncelle() {
+        const bar = $('panelBaslikBar');
+        const meta = PANEL_BASLIKLAR[aktifPanel];
+        if (!bar) return;
+        if (!meta) {
+            bar.classList.add('d-none');
+            bar.setAttribute('aria-hidden', 'true');
+            return;
+        }
+        bar.classList.remove('d-none');
+        bar.setAttribute('aria-hidden', 'false');
+        const metin = $('panelBaslikMetin');
+        const ikon = $('panelBaslikIkon');
+        if (metin) metin.textContent = meta.title;
+        if (ikon) ikon.className = `fas ${meta.icon}`;
+    }
+
     function panelGoster(panel) {
         aktifPanel = panel || 'ana';
         document.querySelectorAll('.panel').forEach((p) => p.classList.remove('panel-active'));
@@ -531,10 +1258,13 @@
         document.querySelectorAll('.nav-item').forEach((n) => {
             n.classList.toggle('nav-active', n.dataset.panel === aktifPanel);
         });
+        panelBaslikGuncelle();
         if (aktifPanel === 'stok') stokYukle();
         if (aktifPanel === 'sevk') sevkYukle();
         if (aktifPanel === 'musteri') musteriYukle();
-        fabGeriDurumGuncelle();
+        geriTusGuncelle();
+        const scroll = $('mainScroll');
+        if (scroll) scroll.scrollTop = 0;
     }
 
     async function sunucuCanliMi() {
@@ -657,6 +1387,511 @@
         return `${tur} Tahsilat${ozelNot ? ' - ' + ozelNot : ''}`;
     }
 
+    function islemYapanAdi() {
+        const o = oturumOku();
+        return o?.adSoyad || o?.kullaniciAdi || 'Mobil';
+    }
+
+    function musteriNotUyariAcikMi(n) {
+        if (!n || typeof n.UyariAcik === 'undefined' || n.UyariAcik === null) return true;
+        const v = n.UyariAcik;
+        if (v === false || v === 0 || v === '0') return false;
+        return true;
+    }
+
+    function musteriOturumKimligi() {
+        const o = oturumOku() || {};
+        return {
+            adSoyad: String(o.adSoyad || '').trim(),
+            kullaniciAdi: String(o.kullaniciAdi || '').trim()
+        };
+    }
+
+    async function musteriNotlarListesiniYenile(musteriId) {
+        const el = $('musteriNotlarListe');
+        if (!el || !musteriId) return [];
+        el.innerHTML = '<div class="empty-msg">Yükleniyor…</div>';
+        try {
+            const res = await apiFetch(`/api/musteri-notlar/${musteriId}?_t=${Date.now()}`);
+            const data = await apiJson(res, 'Notlar alınamadı');
+            if (!res.ok) throw new Error(data.hata || 'Notlar alınamadı');
+            const rows = Array.isArray(data.notlar) ? data.notlar : [];
+            if (!rows.length) {
+                el.innerHTML = '<div class="empty-msg">Henüz not yok</div>';
+                return rows;
+            }
+            el.innerHTML = rows.map((n) => {
+                const nid = n.Id;
+                const metin = ekstreRaporKacis(n.NotMetni || '');
+                const ad = ekstreRaporKacis(n.OlusturanAdSoyad || '—');
+                const ka = n.OlusturanKullaniciAdi ? `@${ekstreRaporKacis(n.OlusturanKullaniciAdi)}` : '';
+                let zStr = '';
+                try {
+                    zStr = n.OlusturmaZamani
+                        ? new Date(n.OlusturmaZamani).toLocaleString('tr-TR', { dateStyle: 'short', timeStyle: 'short' })
+                        : '';
+                } catch {
+                    zStr = '';
+                }
+                const uyAcik = musteriNotUyariAcikMi(n);
+                return `<div class="musteri-not-item">
+                    <div class="musteri-not-metin">${metin.replace(/\n/g, '<br>')}</div>
+                    <div class="musteri-not-kim">${ad}${ka ? ' ' + ka : ''}${zStr ? ' · ' + ekstreRaporKacis(zStr) : ''}</div>
+                    <div class="musteri-not-alt">
+                        <label class="musteri-not-switch">
+                            <input type="checkbox" data-not-uyari="${nid}" ${uyAcik ? 'checked' : ''}>
+                            <span>Uyarı versin</span>
+                        </label>
+                        <button type="button" class="btn btn-ghost btn-sm musteri-not-sil" data-not-sil="${nid}" aria-label="Sil"><i class="fas fa-trash"></i></button>
+                    </div>
+                </div>`;
+            }).join('');
+            return rows;
+        } catch (err) {
+            el.innerHTML = `<div class="empty-msg">${ekstreRaporKacis(err.message)}</div>`;
+            return [];
+        }
+    }
+
+    function musteriNotUyariIcerikGoster() {
+        const baslik = $('musteriNotUyariBaslik');
+        const govde = $('musteriNotUyariGovde');
+        if (!govde || musteriNotUyariIdx >= musteriNotUyariKuyruk.length) {
+            modalKapat('modal-not-uyari');
+            return;
+        }
+        const n = musteriNotUyariKuyruk[musteriNotUyariIdx];
+        if (baslik) {
+            baslik.innerHTML = `<i class="fas fa-bell me-1"></i> Not <span class="not-uyari-sira">${musteriNotUyariIdx + 1} / ${musteriNotUyariKuyruk.length}</span>`;
+        }
+        const metin = ekstreRaporKacis(n.NotMetni || '').replace(/\n/g, '<br>');
+        const ad = ekstreRaporKacis(n.OlusturanAdSoyad || '—');
+        const ka = n.OlusturanKullaniciAdi ? `@${ekstreRaporKacis(n.OlusturanKullaniciAdi)}` : '';
+        let zStr = '';
+        try {
+            zStr = n.OlusturmaZamani
+                ? new Date(n.OlusturmaZamani).toLocaleString('tr-TR', { dateStyle: 'short', timeStyle: 'short' })
+                : '';
+        } catch {
+            zStr = '';
+        }
+        govde.innerHTML = `<div class="musteri-not-uyari-kutu">${metin}</div>
+            <div class="musteri-not-kim">${ad}${ka ? ' ' + ka : ''}${zStr ? ' · ' + ekstreRaporKacis(zStr) : ''}</div>`;
+    }
+
+    function musteriNotAcilisUyarilariniBaslat(notlar) {
+        const uyariNotlar = (notlar || []).filter(musteriNotUyariAcikMi);
+        if (!uyariNotlar.length) return;
+        musteriNotUyariKuyruk = uyariNotlar;
+        musteriNotUyariIdx = 0;
+        setTimeout(() => {
+            modalAc('modal-not-uyari');
+            musteriNotUyariIcerikGoster();
+        }, 450);
+    }
+
+    async function musteriDetayNotlariSenkronize(musteriId) {
+        const ta = $('musteriNotYeniMetin');
+        if (ta) ta.value = '';
+        const rows = await musteriNotlarListesiniYenile(musteriId);
+        musteriNotAcilisUyarilariniBaslat(rows);
+        return rows;
+    }
+
+    async function musteriNotlarModalAc() {
+        if (!aktifMusteri) return;
+        musteriMenuKapat();
+        const mid = musteriKimlik(aktifMusteri);
+        const baslik = $('musteriNotlarBaslik');
+        if (baslik) baslik.textContent = `${musteriAdi(aktifMusteri)} — Notlar`;
+        const ta = $('musteriNotYeniMetin');
+        if (ta) ta.value = '';
+        modalAc('modal-notlar');
+        await musteriNotlarListesiniYenile(mid);
+    }
+
+    async function musteriNotKaydet() {
+        if (!aktifMusteri) return;
+        const ta = $('musteriNotYeniMetin');
+        const metin = (ta?.value || '').trim();
+        if (!metin) {
+            toast('Not metnini yazın');
+            return;
+        }
+        const mid = musteriKimlik(aktifMusteri);
+        const kim = musteriOturumKimligi();
+        const btn = $('btnMusteriNotKaydet');
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = 'Kaydediliyor…';
+        }
+        try {
+            const res = await apiFetch(`/api/musteri-notlar/${mid}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    metin,
+                    kullaniciAdi: kim.kullaniciAdi || null,
+                    adSoyad: kim.adSoyad || null
+                })
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.hata || 'Kaydedilemedi');
+            if (ta) ta.value = '';
+            toast('Not kaydedildi');
+            await musteriNotlarListesiniYenile(mid);
+        } catch (err) {
+            toast(err.message || 'Hata');
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-save me-1"></i>Kaydet';
+            }
+        }
+    }
+
+    async function musteriNotSil(notId) {
+        if (!notId) return;
+        if (!confirm('Bu notu silmek istiyor musunuz?')) return;
+        try {
+            const res = await apiFetch(`/api/musteri-not/${notId}`, { method: 'DELETE' });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.hata || 'Silinemedi');
+            if (aktifMusteri) await musteriNotlarListesiniYenile(musteriKimlik(aktifMusteri));
+            toast('Not silindi');
+        } catch (err) {
+            toast(err.message || 'Hata');
+        }
+    }
+
+    async function musteriNotUyariDegistir(notId, acik, inputEl) {
+        if (!notId) return;
+        try {
+            const res = await apiFetch(`/api/musteri-not/${notId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ uyariAcik: !!acik })
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.hata || 'Kaydedilemedi');
+        } catch (err) {
+            if (inputEl) inputEl.checked = !acik;
+            toast(err.message || 'Hata');
+        }
+    }
+
+    function taksitOdemeTuruMobil(val) {
+        const v = String(val || '');
+        if (v.includes('Kredi') || v.includes('Kart')) return 'Kredi Kartı';
+        if (v.includes('Havale') || v.includes('EFT')) return 'Havale';
+        return v || 'Nakit';
+    }
+
+    function taksitToplamBorcHesapla(taksitler) {
+        let toplam = 0;
+        (taksitler || []).forEach((t) => {
+            if (String(t.DURUM) !== '0') return;
+            const orj = parseFloat(t.MIKTAR) || 0;
+            const ode = parseFloat(t.ODEMELER) || 0;
+            toplam += orj - ode;
+        });
+        return Math.max(0, toplam);
+    }
+
+    function taksitVadeGoster(t) {
+        const ham = t.TARIH || t.TARİH;
+        if (!ham) return '—';
+        const d = new Date(ham);
+        if (Number.isNaN(d.getTime())) return String(ham);
+        return d.toLocaleDateString('tr-TR');
+    }
+
+    async function musteriTaksitleriGetir(musteriId) {
+        const res = await apiFetch(`/api/musteri-taksitler/${musteriId}`);
+        const data = await apiJson(res, 'Taksitler alınamadı');
+        if (!res.ok || !Array.isArray(data)) throw new Error(data?.hata || 'Taksitler alınamadı');
+        return data;
+    }
+
+    async function taksitOdendiYap(id, tutar, taksitAciklama, odemeTuru) {
+        const odenecek = parseFloat(parseFloat(tutar).toFixed(2));
+        const maks = parseFloat((guncelToplamTaksitBorcu || 0).toFixed(2));
+        if (maks > 0 && odenecek > maks) {
+            toast(`Toplam taksit borcu ${formatPara(maks)} — fazla ödeme yapılamaz`);
+            return;
+        }
+        const mid = musteriKimlik(aktifMusteri);
+        const res = await apiFetch(`/api/taksit-ode/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                islemiYapan: islemYapanAdi(),
+                odemeTuru: odemeTuru || 'Nakit',
+                odenenTutar: tutar,
+                musteriId: mid
+            })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.hata || 'Taksit ödemesi kaydedilemedi');
+        modalKapat('modal-taksit-odeme');
+        toast(data.finansalOzet || 'Taksit tahsilatı kaydedildi');
+        await musteriYenileVeGoster(mid);
+        if ($('modal-taksit')?.classList.contains('modal-active')) await taksitPlaniYukle();
+        anaYukle();
+        return data;
+    }
+
+    async function tahsilatTaksitRadari(tutar, odemeTuru, ozelNot, kapatModalId = 'modal-odeme') {
+        const mid = musteriKimlik(aktifMusteri);
+        let taksitler;
+        try {
+            taksitler = await musteriTaksitleriGetir(mid);
+        } catch (e) {
+            console.error('Taksit radar:', e);
+            return false;
+        }
+        guncelToplamTaksitBorcu = taksitToplamBorcHesapla(taksitler);
+        if (guncelToplamTaksitBorcu <= 0) return false;
+
+        const yonlendir = confirm(
+            `⚠️ DİKKAT - AKILLI RADAR!\n\n` +
+            `Bu müşterinin ödenmemiş ${formatPara(guncelToplamTaksitBorcu)} TAKSİT borcu bulunuyor.\n\n` +
+            `Alınan ${formatPara(tutar)} tutarındaki bu tahsilatı doğrudan TAKSİT HAVUZUNA (Ödeme Planına) yönlendirmek ister misiniz?\n\n` +
+            `[Tamam] → Taksit havuzuna aktar (tavsiye)\n[İptal] → Normal cari ödeme`
+        );
+        if (!yonlendir) return false;
+
+        const ilkTaksit = taksitler.find((t) => String(t.DURUM) === '0');
+        const havuzAciklama = ozelNot
+            ? `${taksitOdemeTuruMobil(odemeTuru)} (${ozelNot})`
+            : taksitOdemeTuruMobil(odemeTuru);
+        modalKapat(kapatModalId);
+        await taksitOdendiYap(ilkTaksit?.Kimlik || 0, tutar, 'Genel Tahsilattan Yönlendirme', havuzAciklama);
+        return true;
+    }
+
+    function taksitOdemeModalAc(taksitId, kalanBorc, aciklama) {
+        $('taksitOdemeId').value = taksitId;
+        $('taksitOdemeAciklama').value = aciklama || '';
+        $('taksitOdemeTutar').value = (parseFloat(kalanBorc) || 0).toFixed(2);
+        $('taksitOdemeBeklenen').textContent = formatPara(kalanBorc);
+        modalAc('modal-taksit-odeme');
+    }
+
+    async function taksitPlaniSil(taksitId) {
+        if (!confirm('Bu taksiti ödeme planından silmek istiyor musunuz?')) return;
+        const res = await apiFetch(`/api/taksit-sil/${taksitId}`, { method: 'DELETE' });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            toast(data.hata || 'Taksit silinemedi');
+            return;
+        }
+        toast('Taksit silindi');
+        await taksitPlaniYukle();
+    }
+
+    async function taksitPlaniYukle() {
+        const el = $('taksitListe');
+        const ozet = $('taksitOzetBar');
+        if (!el || !aktifMusteri) return;
+        el.innerHTML = '<div class="empty-msg">Yükleniyor…</div>';
+        if (ozet) ozet.classList.add('d-none');
+
+        try {
+            const mid = musteriKimlik(aktifMusteri);
+            const taksitler = await musteriTaksitleriGetir(mid);
+            aktifTaksitlerCache = taksitler;
+            guncelToplamTaksitBorcu = taksitToplamBorcHesapla(taksitler);
+
+            if (!taksitler.length) {
+                el.innerHTML = '<div class="empty-msg">Taksit kaydı yok</div>';
+                return;
+            }
+
+            if (ozet && guncelToplamTaksitBorcu > 0) {
+                ozet.classList.remove('d-none');
+                ozet.innerHTML = `<span>Kalan taksit borcu</span><strong>${formatPara(guncelToplamTaksitBorcu)}</strong>`;
+            }
+
+            let siradakiBulundu = false;
+            el.innerHTML = taksitler.map((t) => {
+                const orj = parseFloat(t.MIKTAR) || 0;
+                const ode = parseFloat(t.ODEMELER) || 0;
+                const kalan = orj - ode;
+                const odendi = String(t.DURUM) === '1' || kalan <= 0;
+                const aciklama = (t.AÇIKLAMA || '—').trim();
+                const vade = taksitVadeGoster(t);
+                const tid = t.Kimlik;
+
+                let tutarHtml = `<div class="taksit-tutar-tek">${formatPara(orj)}</div>`;
+                if (!odendi && ode > 0) {
+                    tutarHtml = `
+                        <div class="taksit-tutar-ust">${formatPara(orj)}</div>
+                        <div class="taksit-tutar-ode">${formatPara(ode)} ödendi</div>
+                        <div class="taksit-tutar-kalan">${formatPara(kalan)} kalan</div>`;
+                }
+
+                let aksiyon = '';
+                if (odendi) {
+                    aksiyon = '<span class="taksit-durum taksit-durum--ok">Ödendi</span>';
+                } else if (!siradakiBulundu) {
+                    siradakiBulundu = true;
+                    aksiyon = `<button type="button" class="btn btn-success btn-sm taksit-ode-btn" data-tid="${tid}">Öde</button>`;
+                } else {
+                    aksiyon = '<span class="taksit-durum taksit-durum--kilit" title="Önce önceki taksiti ödeyin"><i class="fas fa-lock"></i></span>';
+                }
+
+                const silBtn = odendi
+                    ? ''
+                    : `<button type="button" class="btn btn-ghost btn-sm taksit-sil-btn" data-tid="${tid}" aria-label="Sil"><i class="fas fa-trash"></i></button>`;
+
+                return `<div class="taksit-item ${odendi ? 'taksit-item--odendi' : ''}">
+                    <div class="taksit-item-ust">
+                        <div>
+                            <div class="taksit-vade">${ekstreRaporKacis(vade)}</div>
+                            <div class="taksit-aciklama">${ekstreRaporKacis(aciklama)}</div>
+                        </div>
+                        <div class="taksit-tutar-blok">${tutarHtml}</div>
+                    </div>
+                    <div class="taksit-item-alt">
+                        ${aksiyon}
+                        ${silBtn}
+                    </div>
+                </div>`;
+            }).join('');
+        } catch (err) {
+            el.innerHTML = `<div class="empty-msg">${err.message}</div>`;
+        }
+    }
+
+    async function borcuTaksitlendirAc() {
+        if (!aktifMusteri) return;
+        const bakiye = Number(aktifMusteri.Bakiye) || 0;
+        if (bakiye <= 0) {
+            toast('Bu müşterinin borcu yok. Borcu olmayan müşteriye taksit planı yapılamaz.');
+            return;
+        }
+
+        const mid = musteriKimlik(aktifMusteri);
+        try {
+            const taksitler = await musteriTaksitleriGetir(mid);
+            const odenmemisVarMi = taksitler.some((t) => String(t.DURUM) === '0');
+            if (odenmemisVarMi) {
+                const onay = confirm(
+                    '⚠️ DİKKAT: MÜŞTERİNİN DEVAM EDEN TAKSİT PLANI VAR!\n\n' +
+                    'Yeni plan yaparsanız ödenmemiş eski taksitler silinir ve ' +
+                    `${formatPara(bakiye)} üzerinden yeni plan oluşturulur.\n\nOnaylıyor musunuz?`
+                );
+                if (!onay) return;
+            }
+        } catch (e) {
+            console.error('Taksit kontrol:', e);
+        }
+
+        const adEl = $('yapiMusteriAd');
+        if (adEl) adEl.textContent = musteriAdi(aktifMusteri);
+        const bakEl = $('yapilandirmaBakiyesi');
+        if (bakEl) bakEl.textContent = formatPara(bakiye);
+        const tutarInp = $('yapiTaksitTutar');
+        if (tutarInp) tutarInp.value = bakiye.toFixed(2);
+        const tarihInp = $('yapiBaslangicTarihi');
+        if (tarihInp) tarihInp.value = bugunIso();
+        const sayiSel = $('yapiTaksitSayisi');
+        if (sayiSel && !sayiSel.value) sayiSel.value = '3';
+
+        modalAc('modal-borc-yapilandir');
+    }
+
+    async function borcYapilandirKaydet() {
+        if (!aktifMusteri) return;
+        const tutar = parseFloat($('yapiTaksitTutar')?.value);
+        const taksit = parseInt($('yapiTaksitSayisi')?.value, 10);
+        const tarih = $('yapiBaslangicTarihi')?.value;
+        const mid = musteriKimlik(aktifMusteri);
+
+        if (!tutar || tutar <= 0 || !tarih || !taksit || taksit < 1) {
+            toast('Tutar, taksit sayısı ve tarih girin');
+            return;
+        }
+
+        const btn = $('btnBorcYapilandirKaydet');
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = 'Kaydediliyor…';
+        }
+        try {
+            const res = await apiFetch('/api/borc-taksitlendir', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    musteri_id: mid,
+                    toplam_tutar: tutar,
+                    taksit_sayisi: taksit,
+                    baslangic_tarihi: tarih,
+                    islemiYapan: islemYapanAdi()
+                })
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.hata || 'Plan oluşturulamadı');
+
+            modalKapat('modal-borc-yapilandir');
+            toast('Ödeme planı oluşturuldu');
+            await musteriYenileVeGoster(mid);
+            modalAc('modal-taksit');
+            const baslik = $('taksitModalBaslik');
+            if (baslik) baslik.textContent = `${musteriAdi(aktifMusteri)} — Ödeme planı`;
+            await taksitPlaniYukle();
+        } catch (err) {
+            toast(err.message || 'Hata');
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-save me-1"></i>Planı oluştur';
+            }
+        }
+    }
+
+    async function taksitPlaniTumunuSil() {
+        if (!aktifMusteri) return;
+        const ad = musteriAdi(aktifMusteri);
+        if (!confirm(`⚠️ ${ad} müşterisinin TÜM ödeme planı silinecek. Emin misiniz?`)) return;
+
+        const mid = musteriKimlik(aktifMusteri);
+        try {
+            const res = await apiFetch(`/api/taksit-plani-tumunu-sil/${mid}`, { method: 'DELETE' });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.hata || 'Plan silinemedi');
+            toast('Ödeme planı temizlendi');
+            guncelToplamTaksitBorcu = 0;
+            await taksitPlaniYukle();
+        } catch (err) {
+            toast(err.message || 'Hata');
+        }
+    }
+
+    async function modalTaksitPlaniAc() {
+        if (!aktifMusteri) return;
+        const baslik = $('taksitModalBaslik');
+        if (baslik) baslik.textContent = `${musteriAdi(aktifMusteri)} — Ödeme planı`;
+        modalAc('modal-taksit');
+        await taksitPlaniYukle();
+    }
+
+    async function taksitOdemeTurKaydet(odemeTuru) {
+        const id = parseInt($('taksitOdemeId').value, 10);
+        const tutar = parseFloat($('taksitOdemeTutar').value);
+        const aciklama = $('taksitOdemeAciklama').value || '';
+        if (!id || !tutar || tutar <= 0) {
+            toast('Geçerli tutar girin');
+            return;
+        }
+        try {
+            await taksitOdendiYap(id, tutar, aciklama, odemeTuru);
+        } catch (err) {
+            toast(err.message || 'Hata');
+        }
+    }
+
     async function baslangic() {
         const oturum = oturumOku();
         const kayitliSunucu = localStorage.getItem(STORAGE_SERVER);
@@ -727,22 +1962,29 @@
             if (!res.ok) throw new Error(d.hata || d.message || 'Özet alınamadı.');
 
             cards.innerHTML = `
-                <div class="ozet-rozet tiklanabilir" id="cardBugun" role="button" tabindex="0" title="Bugünkü hareketler">
-                    <div class="rozet-baslik">Bugünkü satış</div>
-                    <div class="rozet-deger">${formatSayi(d.bugunKomur)}</div>
-                    <div class="rozet-detay">kömür</div>
-                    <div class="rozet-deger rozet-deger-alt">${formatSayi(d.bugunUn)}</div>
-                    <div class="rozet-detay">un</div>
+                <div class="ozet-rozet ozet-rozet--satis tiklanabilir" id="cardBugun" role="button" tabindex="0" title="Bugünkü hareketler">
+                    <div class="rozet-ikon"><i class="fas fa-hand-holding-usd"></i></div>
+                    <div class="rozet-icerik">
+                        <div class="rozet-baslik">Bugünkü satış</div>
+                        <div class="rozet-satir"><span class="rozet-deger">${formatSayi(d.bugunKomur)}</span><span class="rozet-birim">kömür</span></div>
+                        <div class="rozet-satir rozet-satir-alt"><span class="rozet-deger">${formatSayi(d.bugunUn)}</span><span class="rozet-birim">un</span></div>
+                    </div>
                 </div>
-                <div class="ozet-rozet tiklanabilir" id="cardMusteri" role="button" tabindex="0" title="Müşteri listesi">
-                    <div class="rozet-baslik">Müşteri</div>
-                    <div class="rozet-deger">${formatSayi(d.toplamMusteri)}</div>
-                    <div class="rozet-detay">kayıtlı cari · dokun</div>
+                <div class="ozet-rozet ozet-rozet--musteri tiklanabilir" id="cardMusteri" role="button" tabindex="0" title="Müşteri listesi">
+                    <div class="rozet-ikon"><i class="fas fa-users"></i></div>
+                    <div class="rozet-icerik">
+                        <div class="rozet-baslik">Müşteri</div>
+                        <div class="rozet-satir"><span class="rozet-deger">${formatSayi(d.toplamMusteri)}</span><span class="rozet-birim">kişi</span></div>
+                        <span class="rozet-ipucu">Listeyi aç</span>
+                    </div>
                 </div>
-                <div class="ozet-rozet tiklanabilir" id="cardSevk" role="button" tabindex="0" title="Bekleyen sevkiyat">
-                    <div class="rozet-baslik">Bekleyen sevk</div>
-                    <div class="rozet-deger">${formatSayi(d.bekleyenSevk)}</div>
-                    <div class="rozet-detay">teslimat · dokun</div>
+                <div class="ozet-rozet ozet-rozet--sevk tiklanabilir" id="cardSevk" role="button" tabindex="0" title="Bekleyen sevkiyat">
+                    <div class="rozet-ikon"><i class="fas fa-truck"></i></div>
+                    <div class="rozet-icerik">
+                        <div class="rozet-baslik">Bekleyen sevk</div>
+                        <div class="rozet-satir"><span class="rozet-deger">${formatSayi(d.bekleyenSevk)}</span></div>
+                        <span class="rozet-ipucu">Sevk listesi</span>
+                    </div>
                 </div>
             `;
             $('cardBugun').addEventListener('click', bugunGoster);
@@ -755,94 +1997,77 @@
         stokOzetYukle();
     }
 
-    async function bugunGoster() {
-        overlayAc('overlay-bugun');
-        const gun = bugunIso();
-        $('bugunTarihLbl').textContent = new Date().toLocaleDateString('tr-TR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+    async function gunlukOzetYukle() {
+        const bas = $('bugunBaslangic')?.value;
+        let bit = $('bugunBitis')?.value;
+        if (!bas) return;
+        if (!mobilAdminMi()) bit = bas;
+        else if (!bit) bit = bas;
+        if (bas > bit) {
+            $('bugunListe').innerHTML = '<div class="empty-msg">Başlangıç tarihi bitişten sonra olamaz</div>';
+            return;
+        }
+
+        $('bugunTarihLbl').textContent = gunlukOzetAralikMetni(bas, bit);
         $('bugunListe').innerHTML = '<div class="empty-msg">Yükleniyor…</div>';
         $('bugunOzet').innerHTML = '';
 
         try {
-            const [ozetRes, hareketRes] = await Promise.all([
-                apiFetch('/api/mobil-ozet', { cache: 'no-store' }),
-                apiFetch(`/api/gunluk-hareketler?baslangic=${gun}&bitis=${gun}`)
+            const [hareketRes, giderRes] = await Promise.all([
+                apiFetch(`/api/gunluk-hareketler?baslangic=${bas}&bitis=${bit}`),
+                apiFetch(`/api/gunluk-giderler?baslangic=${bas}&bitis=${bit}`)
             ]);
-            const ozet = await apiJson(ozetRes, 'Özet alınamadı.');
             const hareketler = await apiJson(hareketRes, 'Hareket listesi alınamadı.');
-
-            if (ozetRes.ok) {
-                $('bugunOzet').innerHTML = `
-                    <div class="oz"><div class="n">${formatSayi(ozet.bugunKomur)}</div><div class="l">Kömür satış</div></div>
-                    <div class="oz"><div class="n">${formatSayi(ozet.bugunUn)}</div><div class="l">Un satış</div></div>
-                `;
-            }
+            const giderler = giderRes.ok ? await giderRes.json().catch(() => []) : [];
 
             if (!hareketRes.ok || !Array.isArray(hareketler)) {
                 $('bugunListe').innerHTML = '<div class="empty-msg">Hareket listesi alınamadı</div>';
                 return;
             }
-            if (!hareketler.length) {
-                $('bugunListe').innerHTML = '<div class="empty-msg">Bugün kayıt yok</div>';
-                return;
-            }
 
+            const { komur, un } = hareketlerdenSatisAdet(hareketler);
+            const { nakit, kart, havale } = hareketlerdenTahsilatKirilim(hareketler);
             let toplamBorc = 0;
             let toplamOdeme = 0;
+            let toplamGider = 0;
             hareketler.forEach((h) => {
                 toplamBorc += Number(h.BORÇ) || 0;
                 toplamOdeme += Number(h.ÖDEME) || 0;
             });
-            $('bugunOzet').innerHTML += `
-                <div class="oz"><div class="n">${formatPara(toplamBorc)}</div><div class="l">Toplam borç</div></div>
-                <div class="oz"><div class="n">${formatPara(toplamOdeme)}</div><div class="l">Toplam tahsilat</div></div>
-            `;
+            (Array.isArray(giderler) ? giderler : []).forEach((g) => {
+                if (g.IslemTipi !== 'Mazot Çıkışı') toplamGider += Number(g.Tutar) || 0;
+            });
+            const netKasa = toplamOdeme - toplamGider;
 
-            $('bugunListe').innerHTML = hareketler.map((h) => {
-                const ad = [h.Adı, h.Soyadı].filter(Boolean).join(' ') || h.Unvan || '—';
-                const borc = Number(h.BORÇ) || 0;
-                const odeme = Number(h.ÖDEME) || 0;
-                let tutarHtml = '—';
-                if (borc > 0) tutarHtml = `<span class="borc">+${formatPara(borc)}</span>`;
-                else if (odeme > 0) tutarHtml = `<span class="odeme">-${formatPara(odeme)}</span>`;
+            $('bugunOzet').className = 'bugun-ozet bugun-ozet--kompakt';
+            $('bugunOzet').innerHTML = gunlukOzetRozetHtml({
+                komur, un, nakit, kart, havale, toplamBorc, toplamOdeme, toplamGider, netKasa
+            });
 
-                let aciklama = h.AÇIKLAMA || '—';
-                let miktar = Number(h.ADET) || 0;
-                const birim = (h.birimtür || h.BirimTur || '').trim();
-                if (aciklama.includes(' x ')) {
-                    const parcalar = aciklama.split(' x ');
-                    if (miktar === 0) miktar = parseFloat(parcalar[0]) || 0;
-                    aciklama = parcalar.slice(1).join(' x ').trim() || aciklama;
-                }
-                if (h.notlar && String(h.notlar).trim()) {
-                    aciklama += ` · ${h.notlar}`;
-                }
+            const birlesik = [];
+            hareketler.forEach((h) => {
+                birlesik.push({ tip: 'cari', tarih: h.TARİH || h.TARIH, html: gunlukOzetHareketKarti(h) });
+            });
+            (Array.isArray(giderler) ? giderler : []).forEach((g) => {
+                birlesik.push({ tip: 'gider', tarih: g.Tarih, html: gunlukOzetGiderKarti(g) });
+            });
+            birlesik.sort((a, b) => new Date(b.tarih) - new Date(a.tarih));
 
-                let miktarHtml = '';
-                if (borc > 0 && miktar > 0) {
-                    const bf = borc / miktar;
-                    const birimLbl = birim || 'adet';
-                    miktarHtml = `<div class="bugun-miktar">${formatSayi(miktar)} ${ekstreRaporKacis(birimLbl)} · ${formatPara(bf)}/${ekstreRaporKacis(birimLbl)}</div>`;
-                } else if (borc > 0 && birim) {
-                    miktarHtml = `<div class="bugun-miktar">${ekstreRaporKacis(birim)}</div>`;
-                }
-
-                const yapan = h.IslemiYapan ? ekstreRaporKacis(h.IslemiYapan) : '';
-                return `<div class="bugun-item">
-                    <div class="bugun-sol">
-                        <div class="bugun-musteri">${ekstreRaporKacis(ad)}</div>
-                        ${yapan ? `<div class="bugun-yapan">${yapan}</div>` : ''}
-                    </div>
-                    <div class="bugun-sag">
-                        <div class="bugun-tarih">${ekstreRaporKacis(tarihGoster(h.TARİH))}</div>
-                        <div class="bugun-aciklama">${ekstreRaporKacis(aciklama)}</div>
-                        ${miktarHtml}
-                        <div class="bugun-tutar">${tutarHtml}</div>
-                    </div>
-                </div>`;
-            }).join('');
+            if (!birlesik.length) {
+                $('bugunListe').innerHTML = '<div class="empty-msg">Seçilen tarihlerde kayıt yok</div>';
+                return;
+            }
+            $('bugunListe').innerHTML = birlesik.map((x) => x.html).join('');
         } catch (err) {
             $('bugunListe').innerHTML = `<div class="empty-msg">${err.message}</div>`;
         }
+    }
+
+    async function bugunGoster() {
+        overlayAc('overlay-bugun');
+        gunlukOzetTarihleriIlk();
+        gunlukOzetYetkiAyarla();
+        await gunlukOzetYukle();
     }
 
     async function piyasaYukle() {
@@ -927,11 +2152,11 @@
                 return;
             }
             el.innerHTML = rows.map((r) => {
-                const ad = [r.Adı, r.Soyadı].filter(Boolean).join(' ') || r.Unvan || 'Müşteri';
+                const musteriHtml = musteriKimlikHtml(r).replace(/bugun-musteri/g, 'sevk-musteri').replace(/bugun-musteri-alt/g, 'sevk-musteri-alt');
                 const kalan = r.KalanTeslimat ?? r.ADET ?? 0;
                 const adr = [r.Ilce, r.Mahalle, r.Adres].filter(Boolean).join(' · ');
                 return `<div class="sevk-item">
-                    <div class="ad">${ad}</div>
+                    ${musteriHtml}
                     <div class="detay">${r.AÇIKLAMA || '—'}${adr ? '<br>' + adr : ''}</div>
                     <span class="miktar">Kalan: ${formatSayi(kalan)}</span>
                 </div>`;
@@ -957,12 +2182,16 @@
         const goster = liste.slice(0, 150);
         const parca = goster.map((m) => {
             const id = musteriKimlik(m);
-            const ad = musteriAdi(m);
             const b = bakiyeMetni(m.Bakiye);
+            const meta = musteriTelMahalleMeta(m);
             return `<div class="musteri-item" data-id="${id}" role="button" tabindex="0">
-                <div class="ad">${ad}</div>
-                <div class="tel">${m.CEPTEL || '—'}</div>
-                <div class="bakiye ${b.cls}">${b.txt}</div>
+                <div class="musteri-item-ust">
+                    <div class="musteri-item-sol">
+                        ${musteriListeKimlikHtml(m)}
+                        <div class="musteri-meta">${ekstreRaporKacis(meta)}</div>
+                    </div>
+                    <div class="bakiye ${b.cls}">${b.txt}</div>
+                </div>
             </div>`;
         }).join('');
         const uyari = liste.length > 150
@@ -983,10 +2212,11 @@
             return;
         }
         aktifMusteri = m;
-        $('musteriDetayAd').textContent = musteriAdi(m);
-        $('musteriDetayTel').textContent = m.CEPTEL || '—';
+        musteriDetayBaslikGuncelle(m);
         musteriOzetGuncelle(m);
+        musteriMenuKapat();
         overlayAc('overlay-musteri');
+        await musteriDetayNotlariSenkronize(id);
         await musteriEkstreYukle(id);
     }
 
@@ -1037,14 +2267,17 @@
             if (!res.ok) throw new Error(data.hata || 'Satış kaydedilemedi');
 
             if (odemeAl && odemeTutar > 0) {
-                const yeniBakiye = (oncekiBakiye + tutar) - odemeTutar;
-                await makbuzluOdemeKaydet(
-                    odemeTutar,
-                    odemeTuru,
-                    tahsilatAciklama(odemeTuru, notlar, true),
-                    notlar,
-                    yeniBakiye
-                );
+                const yonlendi = await tahsilatTaksitRadari(odemeTutar, odemeTuru, notlar, 'modal-satis');
+                if (!yonlendi) {
+                    const yeniBakiye = (oncekiBakiye + tutar) - odemeTutar;
+                    await makbuzluOdemeKaydet(
+                        odemeTutar,
+                        odemeTuru,
+                        tahsilatAciklama(odemeTuru, notlar, true),
+                        notlar,
+                        yeniBakiye
+                    );
+                }
                 toast(`Satış + ${odemeTuru} ${formatPara(odemeTutar)} kaydedildi`);
             } else {
                 toast('Satış kaydedildi');
@@ -1082,6 +2315,9 @@
         btn.disabled = true;
         btn.textContent = 'Kaydediliyor…';
         try {
+            const yonlendi = await tahsilatTaksitRadari(tutar, odemeTuru, not);
+            if (yonlendi) return;
+
             await makbuzluOdemeKaydet(
                 tutar,
                 odemeTuru,
@@ -1177,20 +2413,112 @@
         $('musteriListe').addEventListener('click', (e) => {
             const item = e.target.closest('.musteri-item');
             if (!item || !item.dataset.id) return;
+            overlayGeriHedef = null;
             musteriDetayAc(Number(item.dataset.id));
         });
 
-        $('btnMusteriKapat').addEventListener('click', overlayKapat);
+        $('btnMusteriKapat').addEventListener('click', musteriOverlayKapat);
+        $('btnMusteriDuzenle')?.addEventListener('click', musteriDuzenleAc);
+        $('btnMusteriDuzenleKaydet')?.addEventListener('click', musteriDuzenleKaydet);
+        $('btnRaporKapat')?.addEventListener('click', overlayKapat);
+        $('btnAnaMenu')?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            anaMenuToggle();
+        });
+        $('btnVadesiGelen')?.addEventListener('click', vadesiGelenleriAc);
+        $('btnBorcluMusteri')?.addEventListener('click', borcluMusterileriAc);
+        $('raporArama')?.addEventListener('input', raporListeCiz);
+        $('raporListe')?.addEventListener('click', (e) => {
+            const item = e.target.closest('.rapor-item');
+            if (item?.dataset.mid) raporMusteriDetayAc(item.dataset.mid);
+        });
+        document.addEventListener('click', (e) => {
+            const wrap = document.querySelector('.ana-menu-wrap');
+            if (wrap && !wrap.contains(e.target)) anaMenuKapat();
+        });
         $('btnBugunKapat').addEventListener('click', overlayKapat);
-        $('btnFabGeri').addEventListener('click', fabGeriTikla);
-        $('btnCariEkstrePdf').addEventListener('click', cariEkstrePdfIndir);
+        $('btnGunlukOzetGetir')?.addEventListener('click', () => gunlukOzetYukle());
+        $('bugunBaslangic')?.addEventListener('change', () => {
+            if (!mobilAdminMi() && $('bugunBitis')) $('bugunBitis').value = $('bugunBaslangic').value;
+            gunlukOzetYukle();
+        });
+        $('bugunBitis')?.addEventListener('change', () => gunlukOzetYukle());
+        $('btnTopGeri')?.addEventListener('click', fabGeriTikla);
+        $('btnFabGeri')?.addEventListener('click', fabGeriTikla);
+        $('btnLoginGeri')?.addEventListener('click', () => viewGoster('setup'));
+        $('btnCariEkstrePdf')?.addEventListener('click', () => {
+            musteriMenuKapat();
+            cariEkstrePdfIndir();
+        });
         $('btnEkstreOnizlemeKapat')?.addEventListener('click', ekstreOnizlemeKapat);
         $('btnEkstreOnizlemePaylas')?.addEventListener('click', ekstreMobilPaylas);
         $('btnEkstreOnizlemeYazdir')?.addEventListener('click', ekstreMobilYazdirBaslat);
         $('btnModalSatis').addEventListener('click', modalSatisAc);
         $('btnModalOdeme').addEventListener('click', modalOdemeAc);
+        $('btnMusteriMenu')?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            musteriMenuToggle();
+        });
+        $('btnModalTaksit')?.addEventListener('click', () => {
+            musteriMenuKapat();
+            modalTaksitPlaniAc();
+        });
+        $('btnModalBorcYapilandir')?.addEventListener('click', () => {
+            musteriMenuKapat();
+            borcuTaksitlendirAc();
+        });
+        $('btnModalNotlar')?.addEventListener('click', () => {
+            musteriNotlarModalAc();
+        });
+        $('btnMusteriNotKaydet')?.addEventListener('click', musteriNotKaydet);
+        $('btnMusteriNotUyariTamam')?.addEventListener('click', () => {
+            musteriNotUyariIdx += 1;
+            if (musteriNotUyariIdx >= musteriNotUyariKuyruk.length) {
+                modalKapat('modal-not-uyari');
+            } else {
+                musteriNotUyariIcerikGoster();
+            }
+        });
+        $('musteriNotlarListe')?.addEventListener('click', (e) => {
+            const sil = e.target.closest('[data-not-sil]');
+            if (sil) {
+                musteriNotSil(Number(sil.getAttribute('data-not-sil')));
+            }
+        });
+        $('musteriNotlarListe')?.addEventListener('change', (e) => {
+            const inp = e.target.closest('[data-not-uyari]');
+            if (inp) {
+                musteriNotUyariDegistir(Number(inp.getAttribute('data-not-uyari')), inp.checked, inp);
+            }
+        });
+        document.addEventListener('click', (e) => {
+            const wrap = document.querySelector('.musteri-menu-wrap');
+            if (wrap && !wrap.contains(e.target)) musteriMenuKapat();
+        });
+        $('btnTaksitYapilandir')?.addEventListener('click', borcuTaksitlendirAc);
+        $('btnTaksitPlaniTemizle')?.addEventListener('click', taksitPlaniTumunuSil);
+        $('btnBorcYapilandirKaydet')?.addEventListener('click', borcYapilandirKaydet);
         $('btnSatisKaydet').addEventListener('click', satisKaydet);
         $('btnOdemeKaydet').addEventListener('click', odemeKaydet);
+
+        $('taksitListe')?.addEventListener('click', (e) => {
+            const odeBtn = e.target.closest('.taksit-ode-btn');
+            if (odeBtn) {
+                const tid = Number(odeBtn.dataset.tid);
+                const t = aktifTaksitlerCache.find((x) => Number(x.Kimlik) === tid);
+                if (!t) return;
+                const orj = parseFloat(t.MIKTAR) || 0;
+                const ode = parseFloat(t.ODEMELER) || 0;
+                taksitOdemeModalAc(tid, orj - ode, (t.AÇIKLAMA || '').trim());
+                return;
+            }
+            const silBtn = e.target.closest('.taksit-sil-btn');
+            if (silBtn) taksitPlaniSil(Number(silBtn.dataset.tid));
+        });
+
+        document.querySelectorAll('[data-taksit-tur]').forEach((btn) => {
+            btn.addEventListener('click', () => taksitOdemeTurKaydet(btn.getAttribute('data-taksit-tur')));
+        });
         $('satisUrun').addEventListener('change', satisTutarHesapla);
         $('satisMiktar').addEventListener('input', satisTutarHesapla);
         $('satisTutar').addEventListener('input', satisOdemeSenkron);
