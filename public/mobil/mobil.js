@@ -77,10 +77,57 @@
         return formatSayi(n) + ' ₺';
     }
 
+    const TZ_IST = 'Europe/Istanbul';
+
+    function istanbulBilesenler(ref = new Date()) {
+        const parts = new Intl.DateTimeFormat('en-GB', {
+            timeZone: TZ_IST,
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: false
+        }).formatToParts(ref);
+        const get = (t) => parts.find((p) => p.type === t)?.value || '00';
+        return {
+            year: get('year'),
+            month: get('month'),
+            day: get('day'),
+            hour: get('hour'),
+            minute: get('minute'),
+            second: get('second')
+        };
+    }
+
     function bugunIso() {
-        const d = new Date();
-        const p = (n) => String(n).padStart(2, '0');
-        return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+        const p = istanbulBilesenler();
+        return `${p.year}-${p.month}-${p.day}`;
+    }
+
+    function dbTarihTemizle(v) {
+        return String(v ?? '').trim().replace(/\.\d{3}Z?$/i, '').replace(/Z$/i, '').replace('T', ' ');
+    }
+
+    function parseDbTarihParcala(v) {
+        const s = dbTarihTemizle(v);
+        const m = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?/);
+        if (!m) return null;
+        return {
+            y: +m[1],
+            mo: +m[2],
+            d: +m[3],
+            h: +(m[4] || 0),
+            mi: +(m[5] || 0),
+            se: +(m[6] || 0)
+        };
+    }
+
+    function dbTarihSortKey(v) {
+        const p = parseDbTarihParcala(v);
+        if (!p) return 0;
+        return Date.UTC(p.y, p.mo - 1, p.d, p.h, p.mi, p.se);
     }
 
     function mobilAdminMi() {
@@ -245,11 +292,32 @@
         </div>`;
     }
 
-    function tarihGoster(v) {
+    function tarihGoster(v, sadeceTarih = false) {
         if (!v) return '—';
-        const d = new Date(v);
-        if (Number.isNaN(d.getTime())) return String(v);
-        return d.toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+        const ham = String(v);
+        if (/Z$/i.test(ham) || /[+-]\d{2}:\d{2}$/.test(ham)) {
+            const d = new Date(ham);
+            if (Number.isNaN(d.getTime())) return ham;
+            return new Intl.DateTimeFormat('tr-TR', {
+                timeZone: TZ_IST,
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric',
+                hour: sadeceTarih ? undefined : '2-digit',
+                minute: sadeceTarih ? undefined : '2-digit',
+                hour12: false
+            }).format(d);
+        }
+        const p = parseDbTarihParcala(v);
+        if (!p) return String(v);
+        const gun = String(p.d).padStart(2, '0');
+        const ay = String(p.mo).padStart(2, '0');
+        const saat = String(p.h).padStart(2, '0');
+        const dk = String(p.mi).padStart(2, '0');
+        if (sadeceTarih || (p.h === 0 && p.mi === 0 && p.se === 0)) {
+            return `${gun}.${ay}.${p.y}`;
+        }
+        return `${gun}.${ay}.${p.y} ${saat}:${dk}`;
     }
 
     function musteriKimlikGosterim(kayit) {
@@ -404,27 +472,53 @@
         mahalleEl.value = '';
     }
 
-    function mobilKonyaAdresYukle(ilceKaydi, mahalleKaydi) {
-        const ilceEl = $('mDuzenleIlce');
-        const mahEl = $('mDuzenleMahalleListe');
+    function mobilKonyaAdresYukle(prefix, ilceKaydi, mahalleKaydi) {
+        const ilceEl = $(`${prefix}Ilce`);
+        const mahEl = $(`${prefix}MahalleListe`);
         if (!ilceEl || !mahEl) return;
         mobilKonyaIlceDoldur(ilceEl, ilceKaydi || 'Sarayönü');
         mobilKonyaMahalleAyarla(mahEl, ilceEl.value, mahalleKaydi);
-        if (!ilceEl.dataset.mobilKonyaOk) {
-            ilceEl.dataset.mobilKonyaOk = '1';
+        const okKey = `mobilKonyaOk_${prefix}`;
+        if (!ilceEl.dataset[okKey]) {
+            ilceEl.dataset[okKey] = '1';
             ilceEl.addEventListener('change', () => mobilKonyaMahalleAyarla(mahEl, ilceEl.value, ''));
         }
     }
 
-    function mobilKonyaAdresOku() {
-        const ilceEl = $('mDuzenleIlce');
-        const mahEl = $('mDuzenleMahalleListe');
+    function mobilKonyaAdresOku(prefix) {
+        const ilceEl = $(`${prefix}Ilce`);
+        const mahEl = $(`${prefix}MahalleListe`);
         const ilce = (ilceEl?.value || '').trim();
         const ham = mahEl && !mahEl.disabled ? (mahEl.value || '').trim() : '';
         const bic = typeof window.mahalleAdiniBiçimlendir === 'function'
             ? window.mahalleAdiniBiçimlendir
             : (x) => String(x || '').trim();
         return { ilce, mahalle: ham ? bic(ham) : '' };
+    }
+
+    function musteriFormTelefonBagla(telEl) {
+        if (!telEl) return;
+        telEl.oninput = function () {
+            let val = this.value.replace(/[^0-9]/g, '');
+            if (val.startsWith('0')) val = val.substring(1);
+            this.value = val.substring(0, 10);
+        };
+    }
+
+    function musteriFormUnvanBagla(unvanEl) {
+        if (!unvanEl) return;
+        unvanEl.oninput = function () {
+            this.value = this.value.toLocaleUpperCase('tr-TR');
+        };
+    }
+
+    function musteriFormVeriOku(prefix) {
+        const ad = ($(`${prefix}Ad`)?.value || '').trim();
+        const tel = musteriTelefonTemizle($(`${prefix}Telefon`)?.value || '');
+        const unvan = ($(`${prefix}Unvan`)?.value || '').trim();
+        const adres = ($(`${prefix}Adres`)?.value || '').trim();
+        const { ilce, mahalle } = mobilKonyaAdresOku(prefix);
+        return { ad, tel, unvan, adres, ilce, mahalle };
     }
 
     function musteriTelefonTemizle(ham) {
@@ -438,26 +532,102 @@
         const adEl = $('mDuzenleAd');
         const telEl = $('mDuzenleTelefon');
         const adresEl = $('mDuzenleAdres');
-        if (unvanEl) {
-            unvanEl.value = musteriAlanOku(m, 'Unvan', 'UNVAN', 'unvan');
-            unvanEl.oninput = function () {
-                this.value = this.value.toLocaleUpperCase('tr-TR');
-            };
-        }
+        if (unvanEl) unvanEl.value = musteriAlanOku(m, 'Unvan', 'UNVAN', 'unvan');
         if (adEl) adEl.value = musteriAlanOku(m, 'Adı', 'ADI', 'ad');
-        if (telEl) {
-            telEl.value = musteriTelefonTemizle(musteriAlanOku(m, 'CEPTEL', 'ceptel', 'Telefon'));
-            telEl.oninput = function () {
-                let val = this.value.replace(/[^0-9]/g, '');
-                if (val.startsWith('0')) val = val.substring(1);
-                this.value = val.substring(0, 10);
-            };
-        }
+        if (telEl) telEl.value = musteriTelefonTemizle(musteriAlanOku(m, 'CEPTEL', 'ceptel', 'Telefon'));
         if (adresEl) adresEl.value = musteriAlanOku(m, 'Adres', 'ADRES', 'adres');
+        musteriFormUnvanBagla(unvanEl);
+        musteriFormTelefonBagla(telEl);
         mobilKonyaAdresYukle(
+            'mDuzenle',
             musteriAlanOku(m, 'Ilce', 'ILCE', 'ilce') || 'Sarayönü',
             musteriAlanOku(m, 'Mahalle', 'MAHALLE', 'mahalle')
         );
+    }
+
+    function musteriEkleFormTemizle() {
+        ['mEkleUnvan', 'mEkleAd', 'mEkleTelefon', 'mEkleAdres'].forEach((id) => {
+            const el = $(id);
+            if (el) el.value = '';
+        });
+        musteriFormUnvanBagla($('mEkleUnvan'));
+        musteriFormTelefonBagla($('mEkleTelefon'));
+        mobilKonyaAdresYukle('mEkle', 'Sarayönü', '');
+    }
+
+    function musteriEkleAc() {
+        musteriEkleFormTemizle();
+        modalAc('modal-musteri-ekle');
+        setTimeout(() => $('mEkleUnvan')?.focus(), 200);
+    }
+
+    async function musteriEkleKaydet() {
+        const { ad, tel, unvan, adres, ilce, mahalle } = musteriFormVeriOku('mEkle');
+
+        if (!unvan) {
+            toast('Resmi ünvan zorunludur');
+            $('mEkleUnvan')?.focus();
+            return;
+        }
+        if (!tel) {
+            toast('Telefon numarası zorunludur');
+            $('mEkleTelefon')?.focus();
+            return;
+        }
+        if (tel.length !== 10) {
+            toast('Telefonu başında 0 olmadan 10 hane girin');
+            $('mEkleTelefon')?.focus();
+            return;
+        }
+
+        const unvanNorm = unvan.toLocaleUpperCase('tr-TR');
+        const varMi = musteriCache.find((m) => {
+            const mTel = musteriTelefonTemizle(musteriAlanOku(m, 'CEPTEL', 'ceptel', 'Telefon'));
+            const mUnvan = musteriAlanOku(m, 'Unvan', 'UNVAN', 'unvan').toLocaleUpperCase('tr-TR');
+            return mTel === tel && mUnvan === unvanNorm && unvanNorm !== '';
+        });
+        if (varMi && !confirm(`Bu ünvan ve telefonla kayıt var (${varMi.Unvan || varMi.Adı}). Yine de eklensin mi?`)) {
+            return;
+        }
+
+        const btn = $('btnMusteriEkleKaydet');
+        if (btn) btn.disabled = true;
+        try {
+            const res = await apiFetch('/api/musteri', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    ad_soyad: ad,
+                    unvan,
+                    telefon: tel,
+                    adres,
+                    ilce,
+                    mahalle
+                })
+            });
+            const data = await apiJson(res, 'Müşteri eklenemedi');
+            if (!res.ok || data.success === false) {
+                throw new Error(data.hata || data.mesaj || 'Müşteri eklenemedi');
+            }
+
+            modalKapat('modal-musteri-ekle');
+            toast('Müşteri eklendi');
+            await musteriYukle();
+
+            const yeni = musteriCache.find((m) => {
+                const mTel = musteriTelefonTemizle(musteriAlanOku(m, 'CEPTEL', 'ceptel', 'Telefon'));
+                const mUnvan = musteriAlanOku(m, 'Unvan', 'UNVAN', 'unvan').toLocaleUpperCase('tr-TR');
+                return mTel === tel && mUnvan === unvanNorm;
+            });
+            if (yeni) {
+                overlayGeriHedef = null;
+                await musteriDetayAc(musteriKimlik(yeni));
+            }
+        } catch (err) {
+            toast(err.message || 'Müşteri eklenemedi');
+        } finally {
+            if (btn) btn.disabled = false;
+        }
     }
 
     function musteriDuzenleAc() {
@@ -477,7 +647,7 @@
         const tel = musteriTelefonTemizle($('mDuzenleTelefon')?.value || '');
         const unvan = ($('mDuzenleUnvan')?.value || '').trim();
         const adres = ($('mDuzenleAdres')?.value || '').trim();
-        const { ilce, mahalle } = mobilKonyaAdresOku();
+        const { ilce, mahalle } = mobilKonyaAdresOku('mDuzenle');
 
         if (tel && tel.length !== 10) {
             toast("Telefonu başında 0 olmadan 10 hane girin");
@@ -655,10 +825,7 @@
     }
 
     function raporVadeTarihGoster(ham) {
-        if (!ham) return '—';
-        const d = new Date(ham);
-        if (Number.isNaN(d.getTime())) return String(ham);
-        return d.toLocaleDateString('tr-TR');
+        return tarihGoster(ham, true);
     }
 
     function raporBaslikAyarla(mod) {
@@ -896,13 +1063,10 @@
         const borc = Number(islem.BORÇ) || 0;
         const odeme = Number(islem.ÖDEME) || 0;
         const hamTarih = islem.TARİH || islem.TARIH;
-        const d = hamTarih ? new Date(hamTarih) : null;
-        const tarihGunu = d && !Number.isNaN(d.getTime())
-            ? d.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' })
-            : '—';
-        const saatKismi = d && !Number.isNaN(d.getTime())
-            ? d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })
-            : '—';
+        const tamMetin = tarihGoster(hamTarih);
+        const parcalar = tamMetin.split(' ');
+        const tarihGunu = parcalar[0] || '—';
+        const saatKismi = parcalar[1] || '—';
         let aciklama = islem.AÇIKLAMA || '—';
         const miktar = Number(islem.ADET) || 0;
         const birim = islem.birimtür || islem.BirimTur || '—';
@@ -923,7 +1087,7 @@
         }
         const islemSira = islemTipi === 'Satış' ? 1 : (islemTipi === 'İade' ? 2 : 3);
         return {
-            sortKey: d && !Number.isNaN(d.getTime()) ? d.getTime() : 0,
+            sortKey: dbTarihSortKey(hamTarih),
             tarihGunu,
             saatKismi,
             islemTipi,
@@ -1236,10 +1400,12 @@
     function panelBaslikGuncelle() {
         const bar = $('panelBaslikBar');
         const meta = PANEL_BASLIKLAR[aktifPanel];
+        const ekleBtn = $('btnMusteriEkle');
         if (!bar) return;
         if (!meta) {
             bar.classList.add('d-none');
             bar.setAttribute('aria-hidden', 'true');
+            if (ekleBtn) ekleBtn.classList.add('d-none');
             return;
         }
         bar.classList.remove('d-none');
@@ -1248,6 +1414,9 @@
         const ikon = $('panelBaslikIkon');
         if (metin) metin.textContent = meta.title;
         if (ikon) ikon.className = `fas ${meta.icon}`;
+        if (ekleBtn) {
+            ekleBtn.classList.toggle('d-none', aktifPanel !== 'musteri');
+        }
     }
 
     function panelGoster(panel) {
@@ -1308,9 +1477,8 @@
     }
 
     function simdiTarihSql() {
-        const tr = new Date(new Date().toLocaleString('en-US', { timeZone: 'Europe/Istanbul' }));
-        const pad = (n) => String(n).padStart(2, '0');
-        return `${tr.getFullYear()}-${pad(tr.getMonth() + 1)}-${pad(tr.getDate())} ${pad(tr.getHours())}:${pad(tr.getMinutes())}:${pad(tr.getSeconds())}`;
+        const p = istanbulBilesenler();
+        return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}:${p.second}`;
     }
 
     function satisOdemeSenkron() {
@@ -1427,9 +1595,7 @@
                 const ka = n.OlusturanKullaniciAdi ? `@${ekstreRaporKacis(n.OlusturanKullaniciAdi)}` : '';
                 let zStr = '';
                 try {
-                    zStr = n.OlusturmaZamani
-                        ? new Date(n.OlusturmaZamani).toLocaleString('tr-TR', { dateStyle: 'short', timeStyle: 'short' })
-                        : '';
+                    zStr = n.OlusturmaZamani ? tarihGoster(n.OlusturmaZamani) : '';
                 } catch {
                     zStr = '';
                 }
@@ -1469,9 +1635,7 @@
         const ka = n.OlusturanKullaniciAdi ? `@${ekstreRaporKacis(n.OlusturanKullaniciAdi)}` : '';
         let zStr = '';
         try {
-            zStr = n.OlusturmaZamani
-                ? new Date(n.OlusturmaZamani).toLocaleString('tr-TR', { dateStyle: 'short', timeStyle: 'short' })
-                : '';
+            zStr = n.OlusturmaZamani ? tarihGoster(n.OlusturmaZamani) : '';
         } catch {
             zStr = '';
         }
@@ -1599,11 +1763,8 @@
     }
 
     function taksitVadeGoster(t) {
-        const ham = t.TARIH || t.TARİH;
-        if (!ham) return '—';
-        const d = new Date(ham);
-        if (Number.isNaN(d.getTime())) return String(ham);
-        return d.toLocaleDateString('tr-TR');
+        const ham = t.ODEMETARİHİ || t.ODEMETARIHI || t.TARIH || t.TARİH;
+        return tarihGoster(ham, true);
     }
 
     async function musteriTaksitleriGetir(musteriId) {
@@ -1628,7 +1789,8 @@
                 islemiYapan: islemYapanAdi(),
                 odemeTuru: odemeTuru || 'Nakit',
                 odenenTutar: tutar,
-                musteriId: mid
+                musteriId: mid,
+                tarih: simdiTarihSql()
             })
         });
         const data = await res.json().catch(() => ({}));
@@ -2051,7 +2213,7 @@
             (Array.isArray(giderler) ? giderler : []).forEach((g) => {
                 birlesik.push({ tip: 'gider', tarih: g.Tarih, html: gunlukOzetGiderKarti(g) });
             });
-            birlesik.sort((a, b) => new Date(b.tarih) - new Date(a.tarih));
+            birlesik.sort((a, b) => dbTarihSortKey(b.tarih) - dbTarihSortKey(a.tarih));
 
             if (!birlesik.length) {
                 $('bugunListe').innerHTML = '<div class="empty-msg">Seçilen tarihlerde kayıt yok</div>';
@@ -2260,6 +2422,7 @@
                     notlar,
                     teslim_durumu: teslim,
                     satis_odeme_turu: satisOdemeTuru,
+                    tarih: simdiTarihSql(),
                     islemiYapan: oturum?.adSoyad || 'Mobil'
                 })
             });
@@ -2418,6 +2581,8 @@
         });
 
         $('btnMusteriKapat').addEventListener('click', musteriOverlayKapat);
+        $('btnMusteriEkle')?.addEventListener('click', musteriEkleAc);
+        $('btnMusteriEkleKaydet')?.addEventListener('click', musteriEkleKaydet);
         $('btnMusteriDuzenle')?.addEventListener('click', musteriDuzenleAc);
         $('btnMusteriDuzenleKaydet')?.addEventListener('click', musteriDuzenleKaydet);
         $('btnRaporKapat')?.addEventListener('click', overlayKapat);

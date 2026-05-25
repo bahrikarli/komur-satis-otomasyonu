@@ -1,0 +1,5 @@
+# Uzak kasa / sunucu bilgisayarinin IP adresi (aynı Wi-Fi veya LAN)
+# Bu dosyayi "uzak-sunucu.txt" olarak kopyalayin ve IP'yi yazin.
+213.142.134.104/3017
+# Port (istege bagli ikinci satir; bos birakilirsa .env / 3017 kullanilir)
+

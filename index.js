@@ -38,6 +38,9 @@ function semverKarsilastir(a, b) {
 }
 
 function yedekKlasorYolu() {
+    if (process.platform === 'win32') {
+        return 'C:\\komurbackup';
+    }
     return path.join(os.homedir(), 'KOMUR-backups');
 }
 
@@ -45,6 +48,12 @@ function yedekDosyaAdi() {
     const d = new Date();
     const p = (n) => String(n).padStart(2, '0');
     return `yedek-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.json`;
+}
+
+function yedekDosyaGuvenliMi(dosyaAdi) {
+    const ad = String(dosyaAdi || '').trim();
+    if (!ad || ad.includes('..') || /[\\/]/.test(ad)) return false;
+    return /^yedek-\d{8}-\d{6}\.json$/i.test(ad);
 }
 
 // --- Bellek içi işlem günlüğü (/api/sistem-loglari ile okunur; restart sonrası boşalır) ---
@@ -207,6 +216,29 @@ function istanbulTakvimGunu(ref = new Date()) {
     }).formatToParts(ref);
     const get = (t) => Number(parts.find((p) => p.type === t)?.value || 0);
     return new Date(get('year'), get('month') - 1, get('day'));
+}
+
+/** Türkiye duvar saati: YYYY-MM-DD HH:mm:ss (UTC kayması yok) */
+function istanbulSimdiSqlStr(ref = new Date()) {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Europe/Istanbul',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+    }).formatToParts(ref);
+    const get = (t) => parts.find((p) => p.type === t)?.value || '00';
+    return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}:${get('second')}`;
+}
+
+function normalizeIslemTarihiStr(tarih) {
+    if (!tarih || tarih === '' || tarih === 'undefined') {
+        return istanbulSimdiSqlStr();
+    }
+    return String(tarih).trim().replace('T', ' ').replace(/Z$/i, '').replace(/\.\d{3}$/, '').trim();
 }
 
 function tcmbArsivUrlFromDate(t) {
@@ -723,10 +755,32 @@ app.post('/api/yedek-al', async (req, res) => {
         const dosyaAdi = yedekDosyaAdi();
         const full = path.join(dir, dosyaAdi);
         await fs.writeFile(full, JSON.stringify(payload, null, 2), 'utf8');
-        res.json({ success: true, message: 'Yedek oluşturuldu.', dosyaAdi });
+        res.json({
+            success: true,
+            message: 'Yedek oluşturuldu. Bu bilgisayara indiriliyor…',
+            dosyaAdi,
+            indirUrl: `/api/yedek-indir/${encodeURIComponent(dosyaAdi)}`
+        });
     } catch (err) {
         console.error(err);
         res.status(500).json({ success: false, message: 'Yedek alınamadı.' });
+    }
+});
+
+app.get('/api/yedek-indir/:dosyaAdi', async (req, res) => {
+    try {
+        const dosyaAdi = decodeURIComponent(String(req.params.dosyaAdi || '').trim());
+        if (!yedekDosyaGuvenliMi(dosyaAdi)) {
+            return res.status(400).json({ success: false, message: 'Geçersiz yedek dosyası.' });
+        }
+        const full = path.join(yedekKlasorYolu(), dosyaAdi);
+        if (!fsSync.existsSync(full)) {
+            return res.status(404).json({ success: false, message: 'Yedek bulunamadı.' });
+        }
+        res.download(full, dosyaAdi);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ success: false, message: 'Yedek indirilemedi.' });
     }
 });
 
@@ -1004,16 +1058,7 @@ app.post('/api/satis', async (req, res) => {
 
     // --- SAAT KORUMASI ---
     // Ön yüzden gelen tarihi hiç bozmadan (metin olarak) alıyoruz.
-    let islemTarihiStr = tarih;
-    if (!islemTarihiStr || islemTarihiStr === "" || islemTarihiStr === "undefined") {
-        let simdi = new Date();
-        let trZamani = new Date(simdi.toLocaleString("en-US", {timeZone: "Europe/Istanbul"}));
-        const pad = (n) => n.toString().padStart(2, '0');
-        islemTarihiStr = `${trZamani.getFullYear()}-${pad(trZamani.getMonth()+1)}-${pad(trZamani.getDate())} ${pad(trZamani.getHours())}:${pad(trZamani.getMinutes())}:${pad(trZamani.getSeconds())}`;
-    } else {
-        // Eğer tarayıcı araya T veya Z harfi sıkıştırdıysa temizle (Örn: 2026-04-24T15:30 -> 2026-04-24 15:30)
-        islemTarihiStr = String(islemTarihiStr).replace('T', ' ').replace('Z', '').trim();
-    }
+    const islemTarihiStr = normalizeIslemTarihiStr(tarih);
 
     try {
         const pool = await sql.connect(config);
@@ -1103,16 +1148,7 @@ app.post('/api/satis', async (req, res) => {
 app.post('/api/tahsilat', async (req, res) => {
     const { kisiId, odeme, aciklama, notlar, tarih, islemiYapan } = req.body;
     
-    // --- SAAT KORUMASI ---
-    let islemTarihiStr = tarih;
-    if (!islemTarihiStr || islemTarihiStr === "" || islemTarihiStr === "undefined") {
-        let simdi = new Date();
-        let trZamani = new Date(simdi.toLocaleString("en-US", {timeZone: "Europe/Istanbul"}));
-        const pad = (n) => n.toString().padStart(2, '0');
-        islemTarihiStr = `${trZamani.getFullYear()}-${pad(trZamani.getMonth()+1)}-${pad(trZamani.getDate())} ${pad(trZamani.getHours())}:${pad(trZamani.getMinutes())}:${pad(trZamani.getSeconds())}`;
-    } else {
-        islemTarihiStr = String(islemTarihiStr).replace('T', ' ').replace('Z', '').trim();
-    }
+    const islemTarihiStr = normalizeIslemTarihiStr(tarih);
 
     let temizOdeme = String(odeme).replace(',', '.').replace(/[^\d.-]/g, '');
     const guvenliOdeme = parseFloat(temizOdeme) || 0;
@@ -1393,7 +1429,8 @@ app.put('/api/taksit-ode/:id', async (req, res) => {
     console.log("📥 HAVUZA GELEN PAKET:", req.body); 
 
     const taksitId = req.params.id; 
-    const { islemiYapan, odemeTuru, odenenTutar, musteriId } = req.body; 
+    const { islemiYapan, odemeTuru, odenenTutar, musteriId, tarih } = req.body;
+    const islemTarihiStr = normalizeIslemTarihiStr(tarih);
 
     try {
         const pool = await sql.connect(config);
@@ -1483,11 +1520,12 @@ app.put('/api/taksit-ode/:id', async (req, res) => {
                 .input('aciklama', sql.NVarChar, finalAciklama)
                 .input('yapan', sql.NVarChar, islemiYapan || 'Sistem')
                 .input('mNo', sql.NVarChar, formatliMakbuzNo)
+                .input('tar', sql.NVarChar, islemTarihiStr)
                 .query(`
                     DECLARE @EskiBakiye DECIMAL(18,2);
                     SELECT @EskiBakiye = ISNULL(SUM(BORÇ) - SUM(ÖDEME), 0) FROM [komur].[dbo].[MusteriHareket] WHERE Kisi = @kisi;
                     INSERT INTO [komur].[dbo].[MusteriHareket] (Kisi, YIL, AÇIKLAMA, ADET, BİRİM, BORÇ, ÖDEME, TARİH, IslemiYapan, MakbuzNo, ISLEM_BAKIYESI)
-                    VALUES (@kisi, YEAR(GETDATE()), @aciklama, 0, 0, 0, @tutar, GETDATE(), @yapan, @mNo, @EskiBakiye - @tutar);
+                    VALUES (@kisi, YEAR(@tar), @aciklama, 0, 0, 0, @tutar, @tar, @yapan, @mNo, @EskiBakiye - @tutar);
                 `);
 
             await transaction.commit();
@@ -2145,16 +2183,7 @@ app.post('/api/iade', async (req, res) => {
     // 1. Gelen verileri alıyoruz
     const { musteri_id, komur_id, miktar, tutar, notlar, tarih, islemiYapan } = req.body;
 
-    // --- SAAT KORUMASI (METİN OLARAK KİLİTLENDİ) ---
-    let islemTarihiStr = tarih;
-    if (!islemTarihiStr || islemTarihiStr === "" || islemTarihiStr === "undefined") {
-        let simdi = new Date();
-        let trZamani = new Date(simdi.toLocaleString("en-US", {timeZone: "Europe/Istanbul"}));
-        const pad = (n) => n.toString().padStart(2, '0');
-        islemTarihiStr = `${trZamani.getFullYear()}-${pad(trZamani.getMonth()+1)}-${pad(trZamani.getDate())} ${pad(trZamani.getHours())}:${pad(trZamani.getMinutes())}:${pad(trZamani.getSeconds())}`;
-    } else {
-        islemTarihiStr = String(islemTarihiStr).replace('T', ' ').replace('Z', '').trim();
-    }
+    const islemTarihiStr = normalizeIslemTarihiStr(tarih);
 
     try {
         const pool = await sql.connect(config);

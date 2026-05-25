@@ -356,11 +356,37 @@ html, body {
 }
 .panel-baslik-metin {
     margin: 0;
+    flex: 1;
+    min-width: 0;
     font-size: 1.25rem;
     font-weight: 800;
     color: #fff;
     letter-spacing: 0.02em;
     line-height: 1.2;
+}
+.panel-baslik-aksiyon {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    border: none;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.22);
+    color: #fff;
+    font-size: 0.78rem;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+}
+.panel-baslik-aksiyon:active {
+    background: rgba(255, 255, 255, 0.38);
+}
+.panel-baslik-aksiyon.d-none {
+    display: none !important;
+}
+.panel-baslik-aksiyon i {
+    font-size: 0.9rem;
 }
 
 .cards-row {
@@ -642,16 +668,70 @@ html, body {
     flex: 1;
     min-width: 0;
 }
-.musteri-duzenle-scroll {
-    overflow-y: auto;
-    max-height: calc(100vh - 120px);
-    -webkit-overflow-scrolling: touch;
+.modal-sheet--musteri-form {
+    max-height: min(92dvh, 560px);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    padding: 0 0 calc(10px + var(--safe-b));
 }
-.musteri-duzenle-adres {
-    resize: vertical;
-    min-height: 72px;
+.modal-sheet--musteri-form .modal-head {
+    flex-shrink: 0;
+    margin-bottom: 0;
+}
+.modal-head--yesil {
+    margin: 0;
+    padding: 12px 14px;
+    background: linear-gradient(135deg, #15803d 0%, #22c55e 100%);
+    color: #fff;
+    border-radius: 18px 18px 0 0;
+}
+.modal-head--yesil h3,
+.modal-head--yesil .modal-head-baslik {
+    color: #fff;
+}
+.modal-head--yesil .modal-geri-btn {
+    background: rgba(255, 255, 255, 0.22);
+    color: #fff;
+}
+.musteri-form-govde {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    padding: 10px 14px 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.musteri-form-compact .field-label {
+    margin-bottom: 2px;
+    font-size: 0.66rem;
+    letter-spacing: 0.04em;
+}
+.musteri-form-compact .field-input {
+    margin-bottom: 0;
+    padding: 9px 10px;
+    font-size: 0.9rem;
+    border-radius: 10px;
+}
+.musteri-form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px 8px;
+}
+.mfg-full { grid-column: 1 / -1; }
+.mfg-yari { min-width: 0; }
+.musteri-form-kaydet {
+    flex-shrink: 0;
+    margin-top: 2px;
+    padding: 12px 14px;
+    font-size: 0.95rem;
 }
 .modal-head--sari {
+    margin: 0;
+    padding: 12px 14px;
+    border-radius: 18px 18px 0 0;
+}
     background: linear-gradient(135deg, #ca8a04 0%, #eab308 100%);
     color: #fff;
 }

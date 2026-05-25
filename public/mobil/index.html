@@ -14,7 +14,7 @@
     <link rel="icon" type="image/png" sizes="512x512" href="/mobil/icon-512.png">
     <link rel="apple-touch-icon" href="/mobil/icon-192.png">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="/mobil/mobil.css?v=28">
+    <link rel="stylesheet" href="/mobil/mobil.css?v=29">
 </head>
 <body>
     <div id="app">
@@ -80,6 +80,9 @@
                 <div id="panelBaslikBar" class="panel-baslik-bar d-none" aria-hidden="true">
                     <div class="panel-baslik-ikon"><i id="panelBaslikIkon" class="fas fa-boxes-stacked"></i></div>
                     <h1 id="panelBaslikMetin" class="panel-baslik-metin">—</h1>
+                    <button type="button" class="panel-baslik-aksiyon d-none" id="btnMusteriEkle" aria-label="Müşteri ekle">
+                        <i class="fas fa-user-plus"></i><span>Ekle</span>
+                    </button>
                 </div>
                 <div id="panel-ana" class="panel panel-active">
                     <div class="cards-row" id="ozetCards">
@@ -371,30 +374,84 @@
         </div>
     </div>
 
+    <!-- Müşteri ekle -->
+    <div id="modal-musteri-ekle" class="modal" aria-hidden="true">
+        <div class="modal-backdrop" data-modal-kapat="modal-musteri-ekle"></div>
+        <div class="modal-sheet modal-sheet--musteri-form">
+            <div class="modal-head modal-head--yesil">
+                <button type="button" class="icon-btn modal-geri-btn" data-modal-kapat="modal-musteri-ekle" aria-label="Geri"><i class="fas fa-arrow-left"></i></button>
+                <h3 class="modal-head-baslik"><i class="fas fa-user-plus me-1"></i>Yeni müşteri</h3>
+            </div>
+            <div class="musteri-form-govde musteri-form-compact">
+                <div class="musteri-form-grid">
+                    <div class="mfg-full">
+                        <label class="field-label" for="mEkleUnvan">Resmi ünvan *</label>
+                        <input type="text" id="mEkleUnvan" class="field-input" placeholder="Makbuz ismi" autocomplete="off">
+                    </div>
+                    <div class="mfg-full">
+                        <label class="field-label" for="mEkleAd">Dükkan içi isim</label>
+                        <input type="text" id="mEkleAd" class="field-input" placeholder="Tanıma ismi" autocomplete="off">
+                    </div>
+                    <div class="mfg-full">
+                        <label class="field-label" for="mEkleTelefon">Telefon *</label>
+                        <input type="tel" id="mEkleTelefon" class="field-input" inputmode="numeric" maxlength="10" placeholder="5xxxxxxxxx" autocomplete="tel">
+                    </div>
+                    <div class="mfg-yari">
+                        <label class="field-label" for="mEkleIlce">İlçe</label>
+                        <select id="mEkleIlce" class="field-input"></select>
+                    </div>
+                    <div class="mfg-yari">
+                        <label class="field-label" for="mEkleMahalleListe">Mahalle</label>
+                        <select id="mEkleMahalleListe" class="field-input"></select>
+                    </div>
+                    <div class="mfg-full">
+                        <label class="field-label" for="mEkleAdres">Açık adres</label>
+                        <input type="text" id="mEkleAdres" class="field-input" placeholder="Sokak, no…" autocomplete="street-address">
+                    </div>
+                </div>
+                <button type="button" class="btn btn-primary btn-block musteri-form-kaydet" id="btnMusteriEkleKaydet">
+                    <i class="fas fa-save me-1"></i>Kaydet
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Müşteri düzenle -->
     <div id="modal-musteri-duzenle" class="modal" aria-hidden="true">
         <div class="modal-backdrop" data-modal-kapat="modal-musteri-duzenle"></div>
-        <div class="modal-sheet modal-sheet--tall">
+        <div class="modal-sheet modal-sheet--musteri-form">
             <div class="modal-head modal-head--sari">
                 <button type="button" class="icon-btn modal-geri-btn" data-modal-kapat="modal-musteri-duzenle" aria-label="Geri"><i class="fas fa-arrow-left"></i></button>
                 <h3 class="modal-head-baslik"><i class="fas fa-user-edit me-1"></i>Müşteri düzenle</h3>
             </div>
-            <div class="musteri-duzenle-scroll">
-                <label class="field-label" for="mDuzenleUnvan">Resmi ünvan (makbuz ismi)</label>
-                <input type="text" id="mDuzenleUnvan" class="field-input" placeholder="Örn: RAMAZAN BAĞIŞ" autocomplete="off">
-                <p class="form-hint">Makbuzda bu isim kullanılır.</p>
-                <label class="field-label" for="mDuzenleAd">Dükkan içi tanıma ismi</label>
-                <input type="text" id="mDuzenleAd" class="field-input" placeholder="Örn: osman amcanın oğlu" autocomplete="off">
-                <label class="field-label" for="mDuzenleTelefon">Telefon (10 hane, başında 0 yok)</label>
-                <input type="tel" id="mDuzenleTelefon" class="field-input" inputmode="numeric" maxlength="10" placeholder="5xx xxx xx xx" autocomplete="tel">
-                <div class="section-title">Sevkiyat adresi</div>
-                <label class="field-label" for="mDuzenleIlce">İlçe</label>
-                <select id="mDuzenleIlce" class="field-input"></select>
-                <label class="field-label" for="mDuzenleMahalleListe">Mahalle</label>
-                <select id="mDuzenleMahalleListe" class="field-input"></select>
-                <label class="field-label" for="mDuzenleAdres">Açık adres (sokak, no)</label>
-                <textarea id="mDuzenleAdres" class="field-input musteri-duzenle-adres" rows="3" placeholder="Sokak, apartman, daire…"></textarea>
-                <button type="button" class="btn btn-primary btn-block mt-2" id="btnMusteriDuzenleKaydet">
+            <div class="musteri-form-govde musteri-form-compact">
+                <div class="musteri-form-grid">
+                    <div class="mfg-full">
+                        <label class="field-label" for="mDuzenleUnvan">Resmi ünvan</label>
+                        <input type="text" id="mDuzenleUnvan" class="field-input" placeholder="Makbuz ismi" autocomplete="off">
+                    </div>
+                    <div class="mfg-full">
+                        <label class="field-label" for="mDuzenleAd">Dükkan içi isim</label>
+                        <input type="text" id="mDuzenleAd" class="field-input" placeholder="Tanıma ismi" autocomplete="off">
+                    </div>
+                    <div class="mfg-full">
+                        <label class="field-label" for="mDuzenleTelefon">Telefon</label>
+                        <input type="tel" id="mDuzenleTelefon" class="field-input" inputmode="numeric" maxlength="10" placeholder="5xxxxxxxxx" autocomplete="tel">
+                    </div>
+                    <div class="mfg-yari">
+                        <label class="field-label" for="mDuzenleIlce">İlçe</label>
+                        <select id="mDuzenleIlce" class="field-input"></select>
+                    </div>
+                    <div class="mfg-yari">
+                        <label class="field-label" for="mDuzenleMahalleListe">Mahalle</label>
+                        <select id="mDuzenleMahalleListe" class="field-input"></select>
+                    </div>
+                    <div class="mfg-full">
+                        <label class="field-label" for="mDuzenleAdres">Açık adres</label>
+                        <input type="text" id="mDuzenleAdres" class="field-input" placeholder="Sokak, no…" autocomplete="street-address">
+                    </div>
+                </div>
+                <button type="button" class="btn btn-primary btn-block musteri-form-kaydet" id="btnMusteriDuzenleKaydet">
                     <i class="fas fa-save me-1"></i>Kaydet
                 </button>
             </div>
@@ -426,6 +483,6 @@
     <div id="toast" class="toast d-none"></div>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js" crossorigin="anonymous"></script>
     <script src="/adres-sozlugu.js"></script>
-    <script src="/mobil/mobil.js?v=32"></script>
+    <script src="/mobil/mobil.js?v=34"></script>
 </body>
 </html>

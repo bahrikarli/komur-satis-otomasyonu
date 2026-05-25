@@ -7503,12 +7503,149 @@ window.yedekListele = async function() {
     }
 };
 
+const KOMUR_BACKUP_YOL_METIN = 'C:\\komurbackup';
+const KOMUR_BACKUP_DB_ADI = 'komur-backup-v1';
+const KOMUR_BACKUP_STORE = 'meta';
+
+async function komurBackupDbAc() {
+    return new Promise((resolve, reject) => {
+        const req = indexedDB.open(KOMUR_BACKUP_DB_ADI, 1);
+        req.onerror = () => reject(req.error);
+        req.onupgradeneeded = (e) => {
+            e.target.result.createObjectStore(KOMUR_BACKUP_STORE);
+        };
+        req.onsuccess = () => resolve(req.result);
+    });
+}
+
+async function komurBackupDirHandleKaydet(handle) {
+    const db = await komurBackupDbAc();
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction(KOMUR_BACKUP_STORE, 'readwrite');
+        tx.objectStore(KOMUR_BACKUP_STORE).put(handle, 'dir');
+        tx.oncomplete = () => { db.close(); resolve(); };
+        tx.onerror = () => reject(tx.error);
+    });
+}
+
+async function komurBackupDirHandleYukle() {
+    const db = await komurBackupDbAc();
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction(KOMUR_BACKUP_STORE, 'readonly');
+        const req = tx.objectStore(KOMUR_BACKUP_STORE).get('dir');
+        req.onsuccess = () => { db.close(); resolve(req.result || null); };
+        req.onerror = () => reject(req.error);
+    });
+}
+
+async function komurBackupDirIzni(handle) {
+    if (!handle || typeof handle.queryPermission !== 'function') return false;
+    let perm = await handle.queryPermission({ mode: 'readwrite' });
+    if (perm === 'granted') return true;
+    if (perm === 'prompt' && typeof handle.requestPermission === 'function') {
+        perm = await handle.requestPermission({ mode: 'readwrite' });
+        return perm === 'granted';
+    }
+    return false;
+}
+
+async function komurBackupKlasorSec() {
+    if (typeof window.showDirectoryPicker !== 'function') return null;
+    const handle = await window.showDirectoryPicker({
+        id: 'komur-backup-c-root',
+        mode: 'readwrite',
+        startIn: 'desktop'
+    });
+    await komurBackupDirHandleKaydet(handle);
+    return handle;
+}
+
+async function komurBackupKlasorAl() {
+    if (typeof window.showDirectoryPicker !== 'function') return null;
+    let handle = await komurBackupDirHandleYukle().catch(() => null);
+    if (handle && !(await komurBackupDirIzni(handle))) handle = null;
+    if (!handle) {
+        alert(
+            'Yedeklerin kaydedileceği klasörü seçin.\n\n' +
+            'C sürücüsünde "komurbackup" klasörünü seçin veya oluşturun:\n' +
+            KOMUR_BACKUP_YOL_METIN
+        );
+        try {
+            handle = await komurBackupKlasorSec();
+        } catch (e) {
+            if (e && e.name === 'AbortError') return null;
+            throw e;
+        }
+    }
+    return handle;
+}
+
+async function komurBackupDosyayaYaz(dosyaAdi, blob) {
+    const dir = await komurBackupKlasorAl();
+    if (!dir) return null;
+    const fh = await dir.getFileHandle(dosyaAdi, { create: true });
+    const w = await fh.createWritable();
+    await w.write(blob);
+    await w.close();
+    const ad = String(dir.name || '').toLowerCase();
+    const komurKlasoru = ad === 'komurbackup' || ad.includes('komurbackup');
+    return {
+        yol: 'komurbackup',
+        dosyaAdi,
+        tamYol: komurKlasoru ? `${KOMUR_BACKUP_YOL_METIN}\\${dosyaAdi}` : `${dir.name}\\${dosyaAdi}`
+    };
+}
+
+window.yedekMusteriBilgisayarinaKaydet = async function(dosyaAdi) {
+    const indirUrl = `/api/yedek-indir/${encodeURIComponent(dosyaAdi)}`;
+    const indirRes = await fetch(indirUrl);
+    if (!indirRes.ok) {
+        const err = await indirRes.json().catch(() => ({}));
+        throw new Error(err.message || 'Yedek indirilemedi.');
+    }
+    const blob = await indirRes.blob();
+
+    if (typeof window.showDirectoryPicker === 'function') {
+        try {
+            const kayit = await komurBackupDosyayaYaz(dosyaAdi, blob);
+            if (kayit) return kayit;
+            if (kayit === null) return null;
+        } catch (e) {
+            if (e && e.name === 'AbortError') return null;
+        }
+    }
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = dosyaAdi;
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    return { yol: 'indirilenler', dosyaAdi, tamYol: dosyaAdi };
+};
+
 window.yedekAl = async function() {
     try {
         const res = await fetch('/api/yedek-al', { method: 'POST' });
         const data = await res.json().catch(() => ({}));
         if (!res.ok || !data.success) throw new Error(data.message || 'Yedek alınamadı.');
-        alert(data.message || 'Yedek oluşturuldu.');
+        if (!data.dosyaAdi) throw new Error('Yedek dosya adı alınamadı.');
+
+        const kayit = await window.yedekMusteriBilgisayarinaKaydet(data.dosyaAdi);
+        if (kayit === null) {
+            alert('Kayıt iptal edildi.\n\nSunucuda yedek duruyor: ' + KOMUR_BACKUP_YOL_METIN + '\\' + data.dosyaAdi);
+        } else if (kayit.yol === 'komurbackup') {
+            alert('Yedek kaydedildi:\n\n' + (kayit.tamYol || (KOMUR_BACKUP_YOL_METIN + '\\' + data.dosyaAdi)));
+        } else {
+            alert(
+                'Yedek indirildi: ' + data.dosyaAdi + '\n\n' +
+                'Tarayıcı C:\\komurbackup klasörüne doğrudan yazamadı. Dosyayı İndirilenler\'den ' +
+                KOMUR_BACKUP_YOL_METIN + ' içine taşıyın veya Edge/Chrome ile tekrar deneyin.'
+            );
+        }
         yedekListele();
     } catch (err) {
         alert(`Yedek hatası: ${err.message || err}`);

@@ -4,6 +4,8 @@ title Karaarslan Komur Baslatici
 :: 1. EMNİYET: Dosyanin oldugu asil klasore gitmeyi garantiye al (Kisayol problemini cozer)
 cd /d "%~dp0"
 
+if not exist "C:\komurbackup" mkdir "C:\komurbackup"
+
 set "PORT=3017"
 if exist "%~dp0scripts\read-port.js" (
   for /f "usebackq delims=" %%p in (`node "%~dp0scripts\read-port.js" "%~dp0" 2^>nul`) do set "PORT=%%p"

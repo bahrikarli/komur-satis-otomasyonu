@@ -8,5 +8,6 @@ komur-satis-otomasyonu-*.zip
 .env
 .gh-token
 token.txt
+uzak-sunucu.txt
 local-release.bat
 local-release.bat.bat
