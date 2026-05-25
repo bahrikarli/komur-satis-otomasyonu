@@ -589,19 +589,21 @@ function ekstreIslemRaporSatir(islem) {
     if (borc > 0) islemTipi = 'Satış';
     else if (metinKontrol.includes('IADE')) islemTipi = 'İade';
 
-    const yapan = islem.IslemiYapan || islem.kullanici || '';
-    if (yapan && yapan !== 'null' && yapan !== 'Sistem') {
-        temizAciklama += ` (${yapan})`;
-    }
+    // Personel adı yazdırma raporunda gösterilmez; sondaki parantez temizlenir
+    temizAciklama = temizAciklama.replace(/\s*\([^)]+\)\s*$/, '').trim();
     if (islem.notlar && islem.notlar !== 'null' && String(islem.notlar).trim() !== '') {
-        temizAciklama += ` - Not: ${islem.notlar}`;
+        temizAciklama += ` — Not: ${islem.notlar}`;
     }
+
+    const islemSira = islemTipi === 'Satış' ? 1 : (islemTipi === 'İade' ? 2 : 3);
 
     return {
         hamTarih: hamTarih ? new Date(String(hamTarih).replace('Z', '').replace('T', ' ')).getTime() : 0,
         tarihGunu,
         saatKismi,
         islemTipi,
+        islemSira,
+        siraId: Number(islem.Kimlik ?? islem.KİMLİK ?? islem.ID ?? 0) || 0,
         aciklama: temizAciklama,
         miktar: miktar > 0 ? miktar : null,
         birim,
@@ -609,6 +611,57 @@ function ekstreIslemRaporSatir(islem) {
         borc,
         odeme
     };
+}
+
+function ekstreHamIslemSira(islem) {
+    const borc = parseFloat(islem.BORÇ) || 0;
+    const metin = String(islem.AÇIKLAMA || '').toUpperCase().replace(/İ/g, 'I');
+    if (borc > 0) return 1;
+    if (metin.includes('IADE')) return 2;
+    return 3;
+}
+
+function ekstreRaporSiralama(a, b) {
+    if (a.hamTarih !== b.hamTarih) return a.hamTarih - b.hamTarih;
+    if (a.saatKismi !== b.saatKismi) return String(a.saatKismi).localeCompare(String(b.saatKismi));
+    if (a.islemSira !== b.islemSira) return a.islemSira - b.islemSira;
+    return a.siraId - b.siraId;
+}
+
+/** Pop-up engeline takılmadan yazdır (iframe — async sonrası da çalışır). */
+function ekstreYazdirIframe(html) {
+    let frame = document.getElementById('ekstreYazdirFrame');
+    if (!frame) {
+        frame = document.createElement('iframe');
+        frame.id = 'ekstreYazdirFrame';
+        frame.setAttribute('title', 'Cari ekstre yazdır');
+        frame.style.cssText = 'position:fixed;left:-9999px;top:0;width:1px;height:1px;border:0;';
+        document.body.appendChild(frame);
+    }
+    const win = frame.contentWindow;
+    if (!win) {
+        alert('Yazdırma hazırlanamadı.');
+        return;
+    }
+    const doc = win.document;
+    doc.open();
+    doc.write(html);
+    doc.close();
+
+    let yazdirildi = false;
+    const yazdirAc = () => {
+        if (yazdirildi) return;
+        yazdirildi = true;
+        try {
+            win.focus();
+            win.print();
+        } catch (e) {
+            yazdirildi = false;
+            console.error('Yazdırma hatası:', e);
+            alert('Yazdırma başlatılamadı: ' + (e.message || e));
+        }
+    };
+    setTimeout(yazdirAc, 350);
 }
 
 window.musteriCariEkstreRaporuYazdir = async function () {
@@ -647,80 +700,98 @@ window.musteriCariEkstreRaporuYazdir = async function () {
         ozet = { toplamBorc, toplamOdenen, kalan: toplamBorc - toplamOdenen };
     }
 
-    const satirlar = islemler.map(ekstreIslemRaporSatir).sort((a, b) => {
-        if (a.hamTarih !== b.hamTarih) return a.hamTarih - b.hamTarih;
-        return String(a.saatKismi).localeCompare(String(b.saatKismi));
-    });
+    const satirlar = islemler.map(ekstreIslemRaporSatir).sort(ekstreRaporSiralama);
 
-    const musteriAd = aktifMusteriUnvan
-        ? `${aktifMusteriUnvan} (${aktifMusteriAd || ''})`
+    const anaAd = (aktifMusteriUnvan && aktifMusteriUnvan !== 'null' && aktifMusteriUnvan.trim())
+        ? aktifMusteriUnvan.trim()
         : (aktifMusteriAd || 'Müşteri');
-    const tel = document.getElementById('detayTelefon')?.innerText?.trim() || '-';
-    const adres = document.getElementById('detayAdres')?.innerText?.trim() || '-';
+    const altAd = (aktifMusteriUnvan && aktifMusteriAd && aktifMusteriAd !== anaAd)
+        ? aktifMusteriAd
+        : '';
+    const tel = document.getElementById('detayTelefon')?.innerText?.trim() || '—';
+    const adres = document.getElementById('detayAdres')?.innerText?.trim() || '—';
+
+    const paraFmt = (n) => Number(n).toLocaleString('tr-TR', { minimumFractionDigits: 2 });
+    const kalanBakiyeSinif = ozet.kalan > 0 ? 'borc' : (ozet.kalan < 0 ? 'odeme' : '');
 
     const tabloSatir = satirlar.map((s) => `
         <tr>
-            <td>${ekstreRaporHtmlKacis(s.tarihGunu)}</td>
-            <td>${ekstreRaporHtmlKacis(s.saatKismi)}</td>
+            <td class="tarih-hucre">
+                <div class="t-gun">${ekstreRaporHtmlKacis(s.tarihGunu)}</div>
+                <div class="t-saat">${ekstreRaporHtmlKacis(s.saatKismi)}</div>
+            </td>
             <td>${ekstreRaporHtmlKacis(s.islemTipi)}</td>
             <td>${ekstreRaporHtmlKacis(s.aciklama)}</td>
             <td class="c">${s.miktar != null ? s.miktar.toLocaleString('tr-TR') : '—'}</td>
             <td>${ekstreRaporHtmlKacis(s.birim)}</td>
-            <td class="c">${s.birimFiyat != null ? s.birimFiyat.toLocaleString('tr-TR', { minimumFractionDigits: 2 }) : '—'}</td>
-            <td class="c borc">${s.borc > 0 ? s.borc.toLocaleString('tr-TR', { minimumFractionDigits: 2 }) : '—'}</td>
-            <td class="c odeme">${s.odeme > 0 ? s.odeme.toLocaleString('tr-TR', { minimumFractionDigits: 2 }) : '—'}</td>
+            <td class="c">${s.birimFiyat != null ? paraFmt(s.birimFiyat) : '—'}</td>
+            <td class="c borc">${s.borc > 0 ? paraFmt(s.borc) : '—'}</td>
+            <td class="c odeme">${s.odeme > 0 ? paraFmt(s.odeme) : '—'}</td>
         </tr>`).join('');
+
+    const tabloToplam = `
+        <tr class="toplam-satir">
+            <td colspan="6" class="toplam-etiket">TOPLAM</td>
+            <td class="c borc">${paraFmt(ozet.toplamBorc)} ₺</td>
+            <td class="c odeme">${paraFmt(ozet.toplamOdenen)} ₺</td>
+        </tr>`;
 
     const html = `
     <html><head><meta charset="utf-8"><title>Cari Ekstre</title>
     <style>
         body { font-family: Segoe UI, Arial, sans-serif; padding: 16px; color: #111; font-size: 11px; }
-        h2 { text-align: center; color: #2c3e50; border-bottom: 2px solid #e67e22; padding-bottom: 8px; }
-        .meta { margin: 8px 0 14px; font-size: 12px; }
+        h2 { text-align: center; color: #2c3e50; border-bottom: 2px solid #e67e22; padding-bottom: 8px; margin: 0 0 8px; }
+        .cikti-tarih { text-align: right; font-size: 10px; color: #555; margin-bottom: 12px; }
+        .musteri-bilgi { margin: 0 0 16px; padding: 12px 14px; background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; }
+        .musteri-ana-ad { font-size: 22px; font-weight: 800; color: #1a5276; line-height: 1.2; margin-bottom: 4px; text-transform: uppercase; }
+        .musteri-alt-ad { font-size: 14px; font-weight: 600; color: #495057; margin-bottom: 10px; }
+        .musteri-satir { font-size: 12px; margin: 5px 0; line-height: 1.4; }
+        .musteri-satir .lbl { display: inline-block; min-width: 52px; font-weight: 700; color: #6c757d; }
         .ozet { width: 100%; border-collapse: collapse; margin-bottom: 14px; }
         .ozet td { border: 1px solid #ccc; padding: 10px; text-align: center; font-weight: bold; }
         .oz-alis { background: #fde8e8; }
         .oz-odeme { background: #e8f8ee; }
         .oz-bakiye { background: #e8eef8; }
+        .ozet .tutar { font-size: 15px; font-weight: 800; display: block; margin-top: 4px; }
         table.detay { width: 100%; border-collapse: collapse; }
-        table.detay th, table.detay td { border: 1px solid #bdc3c7; padding: 5px; text-align: left; }
+        table.detay th, table.detay td { border: 1px solid #bdc3c7; padding: 5px 6px; text-align: left; vertical-align: top; }
         table.detay th { background: #ecf0f1; }
+        table.detay tfoot .toplam-satir { background: #f1f3f5; font-weight: 800; }
+        table.detay tfoot .toplam-etiket { text-align: right; font-weight: 800; color: #2c3e50; }
+        .tarih-hucre { white-space: nowrap; }
+        .t-gun { font-weight: 700; font-size: 11px; }
+        .t-saat { font-size: 10px; color: #666; margin-top: 3px; }
         .c { text-align: right; }
-        .borc { color: #c0392b; }
-        .odeme { color: #27ae60; }
-        .tarih-satir { text-align: right; font-size: 10px; color: #555; }
-        @media print { body { padding: 0; } }
+        .borc { color: #c0392b; font-weight: 700; }
+        .odeme { color: #27ae60; font-weight: 700; }
+        @media print { body { padding: 8px; } }
     </style></head><body>
         <h2>KARAARSLAN KÖMÜR — CARİ EKSTRE</h2>
-        <div class="tarih-satir">Çıktı: ${new Date().toLocaleString('tr-TR')}</div>
-        <div class="meta"><b>Müşteri:</b> ${ekstreRaporHtmlKacis(musteriAd)}<br>
-        <b>Telefon:</b> ${ekstreRaporHtmlKacis(tel)} &nbsp; <b>Adres:</b> ${ekstreRaporHtmlKacis(adres)}</div>
+        <div class="cikti-tarih">Çıktı: ${new Date().toLocaleString('tr-TR')}</div>
+        <div class="musteri-bilgi">
+            <div class="musteri-ana-ad">${ekstreRaporHtmlKacis(anaAd)}</div>
+            ${altAd ? `<div class="musteri-alt-ad">${ekstreRaporHtmlKacis(altAd)}</div>` : ''}
+            <div class="musteri-satir"><span class="lbl">Telefon</span> ${ekstreRaporHtmlKacis(tel)}</div>
+            <div class="musteri-satir"><span class="lbl">Adres</span> ${ekstreRaporHtmlKacis(adres)}</div>
+        </div>
         <table class="ozet">
             <tr>
-                <td class="oz-alis">Toplam alış<br>${ozet.toplamBorc.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</td>
-                <td class="oz-odeme">Toplam ödeme<br>${ozet.toplamOdenen.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</td>
-                <td class="oz-bakiye">Kalan bakiye<br>${ozet.kalan.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</td>
+                <td class="oz-alis">Toplam alış<span class="tutar borc">${paraFmt(ozet.toplamBorc)} ₺</span></td>
+                <td class="oz-odeme">Toplam ödeme<span class="tutar odeme">${paraFmt(ozet.toplamOdenen)} ₺</span></td>
+                <td class="oz-bakiye">Kalan bakiye<span class="tutar ${kalanBakiyeSinif}">${paraFmt(Math.abs(ozet.kalan))} ₺${ozet.kalan < 0 ? ' (Alacak)' : ''}</span></td>
             </tr>
         </table>
         <table class="detay">
             <thead><tr>
-                <th>Tarih</th><th>Saat</th><th>İşlem</th><th>Açıklama</th>
+                <th>Tarih</th><th>İşlem</th><th>Açıklama</th>
                 <th>Miktar</th><th>Birim</th><th>B.Fiyat</th><th>Borç</th><th>Alacak</th>
             </tr></thead>
             <tbody>${tabloSatir}</tbody>
+            <tfoot>${tabloToplam}</tfoot>
         </table>
     </body></html>`;
 
-    const w = window.open('', '_blank');
-    if (!w) {
-        alert('Yazdır penceresi açılamadı. Tarayıcı açılır pencereyi engelliyor olabilir.');
-        return;
-    }
-    w.document.open();
-    w.document.write(html);
-    w.document.close();
-    w.focus();
-    setTimeout(() => { w.print(); }, 400);
+    ekstreYazdirIframe(html);
 };
 
 window.musteriNotlarModalAc = async function () {
@@ -985,8 +1056,18 @@ const baslikGuncelle = (unvan) => {
 
         window.sonMusteriEkstreIslemler = Array.isArray(islemler) ? [...islemler] : [];
         
-        // --- SIRALAMA EN YENİ İŞLEM EN ÜSTTE OLACAK ŞEKİLDE AYARLANDI ---
-        islemler.sort((a, b) => new Date(b.TARİH || b.TARIH) - new Date(a.TARİH || a.TARIH));
+        // En yeni üstte; aynı dakikada satış önce, tahsilat sonra (ekranda tahsilat üstte)
+        islemler.sort((a, b) => {
+            const ta = new Date(a.TARİH || a.TARIH).getTime();
+            const tb = new Date(b.TARİH || b.TARIH).getTime();
+            if (ta !== tb) return tb - ta;
+            const sa = ekstreHamIslemSira(a);
+            const sb = ekstreHamIslemSira(b);
+            if (sa !== sb) return sb - sa;
+            const ida = Number(a.Kimlik || a.KİMLİK || a.ID) || 0;
+            const idb = Number(b.Kimlik || b.KİMLİK || b.ID) || 0;
+            return idb - ida;
+        });
 
         const tabloGovdesi = document.getElementById('detayTabloGovdesi');
         tabloGovdesi.innerHTML = '';

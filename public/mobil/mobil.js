@@ -189,18 +189,24 @@
         else if (String(aciklama).toUpperCase().includes('İADE') || String(aciklama).toUpperCase().includes('IADE')) {
             islemTipi = 'İade';
         }
-        const yapan = islem.IslemiYapan || islem.kullanici || '';
-        if (yapan && yapan !== 'Sistem' && yapan !== 'null') {
-            aciklama += ` (${yapan})`;
+        if (aciklama.includes(' x ')) {
+            aciklama = aciklama.split(' x ')[1] || aciklama;
         }
+        if (aciklama.includes(' (') && !aciklama.includes('Taksit')) {
+            aciklama = aciklama.split(' (')[0].trim();
+        }
+        aciklama = aciklama.replace(/\s*\([^)]+\)\s*$/, '').trim();
         if (islem.notlar && String(islem.notlar).trim()) {
             aciklama += ` — ${islem.notlar}`;
         }
+        const islemSira = islemTipi === 'Satış' ? 1 : (islemTipi === 'İade' ? 2 : 3);
         return {
             sortKey: d && !Number.isNaN(d.getTime()) ? d.getTime() : 0,
             tarihGunu,
             saatKismi,
             islemTipi,
+            islemSira,
+            siraId: Number(islem.Kimlik ?? islem.KİMLİK ?? islem.ID ?? 0) || 0,
             aciklama,
             miktar: miktar > 0 ? miktar : null,
             birim,
@@ -208,6 +214,13 @@
             borc,
             odeme
         };
+    }
+
+    function ekstreRaporSiralama(a, b) {
+        if (a.sortKey !== b.sortKey) return a.sortKey - b.sortKey;
+        if (a.saatKismi !== b.saatKismi) return String(a.saatKismi).localeCompare(String(b.saatKismi));
+        if (a.islemSira !== b.islemSira) return a.islemSira - b.islemSira;
+        return a.siraId - b.siraId;
     }
 
     async function musteriEkstreYukle(id) {
@@ -281,11 +294,17 @@
             const tel = aktifMusteri.CEPTEL || '—';
             const konum = [aktifMusteri.Ilce, aktifMusteri.Mahalle].filter(Boolean).join(' / ') || '—';
 
-            const satirlar = rows.map(ekstreRaporSatir).sort((a, b) => a.sortKey - b.sortKey);
+            const satirlar = rows.map(ekstreRaporSatir).sort(ekstreRaporSiralama);
+            const unvan = (aktifMusteri.Unvan || '').trim();
+            const anaAd = unvan || ad;
+            const altAd = (unvan && ad && ad !== unvan) ? ad : '';
+
             const tabloSatir = satirlar.map((s) => `
                 <tr>
-                    <td>${ekstreRaporKacis(s.tarihGunu)}</td>
-                    <td>${ekstreRaporKacis(s.saatKismi)}</td>
+                    <td style="white-space:nowrap;">
+                        <div style="font-weight:700;">${ekstreRaporKacis(s.tarihGunu)}</div>
+                        <div style="font-size:9px;color:#666;margin-top:2px;">${ekstreRaporKacis(s.saatKismi)}</div>
+                    </td>
                     <td>${ekstreRaporKacis(s.islemTipi)}</td>
                     <td>${ekstreRaporKacis(s.aciklama)}</td>
                     <td class="c">${s.miktar != null ? formatSayi(s.miktar) : '—'}</td>
@@ -303,20 +322,23 @@
                     <p style="text-align:right;font-size:10px;color:#555;margin:0 0 12px;">
                         ${new Date().toLocaleString('tr-TR')}
                     </p>
-                    <p style="margin:0 0 4px;font-size:14px;"><b>Müşteri:</b> ${ekstreRaporKacis(ad)}</p>
-                    <p style="margin:0 0 4px;font-size:12px;"><b>Telefon:</b> ${ekstreRaporKacis(tel)} &nbsp; <b>Bölge:</b> ${ekstreRaporKacis(konum)}</p>
+                    <div style="margin:0 0 14px;padding:10px 12px;background:#f8f9fa;border:1px solid #dee2e6;border-radius:6px;">
+                        <div style="font-size:20px;font-weight:800;color:#1a5276;text-transform:uppercase;">${ekstreRaporKacis(anaAd)}</div>
+                        ${altAd ? `<div style="font-size:13px;font-weight:600;color:#495057;margin:6px 0 8px;">${ekstreRaporKacis(altAd)}</div>` : ''}
+                        <div style="font-size:12px;margin:4px 0;"><b>Telefon</b> ${ekstreRaporKacis(tel)}</div>
+                        <div style="font-size:12px;margin:4px 0;"><b>Adres</b> ${ekstreRaporKacis(konum)}</div>
+                    </div>
                     <table style="width:100%;border-collapse:collapse;margin:12px 0;font-size:11px;">
                         <tr>
-                            <td style="border:1px solid #ccc;padding:8px;background:#fde8e8;"><b>Toplam alış</b><br>${formatPara(toplamAlis)}</td>
-                            <td style="border:1px solid #ccc;padding:8px;background:#e8f8ee;"><b>Toplam ödeme</b><br>${formatPara(toplamOdeme)}</td>
-                            <td style="border:1px solid #ccc;padding:8px;background:#e8eef8;"><b>Kalan bakiye</b><br>${formatPara(Math.abs(kalan))}${kalan < 0 ? ' (Alacak)' : ''}</td>
+                            <td style="border:1px solid #ccc;padding:8px;background:#fde8e8;text-align:center;"><b>Toplam alış</b><br><span style="color:#c0392b;font-weight:800;font-size:14px;">${formatPara(toplamAlis)}</span></td>
+                            <td style="border:1px solid #ccc;padding:8px;background:#e8f8ee;text-align:center;"><b>Toplam ödeme</b><br><span style="color:#27ae60;font-weight:800;font-size:14px;">${formatPara(toplamOdeme)}</span></td>
+                            <td style="border:1px solid #ccc;padding:8px;background:#e8eef8;text-align:center;"><b>Kalan bakiye</b><br><span style="color:${kalan > 0 ? '#c0392b' : (kalan < 0 ? '#27ae60' : '#333')};font-weight:800;font-size:14px;">${formatPara(Math.abs(kalan))}${kalan < 0 ? ' (Alacak)' : ''}</span></td>
                         </tr>
                     </table>
                     <table style="width:100%;border-collapse:collapse;font-size:10px;">
                         <thead>
                             <tr style="background:#ecf0f1;">
                                 <th style="border:1px solid #bdc3c7;padding:5px;">Tarih</th>
-                                <th style="border:1px solid #bdc3c7;padding:5px;">Saat</th>
                                 <th style="border:1px solid #bdc3c7;padding:5px;">İşlem</th>
                                 <th style="border:1px solid #bdc3c7;padding:5px;">Açıklama</th>
                                 <th style="border:1px solid #bdc3c7;padding:5px;">Miktar</th>
@@ -327,6 +349,13 @@
                             </tr>
                         </thead>
                         <tbody>${tabloSatir}</tbody>
+                        <tfoot>
+                            <tr style="background:#f1f3f5;font-weight:800;">
+                                <td colspan="6" style="border:1px solid #bdc3c7;padding:6px;text-align:right;">TOPLAM</td>
+                                <td style="border:1px solid #bdc3c7;padding:6px;text-align:right;color:#c0392b;">${formatPara(toplamAlis)}</td>
+                                <td style="border:1px solid #bdc3c7;padding:6px;text-align:right;color:#27ae60;">${formatPara(toplamOdeme)}</td>
+                            </tr>
+                        </tfoot>
                     </table>
                 </div>`;
 
@@ -345,12 +374,20 @@
                 }).from(sablon).save();
                 toast('PDF indirildi');
             } else {
-                const w = window.open('', '_blank');
-                w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Cari Ekstre</title></head><body>${html}</body></html>`);
-                w.document.close();
-                w.focus();
-                w.print();
-                toast('Yazdır penceresi açıldı');
+                const tamHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Cari Ekstre</title></head><body>${html}</body></html>`;
+                let frame = document.getElementById('ekstreYazdirFrame');
+                if (!frame) {
+                    frame = document.createElement('iframe');
+                    frame.id = 'ekstreYazdirFrame';
+                    frame.style.cssText = 'position:fixed;left:-9999px;width:1px;height:1px;border:0;';
+                    document.body.appendChild(frame);
+                }
+                const win = frame.contentWindow;
+                win.document.open();
+                win.document.write(tamHtml);
+                win.document.close();
+                setTimeout(() => { win.focus(); win.print(); }, 400);
+                toast('Yazdırma penceresi açılıyor…');
             }
         } catch (err) {
             toast(err.message || 'PDF oluşturulamadı');
