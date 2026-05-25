@@ -1523,6 +1523,7 @@ app.get('/api/gunluk-hareketler', async (req, res) => {
             MH.Kimlik,
             K.Adı,
             K.Soyadı,
+            ISNULL(K.Unvan, '') AS Unvan,
             MH.AÇIKLAMA,
             MH.ADET,
             MH.birimtür,

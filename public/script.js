@@ -562,6 +562,19 @@ function ekstreRaporHtmlKacis(metin) {
         .replace(/"/g, '&quot;');
 }
 
+/** Kimlik: Unvan doluysa üstte Unvan, altta Adı+Soyadı; değilse Adı+Soyadı */
+function musteriKimlikGosterim(kayit) {
+    const unvan = String(kayit?.Unvan ?? kayit?.UNVAN ?? kayit?.unvan ?? '').replace(/null/gi, '').trim();
+    const adi = String(kayit?.Adı ?? kayit?.ADI ?? kayit?.Adi ?? '').replace(/null/gi, '').trim();
+    const soyadi = String(kayit?.Soyadı ?? kayit?.SOYADI ?? '').replace(/null/gi, '').trim();
+    const adSoyad = [adi, soyadi].filter(Boolean).join(' ').trim();
+    if (unvan) {
+        const alt = adSoyad && adSoyad.localeCompare(unvan, 'tr', { sensitivity: 'accent' }) !== 0 ? adSoyad : '';
+        return { ana: unvan, alt };
+    }
+    return { ana: adSoyad || 'Müşteri', alt: '' };
+}
+
 function ekstreIslemRaporSatir(islem) {
     const borc = parseFloat(islem.BORÇ) || 0;
     const odeme = parseFloat(islem.ÖDEME) || 0;
@@ -3205,11 +3218,14 @@ window.gunlukOzetGetir = async function() {
                     else if (!aciklamaText.includes('iade')) nakitToplam += odeme;
                 }
 
+                const musteriG = musteriKimlikGosterim(h);
                 birlesikListe.push({
                     tip: 'cari',
                     tarihRaw: h.TARİH || h.TARIH,
-                    baslik: `${h.Adı || h.ADI || ''} ${h.Soyadı || h.SOYADI || ''}`.trim() || 'Müşteri',
-                    altBaslik: '', // 🗑️ "Cari İşlem" yazısı kaldırıldı
+                    baslik: musteriG.ana,
+                    altBaslik: musteriG.alt
+                        ? `<span class="text-muted fst-italic" style="font-size:0.75rem;">${ekstreRaporHtmlKacis(musteriG.alt)}</span>`
+                        : '',
                     aciklama: h.AÇIKLAMA || '',
                     notlar: h.notlar,
                     satisTutari: borc,

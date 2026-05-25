@@ -14,7 +14,7 @@
     <link rel="icon" type="image/png" sizes="512x512" href="/mobil/icon-512.png">
     <link rel="apple-touch-icon" href="/mobil/icon-192.png">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="/mobil/mobil.css?v=10">
+    <link rel="stylesheet" href="/mobil/mobil.css?v=28">
 </head>
 <body>
     <div id="app">
@@ -34,6 +34,10 @@
         </section>
 
         <section id="view-login" class="view">
+            <header class="view-bar view-bar--koyu">
+                <button type="button" class="icon-btn" id="btnLoginGeri" aria-label="Geri"><i class="fas fa-arrow-left"></i></button>
+                <span class="view-bar-title">Giriş</span>
+            </header>
             <div class="view-scroll">
                 <div class="brand-block compact">
                     <div class="brand-icon sm"><i class="fas fa-industry"></i></div>
@@ -51,14 +55,32 @@
         </section>
 
         <section id="view-main" class="view">
-            <header class="top-bar">
-                <div>
+            <header class="top-bar top-bar--yesil">
+                <button type="button" class="icon-btn top-bar-geri d-none" id="btnTopGeri" aria-label="Geri"><i class="fas fa-arrow-left"></i></button>
+                <div class="top-bar-sol">
                     <div class="top-title">KARAARSLAN KÖMÜR</div>
                     <div class="top-user" id="headerUser">—</div>
                 </div>
-                <button type="button" class="icon-btn" id="btnCikis" title="Çıkış"><i class="fas fa-right-from-bracket"></i></button>
+                <div class="ana-menu-wrap musteri-menu-wrap">
+                    <button type="button" class="icon-btn musteri-menu-btn ana-menu-btn" id="btnAnaMenu" aria-label="Menü" aria-expanded="false">
+                        <i class="fas fa-ellipsis-vertical"></i>
+                    </button>
+                    <div id="anaMenuDropdown" class="musteri-menu-dropdown d-none" role="menu">
+                        <button type="button" class="musteri-menu-item" id="btnVadesiGelen" role="menuitem">
+                            <i class="fas fa-exclamation-triangle"></i> Vadesi gelen / geçen
+                        </button>
+                        <button type="button" class="musteri-menu-item" id="btnBorcluMusteri" role="menuitem">
+                            <i class="fas fa-hand-holding-usd"></i> Borçlu müşteriler
+                        </button>
+                    </div>
+                </div>
+                <button type="button" class="icon-btn top-bar-cikis" id="btnCikis" title="Çıkış"><i class="fas fa-right-from-bracket"></i></button>
             </header>
             <div class="view-scroll with-nav" id="mainScroll">
+                <div id="panelBaslikBar" class="panel-baslik-bar d-none" aria-hidden="true">
+                    <div class="panel-baslik-ikon"><i id="panelBaslikIkon" class="fas fa-boxes-stacked"></i></div>
+                    <h1 id="panelBaslikMetin" class="panel-baslik-metin">—</h1>
+                </div>
                 <div id="panel-ana" class="panel panel-active">
                     <div class="cards-row" id="ozetCards">
                         <div class="ozet-rozet skeleton"></div>
@@ -71,11 +93,9 @@
                     <div id="stokOzetListe" class="mini-list">—</div>
                 </div>
                 <div id="panel-stok" class="panel">
-                    <div class="section-title">Stok listesi</div>
                     <div id="stokListe" class="stok-list">Yükleniyor…</div>
                 </div>
                 <div id="panel-sevk" class="panel">
-                    <div class="section-title">Bekleyen sevkiyat</div>
                     <div id="sevkListe" class="sevk-list">Yükleniyor…</div>
                 </div>
                 <div id="panel-musteri" class="panel">
@@ -93,11 +113,35 @@
 
         <!-- Müşteri cari -->
         <section id="overlay-musteri" class="overlay">
-            <header class="overlay-bar">
+            <header class="overlay-bar overlay-bar--musteri overlay-bar--sari">
                 <button type="button" class="icon-btn" id="btnMusteriKapat" aria-label="Geri"><i class="fas fa-arrow-left"></i></button>
-                <div class="overlay-title-wrap">
-                    <div class="overlay-title" id="musteriDetayAd">Müşteri</div>
-                    <div class="overlay-sub" id="musteriDetayTel">—</div>
+                <div class="overlay-title-wrap overlay-title-wrap--kompakt">
+                    <div class="musteri-detay-isim-satir">
+                        <div class="musteri-detay-isim" id="musteriDetayAd">Müşteri</div>
+                        <button type="button" class="musteri-duzenle-btn" id="btnMusteriDuzenle" aria-label="Müşteri bilgilerini düzenle" title="Düzenle">
+                            <i class="fas fa-pencil"></i>
+                        </button>
+                    </div>
+                    <div class="musteri-detay-meta" id="musteriDetayMeta">—</div>
+                </div>
+                <div class="musteri-menu-wrap">
+                    <button type="button" class="icon-btn musteri-menu-btn" id="btnMusteriMenu" aria-label="Menü" aria-expanded="false" aria-haspopup="true">
+                        <i class="fas fa-ellipsis-vertical"></i>
+                    </button>
+                    <div id="musteriMenuDropdown" class="musteri-menu-dropdown d-none" role="menu">
+                        <button type="button" class="musteri-menu-item" id="btnModalTaksit" role="menuitem">
+                            <i class="fas fa-file-invoice-dollar"></i> Taksit planı
+                        </button>
+                        <button type="button" class="musteri-menu-item" id="btnModalBorcYapilandir" role="menuitem">
+                            <i class="fas fa-calculator"></i> Borç yapılandır
+                        </button>
+                        <button type="button" class="musteri-menu-item" id="btnModalNotlar" role="menuitem">
+                            <i class="fas fa-sticky-note"></i> Notları aç
+                        </button>
+                        <button type="button" class="musteri-menu-item musteri-menu-item--alt" id="btnCariEkstrePdf" role="menuitem">
+                            <i class="fas fa-file-pdf"></i> Cari ekstre (PDF)
+                        </button>
+                    </div>
                 </div>
             </header>
             <div class="overlay-scroll">
@@ -119,21 +163,52 @@
                     <button type="button" class="btn btn-primary flex-btn" id="btnModalSatis"><i class="fas fa-cart-plus me-1"></i>Satış yap</button>
                     <button type="button" class="btn btn-success flex-btn" id="btnModalOdeme"><i class="fas fa-hand-holding-dollar me-1"></i>Ödeme al</button>
                 </div>
-                <button type="button" class="btn btn-outline btn-block mb-2" id="btnCariEkstrePdf"><i class="fas fa-file-pdf me-1"></i>Cari ekstre (PDF)</button>
                 <div class="section-title">Cari hareketler</div>
                 <div id="musteriEkstre" class="ekstre-list">Yükleniyor…</div>
             </div>
         </section>
 
-        <section id="overlay-bugun" class="overlay">
-            <header class="overlay-bar">
-                <button type="button" class="icon-btn" id="btnBugunKapat" aria-label="Geri"><i class="fas fa-arrow-left"></i></button>
+        <section id="overlay-rapor" class="overlay">
+            <header class="overlay-bar overlay-bar--rapor" id="raporOverlayBar">
+                <button type="button" class="icon-btn" id="btnRaporKapat" aria-label="Geri"><i class="fas fa-arrow-left"></i></button>
                 <div class="overlay-title-wrap">
-                    <div class="overlay-title">Bugün</div>
+                    <div class="overlay-title" id="raporOverlayBaslik">Rapor</div>
+                    <div class="overlay-sub" id="raporOverlayAlt">—</div>
+                </div>
+            </header>
+            <div class="overlay-scroll">
+                <div id="raporOzetBar" class="rapor-ozet-bar">
+                    <span><span id="raporKayitSayisi">0</span> kayıt</span>
+                    <strong id="raporGenelToplam">0 ₺</strong>
+                </div>
+                <input type="search" id="raporArama" class="field-input search mb-2" placeholder="Müşteri adı veya telefon ara…" autocomplete="off">
+                <div id="raporListe" class="rapor-liste">Yükleniyor…</div>
+            </div>
+        </section>
+
+        <section id="overlay-bugun" class="overlay">
+            <header class="overlay-bar overlay-bar--yesil">
+                <button type="button" class="icon-btn" id="btnBugunKapat" aria-label="Geri"><i class="fas fa-arrow-left"></i></button>
+                <div class="overlay-baslik-ikon"><i class="fas fa-calendar-day"></i></div>
+                <div class="overlay-title-wrap">
+                    <div class="overlay-title">Günlük Özet</div>
                     <div class="overlay-sub" id="bugunTarihLbl">—</div>
                 </div>
             </header>
             <div class="overlay-scroll">
+                <div class="gunluk-tarih-filtre">
+                    <div class="gunluk-tarih-alan" id="bugunBaslangicWrap">
+                        <label class="gunluk-tarih-lbl" for="bugunBaslangic" id="bugunBaslangicLbl">Başlangıç</label>
+                        <input type="date" id="bugunBaslangic" class="gunluk-tarih-inp">
+                    </div>
+                    <div class="gunluk-tarih-alan" id="bugunBitisWrap">
+                        <label class="gunluk-tarih-lbl" for="bugunBitis">Bitiş</label>
+                        <input type="date" id="bugunBitis" class="gunluk-tarih-inp">
+                    </div>
+                    <button type="button" class="btn btn-primary gunluk-tarih-btn" id="btnGunlukOzetGetir">
+                        <i class="fas fa-search"></i> Getir
+                    </button>
+                </div>
                 <div id="bugunOzet" class="bugun-ozet"></div>
                 <div class="section-title">Hareketler</div>
                 <div id="bugunListe" class="ekstre-list">Yükleniyor…</div>
@@ -147,8 +222,8 @@
 
     <div id="ekstreOnizleme" class="ekstre-onizleme" aria-hidden="true">
         <header class="ekstre-onizleme-bar">
-            <button type="button" class="btn btn-ghost" id="btnEkstreOnizlemeKapat"><i class="fas fa-times"></i> Kapat</button>
-            <button type="button" class="btn btn-whatsapp" id="btnEkstreOnizlemePaylas"><i class="fab fa-whatsapp"></i> Paylaş</button>
+            <button type="button" class="icon-btn ekstre-geri-btn" id="btnEkstreOnizlemeKapat" aria-label="Geri"><i class="fas fa-arrow-left"></i></button>
+            <button type="button" class="btn btn-whatsapp" id="btnEkstreOnizlemePaylas"><i class="fab fa-whatsapp"></i> WhatsApp</button>
             <button type="button" class="btn btn-primary" id="btnEkstreOnizlemeYazdir"><i class="fas fa-print"></i> Yazdır</button>
         </header>
         <div id="ekstreOnizlemeIcerik" class="ekstre-onizleme-icerik"></div>
@@ -159,8 +234,8 @@
         <div class="modal-backdrop" data-modal-kapat="modal-satis"></div>
         <div class="modal-sheet">
             <div class="modal-head">
-                <h3>Satış yap</h3>
-                <button type="button" class="icon-btn modal-kapat" data-modal-kapat="modal-satis"><i class="fas fa-times"></i></button>
+                <button type="button" class="icon-btn modal-geri-btn" data-modal-kapat="modal-satis" aria-label="Geri"><i class="fas fa-arrow-left"></i></button>
+                <h3 class="modal-head-baslik">Satış yap</h3>
             </div>
             <label class="field-label" for="satisUrun">Ürün</label>
             <select id="satisUrun" class="field-input"></select>
@@ -194,13 +269,145 @@
         </div>
     </div>
 
+    <!-- Taksit planı -->
+    <div id="modal-taksit" class="modal" aria-hidden="true">
+        <div class="modal-backdrop" data-modal-kapat="modal-taksit"></div>
+        <div class="modal-sheet modal-sheet--tall">
+            <div class="modal-head">
+                <button type="button" class="icon-btn modal-geri-btn" data-modal-kapat="modal-taksit" aria-label="Geri"><i class="fas fa-arrow-left"></i></button>
+                <h3 class="modal-head-baslik" id="taksitModalBaslik">Ödeme planı</h3>
+            </div>
+            <div id="taksitOzetBar" class="taksit-ozet-bar d-none"></div>
+            <div class="taksit-modal-aksiyon">
+                <button type="button" class="btn btn-outline btn-sm flex-btn" id="btnTaksitYapilandir"><i class="fas fa-calculator me-1"></i>Yapılandır</button>
+                <button type="button" class="btn btn-ghost btn-sm" id="btnTaksitPlaniTemizle" title="Tüm ödeme planını sil"><i class="fas fa-broom"></i></button>
+            </div>
+            <div id="taksitListe" class="taksit-liste">Yükleniyor…</div>
+        </div>
+    </div>
+
+    <!-- Borç yapılandırma (masaüstü borcSatisModal) -->
+    <div id="modal-borc-yapilandir" class="modal" aria-hidden="true">
+        <div class="modal-backdrop" data-modal-kapat="modal-borc-yapilandir"></div>
+        <div class="modal-sheet">
+            <div class="modal-head modal-head--koyu">
+                <button type="button" class="icon-btn modal-geri-btn" data-modal-kapat="modal-borc-yapilandir" aria-label="Geri"><i class="fas fa-arrow-left"></i></button>
+                <h3 class="modal-head-baslik">Borç yapılandır</h3>
+            </div>
+            <div class="yapi-musteri-ad" id="yapiMusteriAd">—</div>
+            <div class="yapi-bakiye-kutu">
+                <span>Güncel bakiye</span>
+                <strong id="yapilandirmaBakiyesi">—</strong>
+            </div>
+            <label class="field-label" for="yapiTaksitTutar">Yapılandırılacak tutar (₺)</label>
+            <input id="yapiTaksitTutar" class="field-input" type="number" min="0.01" step="0.01">
+            <label class="field-label" for="yapiTaksitSayisi">Taksit sayısı</label>
+            <select id="yapiTaksitSayisi" class="field-input">
+                <option value="1">Tek vade</option>
+                <option value="2">2 taksit</option>
+                <option value="3">3 taksit</option>
+                <option value="4">4 taksit</option>
+                <option value="5">5 taksit</option>
+                <option value="6">6 taksit</option>
+                <option value="12">12 taksit</option>
+            </select>
+            <label class="field-label" for="yapiBaslangicTarihi">İlk taksit tarihi</label>
+            <input id="yapiBaslangicTarihi" class="field-input" type="date">
+            <button type="button" class="btn btn-success btn-block mt-2" id="btnBorcYapilandirKaydet">
+                <i class="fas fa-save me-1"></i>Planı oluştur
+            </button>
+        </div>
+    </div>
+
+    <!-- Taksit ödeme (masaüstü taksitOdemeTuruSec ile aynı mantık) -->
+    <div id="modal-taksit-odeme" class="modal" aria-hidden="true">
+        <div class="modal-backdrop" data-modal-kapat="modal-taksit-odeme"></div>
+        <div class="modal-sheet">
+            <div class="modal-head modal-head--yesil">
+                <button type="button" class="icon-btn modal-geri-btn" data-modal-kapat="modal-taksit-odeme" aria-label="Geri"><i class="fas fa-arrow-left"></i></button>
+                <h3 class="modal-head-baslik">Taksit tahsilatı</h3>
+            </div>
+            <p class="taksit-odeme-hint">Beklenen taksit: <strong id="taksitOdemeBeklenen">—</strong></p>
+            <input type="hidden" id="taksitOdemeId">
+            <input type="hidden" id="taksitOdemeAciklama">
+            <label class="field-label" for="taksitOdemeTutar">Alınan tutar (₺)</label>
+            <input id="taksitOdemeTutar" class="field-input" type="number" min="0.01" step="0.01">
+            <p class="field-label" style="margin-top:12px">Ödeme türü</p>
+            <div class="taksit-odeme-turleri">
+                <button type="button" class="btn btn-success btn-block" data-taksit-tur="Nakit"><i class="fas fa-money-bill-wave me-1"></i>Nakit</button>
+                <button type="button" class="btn btn-outline btn-block" data-taksit-tur="Kredi Kartı"><i class="fas fa-credit-card me-1"></i>Kart</button>
+                <button type="button" class="btn btn-outline btn-block" data-taksit-tur="Havale"><i class="fas fa-university me-1"></i>Havale / EFT</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Müşteri notları -->
+    <div id="modal-notlar" class="modal" aria-hidden="true">
+        <div class="modal-backdrop" data-modal-kapat="modal-notlar"></div>
+        <div class="modal-sheet modal-sheet--tall">
+            <div class="modal-head modal-head--not">
+                <button type="button" class="icon-btn modal-geri-btn" data-modal-kapat="modal-notlar" aria-label="Geri"><i class="fas fa-arrow-left"></i></button>
+                <h3 class="modal-head-baslik" id="musteriNotlarBaslik">Müşteri notları</h3>
+            </div>
+            <div id="musteriNotlarListe" class="musteri-notlar-liste">Yükleniyor…</div>
+            <label class="field-label" for="musteriNotYeniMetin">Yeni not</label>
+            <textarea id="musteriNotYeniMetin" class="field-input musteri-not-yazi" rows="3" placeholder="Not yazın…"></textarea>
+            <button type="button" class="btn btn-warning btn-block mt-2" id="btnMusteriNotKaydet">
+                <i class="fas fa-save me-1"></i>Kaydet
+            </button>
+            <p class="form-hint">Kaydeden: oturum adı ve kullanıcı adı. “Uyarı açık” notlar cari açılışında gösterilir.</p>
+        </div>
+    </div>
+
+    <div id="modal-not-uyari" class="modal" aria-hidden="true">
+        <div class="modal-backdrop" data-modal-kapat="modal-not-uyari"></div>
+        <div class="modal-sheet">
+            <div class="modal-head modal-head--mavi">
+                <button type="button" class="icon-btn modal-geri-btn" data-modal-kapat="modal-not-uyari" aria-label="Geri"><i class="fas fa-arrow-left"></i></button>
+                <h3 class="modal-head-baslik" id="musteriNotUyariBaslik"><i class="fas fa-bell me-1"></i> Bildirim</h3>
+            </div>
+            <div id="musteriNotUyariGovde" class="musteri-not-uyari-govde"></div>
+            <button type="button" class="btn btn-primary btn-block" id="btnMusteriNotUyariTamam">Tamam</button>
+        </div>
+    </div>
+
+    <!-- Müşteri düzenle -->
+    <div id="modal-musteri-duzenle" class="modal" aria-hidden="true">
+        <div class="modal-backdrop" data-modal-kapat="modal-musteri-duzenle"></div>
+        <div class="modal-sheet modal-sheet--tall">
+            <div class="modal-head modal-head--sari">
+                <button type="button" class="icon-btn modal-geri-btn" data-modal-kapat="modal-musteri-duzenle" aria-label="Geri"><i class="fas fa-arrow-left"></i></button>
+                <h3 class="modal-head-baslik"><i class="fas fa-user-edit me-1"></i>Müşteri düzenle</h3>
+            </div>
+            <div class="musteri-duzenle-scroll">
+                <label class="field-label" for="mDuzenleUnvan">Resmi ünvan (makbuz ismi)</label>
+                <input type="text" id="mDuzenleUnvan" class="field-input" placeholder="Örn: RAMAZAN BAĞIŞ" autocomplete="off">
+                <p class="form-hint">Makbuzda bu isim kullanılır.</p>
+                <label class="field-label" for="mDuzenleAd">Dükkan içi tanıma ismi</label>
+                <input type="text" id="mDuzenleAd" class="field-input" placeholder="Örn: osman amcanın oğlu" autocomplete="off">
+                <label class="field-label" for="mDuzenleTelefon">Telefon (10 hane, başında 0 yok)</label>
+                <input type="tel" id="mDuzenleTelefon" class="field-input" inputmode="numeric" maxlength="10" placeholder="5xx xxx xx xx" autocomplete="tel">
+                <div class="section-title">Sevkiyat adresi</div>
+                <label class="field-label" for="mDuzenleIlce">İlçe</label>
+                <select id="mDuzenleIlce" class="field-input"></select>
+                <label class="field-label" for="mDuzenleMahalleListe">Mahalle</label>
+                <select id="mDuzenleMahalleListe" class="field-input"></select>
+                <label class="field-label" for="mDuzenleAdres">Açık adres (sokak, no)</label>
+                <textarea id="mDuzenleAdres" class="field-input musteri-duzenle-adres" rows="3" placeholder="Sokak, apartman, daire…"></textarea>
+                <button type="button" class="btn btn-primary btn-block mt-2" id="btnMusteriDuzenleKaydet">
+                    <i class="fas fa-save me-1"></i>Kaydet
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Ödeme modal -->
     <div id="modal-odeme" class="modal" aria-hidden="true">
         <div class="modal-backdrop" data-modal-kapat="modal-odeme"></div>
         <div class="modal-sheet">
             <div class="modal-head">
-                <h3>Ödeme al</h3>
-                <button type="button" class="icon-btn modal-kapat" data-modal-kapat="modal-odeme"><i class="fas fa-times"></i></button>
+                <button type="button" class="icon-btn modal-geri-btn" data-modal-kapat="modal-odeme" aria-label="Geri"><i class="fas fa-arrow-left"></i></button>
+                <h3 class="modal-head-baslik">Ödeme al</h3>
             </div>
             <label class="field-label" for="odemeTutar">Tutar (₺)</label>
             <input id="odemeTutar" class="field-input" type="number" min="0.01" step="0.01" placeholder="0">
@@ -218,6 +425,7 @@
 
     <div id="toast" class="toast d-none"></div>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js" crossorigin="anonymous"></script>
-    <script src="/mobil/mobil.js?v=17"></script>
+    <script src="/adres-sozlugu.js"></script>
+    <script src="/mobil/mobil.js?v=32"></script>
 </body>
 </html>
