@@ -554,6 +554,175 @@ async function musteriNotlarListesiniYenile(musteriId) {
     }
 }
 
+function ekstreRaporHtmlKacis(metin) {
+    return String(metin ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+function ekstreIslemRaporSatir(islem) {
+    const borc = parseFloat(islem.BORÇ) || 0;
+    const odeme = parseFloat(islem.ÖDEME) || 0;
+    const hamTarih = islem.TARIH || islem.TARİH;
+    const tamTarihMetni = hamTarih ? tarihFormatla(hamTarih, false) : 'Tarih Yok';
+    const parcalar = tamTarihMetni.split(' ');
+    const tarihGunu = parcalar[0];
+    const saatKismi = parcalar[1] || '00:00';
+
+    let orjinalAciklama = islem.AÇIKLAMA || '-';
+    let temizAciklama = orjinalAciklama;
+    let miktar = parseFloat(islem.ADET) || parseFloat(islem.miktar) || 0;
+    let birim = islem.birimtür || islem.BirimTur || islem.BirimTür || islem.birimtur || '-';
+
+    if (orjinalAciklama.includes(' x ')) {
+        if (miktar === 0) miktar = parseFloat(orjinalAciklama.split(' x ')[0]) || 0;
+        temizAciklama = orjinalAciklama.split(' x ')[1];
+    }
+    if (temizAciklama.includes(' (') && !temizAciklama.includes('Taksit')) {
+        temizAciklama = temizAciklama.split(' (')[0].trim();
+    }
+
+    const metinKontrol = orjinalAciklama.toUpperCase().replace(/İ/g, 'I');
+    let islemTipi = 'Tahsilat';
+    if (borc > 0) islemTipi = 'Satış';
+    else if (metinKontrol.includes('IADE')) islemTipi = 'İade';
+
+    const yapan = islem.IslemiYapan || islem.kullanici || '';
+    if (yapan && yapan !== 'null' && yapan !== 'Sistem') {
+        temizAciklama += ` (${yapan})`;
+    }
+    if (islem.notlar && islem.notlar !== 'null' && String(islem.notlar).trim() !== '') {
+        temizAciklama += ` - Not: ${islem.notlar}`;
+    }
+
+    return {
+        hamTarih: hamTarih ? new Date(String(hamTarih).replace('Z', '').replace('T', ' ')).getTime() : 0,
+        tarihGunu,
+        saatKismi,
+        islemTipi,
+        aciklama: temizAciklama,
+        miktar: miktar > 0 ? miktar : null,
+        birim,
+        birimFiyat: borc > 0 && miktar > 0 ? borc / miktar : null,
+        borc,
+        odeme
+    };
+}
+
+window.musteriCariEkstreRaporuYazdir = async function () {
+    if (!aktifMusteriId) {
+        alert('Önce bir müşteri cari kartı açın.');
+        return;
+    }
+
+    let islemler = window.sonMusteriEkstreIslemler;
+    let ozet = window.sonMusteriEkstreOzet;
+
+    if (!islemler || !islemler.length) {
+        try {
+            const res = await fetch(`/api/musteri-ekstre/${aktifMusteriId}?yenile=${Date.now()}`);
+            islemler = await res.json();
+            if (!Array.isArray(islemler)) throw new Error('Ekstre alınamadı');
+            window.sonMusteriEkstreIslemler = [...islemler];
+        } catch (e) {
+            alert('Hesap hareketleri yüklenemedi.');
+            return;
+        }
+    }
+
+    if (!islemler.length) {
+        alert('Bu müşteriye ait hesap hareketi bulunamadı.');
+        return;
+    }
+
+    if (!ozet) {
+        let toplamBorc = 0;
+        let toplamOdenen = 0;
+        islemler.forEach((islem) => {
+            toplamBorc += parseFloat(islem.BORÇ) || 0;
+            toplamOdenen += parseFloat(islem.ÖDEME) || 0;
+        });
+        ozet = { toplamBorc, toplamOdenen, kalan: toplamBorc - toplamOdenen };
+    }
+
+    const satirlar = islemler.map(ekstreIslemRaporSatir).sort((a, b) => {
+        if (a.hamTarih !== b.hamTarih) return a.hamTarih - b.hamTarih;
+        return String(a.saatKismi).localeCompare(String(b.saatKismi));
+    });
+
+    const musteriAd = aktifMusteriUnvan
+        ? `${aktifMusteriUnvan} (${aktifMusteriAd || ''})`
+        : (aktifMusteriAd || 'Müşteri');
+    const tel = document.getElementById('detayTelefon')?.innerText?.trim() || '-';
+    const adres = document.getElementById('detayAdres')?.innerText?.trim() || '-';
+
+    const tabloSatir = satirlar.map((s) => `
+        <tr>
+            <td>${ekstreRaporHtmlKacis(s.tarihGunu)}</td>
+            <td>${ekstreRaporHtmlKacis(s.saatKismi)}</td>
+            <td>${ekstreRaporHtmlKacis(s.islemTipi)}</td>
+            <td>${ekstreRaporHtmlKacis(s.aciklama)}</td>
+            <td class="c">${s.miktar != null ? s.miktar.toLocaleString('tr-TR') : '—'}</td>
+            <td>${ekstreRaporHtmlKacis(s.birim)}</td>
+            <td class="c">${s.birimFiyat != null ? s.birimFiyat.toLocaleString('tr-TR', { minimumFractionDigits: 2 }) : '—'}</td>
+            <td class="c borc">${s.borc > 0 ? s.borc.toLocaleString('tr-TR', { minimumFractionDigits: 2 }) : '—'}</td>
+            <td class="c odeme">${s.odeme > 0 ? s.odeme.toLocaleString('tr-TR', { minimumFractionDigits: 2 }) : '—'}</td>
+        </tr>`).join('');
+
+    const html = `
+    <html><head><meta charset="utf-8"><title>Cari Ekstre</title>
+    <style>
+        body { font-family: Segoe UI, Arial, sans-serif; padding: 16px; color: #111; font-size: 11px; }
+        h2 { text-align: center; color: #2c3e50; border-bottom: 2px solid #e67e22; padding-bottom: 8px; }
+        .meta { margin: 8px 0 14px; font-size: 12px; }
+        .ozet { width: 100%; border-collapse: collapse; margin-bottom: 14px; }
+        .ozet td { border: 1px solid #ccc; padding: 10px; text-align: center; font-weight: bold; }
+        .oz-alis { background: #fde8e8; }
+        .oz-odeme { background: #e8f8ee; }
+        .oz-bakiye { background: #e8eef8; }
+        table.detay { width: 100%; border-collapse: collapse; }
+        table.detay th, table.detay td { border: 1px solid #bdc3c7; padding: 5px; text-align: left; }
+        table.detay th { background: #ecf0f1; }
+        .c { text-align: right; }
+        .borc { color: #c0392b; }
+        .odeme { color: #27ae60; }
+        .tarih-satir { text-align: right; font-size: 10px; color: #555; }
+        @media print { body { padding: 0; } }
+    </style></head><body>
+        <h2>KARAARSLAN KÖMÜR — CARİ EKSTRE</h2>
+        <div class="tarih-satir">Çıktı: ${new Date().toLocaleString('tr-TR')}</div>
+        <div class="meta"><b>Müşteri:</b> ${ekstreRaporHtmlKacis(musteriAd)}<br>
+        <b>Telefon:</b> ${ekstreRaporHtmlKacis(tel)} &nbsp; <b>Adres:</b> ${ekstreRaporHtmlKacis(adres)}</div>
+        <table class="ozet">
+            <tr>
+                <td class="oz-alis">Toplam alış<br>${ozet.toplamBorc.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</td>
+                <td class="oz-odeme">Toplam ödeme<br>${ozet.toplamOdenen.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</td>
+                <td class="oz-bakiye">Kalan bakiye<br>${ozet.kalan.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</td>
+            </tr>
+        </table>
+        <table class="detay">
+            <thead><tr>
+                <th>Tarih</th><th>Saat</th><th>İşlem</th><th>Açıklama</th>
+                <th>Miktar</th><th>Birim</th><th>B.Fiyat</th><th>Borç</th><th>Alacak</th>
+            </tr></thead>
+            <tbody>${tabloSatir}</tbody>
+        </table>
+    </body></html>`;
+
+    const w = window.open('', '_blank');
+    if (!w) {
+        alert('Yazdır penceresi açılamadı. Tarayıcı açılır pencereyi engelliyor olabilir.');
+        return;
+    }
+    w.document.open();
+    w.document.write(html);
+    w.document.close();
+    w.focus();
+    setTimeout(() => { w.print(); }, 400);
+};
+
 window.musteriNotlarModalAc = async function () {
     if (typeof aktifMusteriId === 'undefined' || aktifMusteriId === null) return;
     await musteriNotlarListesiniYenile(aktifMusteriId);
@@ -813,6 +982,8 @@ const baslikGuncelle = (unvan) => {
             // --- KRİTİK EKLENTİ: ÜNVAN GELDİĞİ AN BAŞLIĞA YAPIŞTIR ---
             baslikGuncelle(aktifMusteriUnvan);
         }
+
+        window.sonMusteriEkstreIslemler = Array.isArray(islemler) ? [...islemler] : [];
         
         // --- SIRALAMA EN YENİ İŞLEM EN ÜSTTE OLACAK ŞEKİLDE AYARLANDI ---
         islemler.sort((a, b) => new Date(b.TARİH || b.TARIH) - new Date(a.TARİH || a.TARIH));
@@ -1005,9 +1176,11 @@ const baslikGuncelle = (unvan) => {
         });
 
         // Alt Toplamlar
+        const kalanBakiye = toplamBorc - toplamOdenen;
         document.getElementById('detayToplamBorc').innerText = `${toplamBorc.toLocaleString('tr-TR')} ₺`;
         document.getElementById('detayToplamOdenen').innerText = `${toplamOdenen.toLocaleString('tr-TR')} ₺`;
-        document.getElementById('detayKalanBakiye').innerText = `${(toplamBorc - toplamOdenen).toLocaleString('tr-TR')} ₺`;
+        document.getElementById('detayKalanBakiye').innerText = `${kalanBakiye.toLocaleString('tr-TR')} ₺`;
+        window.sonMusteriEkstreOzet = { toplamBorc, toplamOdenen, kalan: kalanBakiye };
 
         try {
             await musteriDetayNotlariSenkronize(musteriId);

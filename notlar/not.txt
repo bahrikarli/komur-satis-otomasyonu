@@ -4,6 +4,8 @@ Geliştirme bilgisayarı (siz — kod + sürüm)
 	2-GitHub’a göndermek için: kaydet-ve-githuba-gonder.bat
 		git add → commit mesajı → git push origin main
 	3-Müşterilere / işyerine kurulum paketi (EXE + ZIP + release) çıkarmak için: release-all.bat
+	4-Yerel musteri-paketi klasoru (C:\musteri-paketi veya musteri-paketi\): musteri-paketi-olustur.bat
+	   (release ile birlikte: musteri-paketi-olustur.bat release)
 		Sürümü artırır, EXE + ZIP üretir, GitHub Release’e yükler, main + tag dener.
 	4-token.txt (veya local-release.bat) sadece bu makinede dursun; Git’e commitlenmez (.gitignore).
 
@@ -17,6 +19,8 @@ Geliştirme bilgisayarı (siz — kod + sürüm)
 Kim ne zaman hangi dosyayı çalıştırır?
 Kim				Ne zaman			Dosya
 Geliştirici			Kod bitince GitHub’a		kaydet-ve-githuba-gonder.bat	
+Geliştirici			Yerel kod ZIP yedegi		kod-yedekle.bat  (tum kaynak; node_modules/dist haric)
+Geliştirici			Veritabani yedegi		Program icinde Ayarlar / Surum - Yedek Al
 Geliştirici			Yeni sürüm (ZIP/release)	release-all.bat
 İşyeri				“Son kodu al, aç”		guncelle-ve-baslat.bat
 İşyeri				Sadece sunucuyu aç		baslat.bat

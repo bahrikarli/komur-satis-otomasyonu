@@ -3,6 +3,7 @@ const path = require('path');
 const sql = require('mssql');
 const cors = require('cors');
 const fs = require('fs/promises');
+const fsSync = require('fs');
 const os = require('os');
 const { spawn } = require('child_process');
 const https = require('https');
@@ -430,7 +431,25 @@ async function tcmbPiyasaApiYaniti(_req, res) {
 app.get('/api/tcmb-piyasa', tcmbPiyasaApiYaniti);
 app.get('/api/piyasa-ozet', tcmbPiyasaApiYaniti);
 
-app.use(express.static(path.join(__dirname, 'public')));
+const PUBLIC_DIR = path.join(APP_ROOT, 'public');
+const MOBIL_DIR = path.join(PUBLIC_DIR, 'mobil');
+
+function mobilSayfasiGonder(_req, res) {
+    const indexPath = path.join(MOBIL_DIR, 'index.html');
+    if (!fsSync.existsSync(indexPath)) {
+        return res.status(404).type('text/html; charset=utf-8').send(
+            '<h1>Mobil uygulama bulunamadı</h1><p><code>public/mobil</code> klasörü yok.</p>'
+        );
+    }
+    return res.sendFile(indexPath);
+}
+
+app.get(/^\/mobil\/?$/i, mobilSayfasiGonder);
+app.get('/mobil/index.html', mobilSayfasiGonder);
+if (fsSync.existsSync(MOBIL_DIR)) {
+    app.use('/mobil', express.static(MOBIL_DIR, { redirect: false, index: 'index.html' }));
+}
+app.use(express.static(PUBLIC_DIR, { redirect: false }));
 
 // --- Müşteri cari notları tablosu (ilk API çağrısında oluşturulur) ---
 let musteriNotlariTablosuHazir = false;

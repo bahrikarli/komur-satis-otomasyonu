@@ -4,18 +4,28 @@ title Karaarslan Komur Baslatici
 :: 1. EMNİYET: Dosyanin oldugu asil klasore gitmeyi garantiye al (Kisayol problemini cozer)
 cd /d "%~dp0"
 
+set "PORT=3017"
+if exist "%~dp0scripts\read-port.js" (
+  for /f "usebackq delims=" %%p in (`node "%~dp0scripts\read-port.js" "%~dp0" 2^>nul`) do set "PORT=%%p"
+)
+
 echo [1/3] Eski sistemler temizleniyor...
+taskkill /f /im komur-satis-otomasyonu.exe >nul 2>&1
 taskkill /f /im node.exe >nul 2>&1
 
 echo [2/3] Kasa sunucusu baslatiliyor...
-:: /MIN komutu siyah ekranı direk gorev cubuguna kucultur, .bat kapansa bile sunucu yasamaya devam eder!
-start /MIN node index.js
+if exist "%~dp0komur-satis-otomasyonu.exe" (
+  start /MIN "" "%~dp0komur-satis-otomasyonu.exe"
+) else if exist "%~dp0dist\komur-satis-otomasyonu.exe" (
+  start /MIN "" "%~dp0dist\komur-satis-otomasyonu.exe"
+) else (
+  start /MIN node index.js
+)
 
 echo [3/3] Veritabanina baglanmasi bekleniyor (4 saniye)...
-:: Veritabani (MSSQL) baglantisi uzun surebiliyor, o yuzden 2 yerine 4 saniye bekliyoruz
 timeout /t 4 /nobreak >nul
 
 echo Dukkan aciliyor...
-start http://localhost:3007
+start http://localhost:%PORT%
 
 exit
