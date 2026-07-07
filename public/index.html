@@ -3015,7 +3015,8 @@
                 <div class="ms-auto d-flex gap-2">
                     <button class="btn btn-sm btn-outline-dark" onclick="daireOlusturModalAc()"><i class="fas fa-th me-1"></i> Daire Oluştur</button>
                     <button class="btn btn-sm btn-outline-dark" onclick="topluAnlasmaModalAc()"><i class="fas fa-handshake me-1"></i> Toplu Anlaşma</button>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    <button type="button" class="btn btn-sm btn-light fw-bold d-none" id="apartmanGeriCariBtn" onclick="apartmanDetayKapat()"><i class="fas fa-arrow-left me-1"></i> Cariye Dön</button>
+                    <button type="button" class="btn-close" onclick="apartmanDetayKapat()"></button>
                 </div>
             </div>
             <div class="modal-body">
@@ -3081,7 +3082,7 @@
                     <input type="hidden" id="dDuzMusteriId">
                     <input type="text" class="form-control" id="dDuzMusteriArama" placeholder="İsim yazıp aratın veya yeni ekleyin..." autocomplete="off">
                     <div id="dDuzMusteriOneriler" class="list-group position-absolute w-100 shadow" style="z-index:2000; max-height:240px; overflow:auto; display:none;"></div>
-                    <div class="form-text">Yazınca mevcut müşteriler aranır; bulunamazsa "Yeni müşteri ekle" çıkar. Yeni müşterinin adresi apartmanın il/ilçe/mahallesi olur.</div>
+                    <div id="dDuzMusteriIpucu" class="form-text">Yazınca mevcut müşteriler aranır; bulunamazsa "Yeni müşteri ekle" çıkar. Yeni müşterinin adresi apartmanın il/ilçe/mahallesi olur.</div>
                 </div>
                 <hr>
                 <div class="row g-2">
@@ -3161,6 +3162,6 @@
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script src="adres-sozlugu.js?v=1.0.77"></script>
-    <script src="script.js?v=1.0.88"></script>
+    <script src="script.js?v=1.0.89"></script>
 </body>
 </html>

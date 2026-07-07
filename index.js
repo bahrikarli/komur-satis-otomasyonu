@@ -3547,10 +3547,16 @@ BEGIN
         [Miktar] DECIMAL(18,2) NOT NULL,
         [Tarih] NVARCHAR(30) NULL,
         [MusteriHareketId] INT NULL,
+        [MakbuzNo] NVARCHAR(20) NULL,
         [IslemiYapan] NVARCHAR(120) NULL,
         [OlusturmaZamani] DATETIME2(3) NOT NULL CONSTRAINT DF_ApartmanTeslimatlar_Zaman DEFAULT (SYSUTCDATETIME())
     );
     CREATE INDEX IX_ApartmanTeslimatlar_Daire ON [komur].[dbo].[ApartmanTeslimatlar]([DaireId]);
+END
+IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[komur].[dbo].[ApartmanTeslimatlar]') AND type in (N'U'))
+AND NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[komur].[dbo].[ApartmanTeslimatlar]') AND name = N'MakbuzNo')
+BEGIN
+    ALTER TABLE [komur].[dbo].[ApartmanTeslimatlar] ADD [MakbuzNo] NVARCHAR(20) NULL;
 END
     `);
     apartmanTablolariHazir = true;
@@ -3848,7 +3854,8 @@ app.post('/api/apartman-daire/:id/teslimat', async (req, res) => {
         const islemTarihiStr = normalizeIslemTarihiStr(tarih);
         const tx = new sql.Transaction(pool);
         await tx.begin();
-        let musteriHareketId = null;
+        let makbuzNo = null;
+        let borcTutari = 0;
         try {
             // Cari borç + stok düşüşü (müşteri ve ürün bağlıysa)
             if (daire.MusteriKimlik && daire.UrunID) {
@@ -3856,24 +3863,28 @@ app.post('/api/apartman-daire/:id/teslimat', async (req, res) => {
                     .query(`SELECT UrunAdi FROM [komur].[dbo].[StokListesi] WHERE ID = @uid`);
                 const urunAdiHam = urunRes.recordset.length ? urunRes.recordset[0].UrunAdi : 'Kömür';
                 const { temizAd, birimTuru } = parseStokUrunAdi(urunAdiHam);
-                const tutar = (parseFloat(daire.BirimFiyat) || 0) * teslimMiktar;
+                borcTutari = (parseFloat(daire.BirimFiyat) || 0) * teslimMiktar;
                 const daireEtiket = `${daire.Blok ? daire.Blok + ' ' : ''}D:${daire.DaireNo || ''}`.trim();
 
-                const mhRes = await tx.request()
+                // Makbuz numarası satış akışıyla aynı mantıkta üretilir (MakbuzNo IDENTITY değil)
+                const maxRes = await tx.request().query("SELECT MAX(CAST(MakbuzNo AS INT)) AS MaxNo FROM [komur].[dbo].[MusteriHareket] WHERE MakbuzNo IS NOT NULL AND ISNUMERIC(MakbuzNo) = 1");
+                const yeniNo = ((maxRes.recordset[0] && maxRes.recordset[0].MaxNo) || 0) + 1;
+                makbuzNo = String(yeniNo).padStart(6, '0');
+
+                await tx.request()
                     .input('kisi', sql.Int, daire.MusteriKimlik)
                     .input('aciklama', sql.NVarChar, `${temizAd} (Apartman ${daireEtiket})`)
                     .input('miktar', sql.Decimal(18, 2), teslimMiktar)
-                    .input('tutar', sql.Decimal(18, 2), tutar)
+                    .input('tutar', sql.Decimal(18, 2), borcTutari)
                     .input('tarih', sql.NVarChar, islemTarihiStr)
                     .input('birimTur', sql.NVarChar, daire.Birim || birimTuru)
                     .input('islemiYapan', sql.NVarChar, islemiYapan || 'Sistem')
+                    .input('mNo', sql.NVarChar, makbuzNo)
                     .query(`
                         INSERT INTO [komur].[dbo].[MusteriHareket]
-                        (Kisi, YIL, AÇIKLAMA, ADET, BİRİM, BORÇ, ÖDEME, TARİH, notlar, TeslimDurumu, KalanTeslimat, birimtür, IslemiYapan)
-                        OUTPUT INSERTED.MakbuzNo
-                        VALUES (@kisi, YEAR(@tarih), @aciklama, @miktar, 0, @tutar, 0, @tarih, '', 'Teslim Edildi', 0, @birimTur, @islemiYapan)
+                        (Kisi, YIL, AÇIKLAMA, ADET, BİRİM, BORÇ, ÖDEME, TARİH, notlar, TeslimDurumu, KalanTeslimat, birimtür, IslemiYapan, MakbuzNo)
+                        VALUES (@kisi, YEAR(@tarih), @aciklama, @miktar, 0, @tutar, 0, @tarih, '', 'Teslim Edildi', 0, @birimTur, @islemiYapan, @mNo)
                     `);
-                musteriHareketId = mhRes.recordset && mhRes.recordset[0] ? mhRes.recordset[0].MakbuzNo : null;
 
                 await tx.request().input('uid', sql.Int, daire.UrunID)
                     .input('m', sql.Decimal(18, 2), teslimMiktar)
@@ -3884,11 +3895,11 @@ app.post('/api/apartman-daire/:id/teslimat', async (req, res) => {
                 .input('did', sql.Int, daireId)
                 .input('m', sql.Decimal(18, 2), teslimMiktar)
                 .input('tarih', sql.NVarChar, islemTarihiStr)
-                .input('mh', sql.Int, musteriHareketId)
+                .input('mNo', sql.NVarChar, makbuzNo)
                 .input('yapan', sql.NVarChar, islemiYapan || 'Sistem')
                 .query(`
-                    INSERT INTO [komur].[dbo].[ApartmanTeslimatlar] (DaireId, Miktar, Tarih, MusteriHareketId, IslemiYapan)
-                    VALUES (@did, @m, @tarih, @mh, @yapan)
+                    INSERT INTO [komur].[dbo].[ApartmanTeslimatlar] (DaireId, Miktar, Tarih, MakbuzNo, IslemiYapan)
+                    VALUES (@did, @m, @tarih, @mNo, @yapan)
                 `);
 
             await tx.request().input('did', sql.Int, daireId).input('m', sql.Decimal(18, 2), teslimMiktar)
@@ -3899,7 +3910,7 @@ app.post('/api/apartman-daire/:id/teslimat', async (req, res) => {
             await tx.rollback();
             throw e;
         }
-        res.status(201).json({ mesaj: 'Teslimat kaydedildi', cariIslendi: !!musteriHareketId });
+        res.status(201).json({ mesaj: 'Teslimat kaydedildi', cariIslendi: !!makbuzNo, borc: borcTutari, makbuzNo });
     } catch (err) {
         console.error('DAIRE TESLIMAT HATASI:', err);
         res.status(500).json({ hata: err.message });
@@ -3941,8 +3952,8 @@ app.delete('/api/apartman-teslimat/:id', async (req, res) => {
         const tx = new sql.Transaction(pool);
         await tx.begin();
         try {
-            if (t.MusteriHareketId) {
-                await tx.request().input('mh', sql.Int, t.MusteriHareketId)
+            if (t.MakbuzNo) {
+                await tx.request().input('mh', sql.NVarChar, t.MakbuzNo)
                     .query(`DELETE FROM [komur].[dbo].[MusteriHareket] WHERE MakbuzNo = @mh`);
                 if (daire && daire.UrunID) {
                     await tx.request().input('uid', sql.Int, daire.UrunID).input('m', sql.Decimal(18, 2), t.Miktar)

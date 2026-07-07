@@ -1796,6 +1796,11 @@ html, body {
 .apt-oneri-tel { color: #94a3b8; font-size: 0.8rem; }
 .apt-oneri-yeni { color: #16a34a; font-weight: 700; }
 .apt-oneri-bos { padding: 10px 12px; color: #94a3b8; font-size: 0.9rem; }
+.apt-input-ok {
+    border-color: #16a34a !important;
+    background: #f0fdf4;
+    box-shadow: 0 0 0 3px rgba(22,163,74,0.12);
+}
 .donusum-toplu-list {
     max-height: 50vh;
     overflow-y: auto;

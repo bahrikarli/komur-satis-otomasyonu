@@ -3363,6 +3363,7 @@
     let apartmanCache = [];
     let aktifApartman = null;
     let aktifApartmanDaireler = [];
+    let aptGeriMusteriId = null;
 
     function aptSayi(n) {
         return (parseFloat(n) || 0).toLocaleString('tr-TR', { maximumFractionDigits: 2 });
@@ -3370,6 +3371,7 @@
 
     async function apartmanlariYukle() {
         anaMenuKapat();
+        aptGeriMusteriId = null;
         overlayAc('overlay-apartman');
         const el = $('apartmanListe');
         el.innerHTML = '<div class="empty-msg">Yükleniyor…</div>';
@@ -3554,7 +3556,9 @@
         $('dDuzBlok').value = d.Blok || '';
         $('dDuzNo').value = d.DaireNo || '';
         $('dDuzMusteriId').value = d.MusteriKimlik || '';
-        $('dDuzMusteriArama').value = d.MusteriAd || '';
+        const dMusInp = $('dDuzMusteriArama');
+        dMusInp.value = d.MusteriAd || '';
+        dMusInp.classList.remove('apt-input-ok');
         $('dDuzMusteriOneriler').style.display = 'none';
         $('dDuzUrun').innerHTML = aptUrunSecenekleri(d.UrunID);
         $('dDuzAnlasilan').value = d.AnlasilanMiktar || 0;
@@ -3614,9 +3618,11 @@
                 else if (!res.ok) throw new Error(data.hata || 'Müşteri eklenemedi');
             }
             $('dDuzMusteriId').value = yeniId || '';
-            $('dDuzMusteriArama').value = temizAd;
+            const inp = $('dDuzMusteriArama');
+            inp.value = temizAd;
+            inp.classList.add('apt-input-ok');
             $('dDuzMusteriOneriler').style.display = 'none';
-            toast('Yeni müşteri eklendi');
+            toast(`✓ "${temizAd}" yeni müşteri eklendi ve seçildi`);
         } catch (err) { toast(err.message || 'Hata'); }
     }
 
@@ -3713,7 +3719,13 @@
                 data = await res.json();
             }
             if (!res.ok) throw new Error(data.hata || 'Teslim başarısız');
-            toast('Teslimat kaydedildi');
+            if (data.cariIslendi && data.borc) {
+                toast(`Teslim edildi · ${aptSayi(data.borc)} ₺ cariye borç işlendi`);
+            } else if (!data.cariIslendi) {
+                toast('Teslim kaydedildi (cariye borç için müşteri + ürün bağlayın)');
+            } else {
+                toast('Teslimat kaydedildi');
+            }
             modalKapat('modal-daire-teslimat');
             apartmanDetayAc(aktifApartman.Id);
         } catch (err) { toast(err.message || 'Hata'); }
@@ -3862,7 +3874,15 @@
         });
         $('btnApartman')?.addEventListener('click', apartmanlariYukle);
         $('btnApartmanKapat')?.addEventListener('click', overlayKapat);
-        $('btnApartmanDetayKapat')?.addEventListener('click', apartmanlariYukle);
+        $('btnApartmanDetayKapat')?.addEventListener('click', () => {
+            if (aptGeriMusteriId) {
+                const mid = aptGeriMusteriId;
+                aptGeriMusteriId = null;
+                musteriDetayAc(mid);
+            } else {
+                apartmanlariYukle();
+            }
+        });
         $('apartmanAra')?.addEventListener('input', (e) => apartmanFiltrele(e.target.value));
         $('apartmanListe')?.addEventListener('click', (e) => {
             const item = e.target.closest('[data-apt-id]');
@@ -3923,7 +3943,10 @@
         });
         $('musteriApartmanListe')?.addEventListener('click', (e) => {
             const item = e.target.closest('[data-apt-git]');
-            if (item?.dataset.aptGit) apartmanDetayAc(Number(item.dataset.aptGit));
+            if (item?.dataset.aptGit) {
+                aptGeriMusteriId = aktifMusteri ? musteriKimlik(aktifMusteri) : null;
+                apartmanDetayAc(Number(item.dataset.aptGit));
+            }
         });
         $('tedarikciAra')?.addEventListener('input', (e) => tedarikciFiltrele(e.target.value));
         $('tedarikciListe')?.addEventListener('click', (e) => {

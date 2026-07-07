@@ -8605,6 +8605,7 @@ if (window.sistemdekiTumModallar) {
 window.aptCache = [];
 window.aktifApartman = null;
 window.aktifApartmanDaireler = [];
+window.apartmanGeriDonusMusteri = null;
 let aptMusteriCache = [];
 let aptUrunCache = [];
 
@@ -8635,6 +8636,7 @@ async function aptListeleriYukle() {
 }
 
 window.apartmanlariYukle = async function() {
+    window.apartmanGeriDonusMusteri = null;
     guvenliModalAc('apartmanlarModal');
     const kutu = document.getElementById('apartmanKartListesi');
     kutu.innerHTML = '<div class="text-center text-muted py-4">Yükleniyor…</div>';
@@ -8749,9 +8751,37 @@ window.apartmanDetayAc = async function(id) {
         window.aktifApartman = data.apartman;
         window.aktifApartmanDaireler = data.daireler || [];
         document.getElementById('apartmanDetayAd').textContent = data.apartman.Ad || 'Apartman';
+        const geriBtn = document.getElementById('apartmanGeriCariBtn');
+        if (geriBtn) geriBtn.classList.toggle('d-none', !window.apartmanGeriDonusMusteri);
         apartmanDetayCiz();
         guvenliModalAc('apartmanDetayModal');
     } catch (e) { alert('Hata: ' + e.message); }
+};
+
+// Cari karttan apartmana geçiş: geri dönüş için müşteriyi hatırla
+window.apartmanDetayAcMusteriden = function(aptId) {
+    window.apartmanGeriDonusMusteri = {
+        id: (typeof aktifMusteriId !== 'undefined' ? aktifMusteriId : null),
+        ad: (typeof aktifMusteriAd !== 'undefined' ? aktifMusteriAd : '') || '',
+        tel: (document.getElementById('detayTelefon')?.innerText || '').trim()
+    };
+    apartmanDetayAc(aptId);
+};
+
+// Apartman detayını kapat: cariden gelindiyse müşteri kartına dön
+window.apartmanDetayKapat = function() {
+    const geri = window.apartmanGeriDonusMusteri;
+    window.apartmanGeriDonusMusteri = null;
+    if (geri && geri.id && typeof window.musteriDetayGoster === 'function') {
+        window.musteriDetayGoster(geri.id, geri.ad, geri.tel);
+        return;
+    }
+    if (typeof modalZorlaKapat === 'function') modalZorlaKapat('apartmanDetayModal');
+    else {
+        const el = document.getElementById('apartmanDetayModal');
+        const inst = el && bootstrap.Modal.getInstance(el);
+        if (inst) inst.hide();
+    }
 };
 
 function apartmanDetayCiz() {
@@ -8852,8 +8882,12 @@ window.daireDuzenleAc = async function(daireId) {
     document.getElementById('dDuzBlok').value = d.Blok || '';
     document.getElementById('dDuzNo').value = d.DaireNo || '';
     document.getElementById('dDuzMusteriId').value = d.MusteriKimlik || '';
-    document.getElementById('dDuzMusteriArama').value = d.MusteriAd || '';
+    const dMusInp = document.getElementById('dDuzMusteriArama');
+    dMusInp.value = d.MusteriAd || '';
+    dMusInp.classList.remove('is-valid');
     document.getElementById('dDuzMusteriOneriler').style.display = 'none';
+    const dIpucu = document.getElementById('dDuzMusteriIpucu');
+    if (dIpucu) dIpucu.innerHTML = 'Yazınca mevcut müşteriler aranır; bulunamazsa "Yeni müşteri ekle" çıkar. Yeni müşterinin adresi apartmanın il/ilçe/mahallesi olur.';
     document.getElementById('dDuzUrun').innerHTML = aptUrunSecenekleri(d.UrunID);
     document.getElementById('dDuzAnlasilan').value = d.AnlasilanMiktar || 0;
     document.getElementById('dDuzBirim').value = d.Birim || '';
@@ -8916,8 +8950,16 @@ async function daireYeniMusteriEkle(ad) {
             else if (!res.ok) throw new Error(data.hata || 'Müşteri eklenemedi');
         }
         document.getElementById('dDuzMusteriId').value = yeniId || '';
-        document.getElementById('dDuzMusteriArama').value = temizAd;
+        const inp = document.getElementById('dDuzMusteriArama');
+        inp.value = temizAd;
         document.getElementById('dDuzMusteriOneriler').style.display = 'none';
+        // "Yeni müşteri eklendi" hissini güçlendir
+        inp.classList.add('is-valid');
+        const ipucu = document.getElementById('dDuzMusteriIpucu');
+        if (ipucu) {
+            ipucu.innerHTML = `<span class="text-success fw-bold"><i class="fas fa-check-circle me-1"></i>"${temizAd}" yeni müşteri olarak eklendi ve bu daireye seçildi. Adresi: ${apt.Ad || ''}.</span>`;
+        }
+        if (typeof window.cariListesiniYukle === 'function') { try { await window.cariListesiniYukle(); } catch (_) {} }
     } catch (e) { alert('Hata: ' + e.message); }
 }
 
@@ -9078,6 +9120,9 @@ window.daireTeslimatKaydet = async function() {
             data = await res.json();
         }
         if (!res.ok) throw new Error(data.hata || 'Teslim başarısız');
+        if (!data.cariIslendi) {
+            alert('Teslimat kaydedildi ancak müşterinin carisine BORÇ işlenmedi.\n\nBorcun cariye düşmesi için bu dairede hem MÜŞTERİ hem ÜRÜN seçili olmalı. Daireyi açıp ürünü seçtikten sonra teslim edin.');
+        }
         modalZorlaKapat('daireTeslimatModal');
         apartmanDetayAc(window.aktifApartman.Id);
         if (typeof stoklariYukle === 'function') stoklariYukle();
@@ -9116,7 +9161,7 @@ window.musteriApartmanBilgisiYukle = async function(musteriId) {
             else { durum = 'Anlaşma yok'; cls = 'bg-secondary'; }
             const yer = `${d.Blok ? d.Blok + ' Blok · ' : ''}Daire ${d.DaireNo || ''}`;
             return `<div class="col-md-6">
-                <div class="border rounded-3 p-2 h-100 d-flex justify-content-between align-items-center" role="button" onclick="apartmanDetayAc(${d.ApartmanId})">
+                <div class="border rounded-3 p-2 h-100 d-flex justify-content-between align-items-center" role="button" onclick="apartmanDetayAcMusteriden(${d.ApartmanId})">
                     <div>
                         <div class="fw-bold small"><i class="fas fa-building text-warning me-1"></i>${aptKacis(d.ApartmanAd)}</div>
                         <div class="text-muted small">${aptKacis(yer)}${d.UrunAdi ? ' · ' + aptKacis(d.UrunAdi) : ''}</div>
