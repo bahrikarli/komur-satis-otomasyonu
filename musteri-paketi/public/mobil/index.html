@@ -14,7 +14,7 @@
     <link rel="icon" type="image/png" sizes="512x512" href="/mobil/icon-512.png">
     <link rel="apple-touch-icon" href="/mobil/icon-192.png">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="/mobil/mobil.css?v=34">
+    <link rel="stylesheet" href="/mobil/mobil.css?v=35">
 </head>
 <body>
     <div id="app">
@@ -176,6 +176,10 @@
                 <div class="action-row action-row-3">
                     <button type="button" class="btn btn-primary flex-btn" id="btnModalSatis"><i class="fas fa-cart-plus me-1"></i>Satış yap</button>
                     <button type="button" class="btn btn-success flex-btn" id="btnModalOdeme"><i class="fas fa-hand-holding-dollar me-1"></i>Ödeme al</button>
+                </div>
+                <div id="musteriApartmanBolum" style="display:none;">
+                    <div class="section-title"><i class="fas fa-building"></i> Apartman anlaşmaları</div>
+                    <div id="musteriApartmanListe"></div>
                 </div>
                 <div class="section-title">Cari hareketler</div>
                 <div id="musteriEkstre" class="ekstre-list">Yükleniyor…</div>
@@ -714,9 +718,9 @@
                 <label class="field-label" for="aptEkleAd">Apartman / Site adı *</label>
                 <input id="aptEkleAd" class="field-input" type="text" placeholder="Güneş Sitesi">
                 <label class="field-label" for="aptEkleIlce">İlçe</label>
-                <input id="aptEkleIlce" class="field-input" type="text">
-                <label class="field-label" for="aptEkleMahalle">Mahalle</label>
-                <input id="aptEkleMahalle" class="field-input" type="text">
+                <select id="aptEkleIlce" class="field-input"></select>
+                <label class="field-label" for="aptEkleMahalleListe">Mahalle</label>
+                <select id="aptEkleMahalleListe" class="field-input"></select>
                 <label class="field-label" for="aptEkleAdres">Açık adres</label>
                 <input id="aptEkleAdres" class="field-input" type="text">
                 <label class="field-label" for="aptEkleSorumlu">Site sorumlusu</label>
@@ -761,8 +765,10 @@
                     <div style="flex:1"><label class="field-label" for="dDuzBlok">Blok</label><input id="dDuzBlok" class="field-input" type="text"></div>
                     <div style="flex:2"><label class="field-label" for="dDuzNo">Daire no</label><input id="dDuzNo" class="field-input" type="text"></div>
                 </div>
-                <label class="field-label" for="dDuzMusteri">Müşteri</label>
-                <select id="dDuzMusteri" class="field-input"></select>
+                <label class="field-label" for="dDuzMusteriArama">Müşteri</label>
+                <input type="hidden" id="dDuzMusteriId">
+                <input id="dDuzMusteriArama" class="field-input" type="text" placeholder="İsim yazıp aratın / yeni ekleyin" autocomplete="off">
+                <div id="dDuzMusteriOneriler" class="apt-oneri-liste" style="display:none;"></div>
                 <label class="field-label" for="dDuzUrun">Ürün</label>
                 <select id="dDuzUrun" class="field-input"></select>
                 <div class="action-row action-row-2">
@@ -823,6 +829,6 @@
     <div id="toast" class="toast d-none"></div>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js" crossorigin="anonymous"></script>
     <script src="/adres-sozlugu.js"></script>
-    <script src="/mobil/mobil.js?v=41"></script>
+    <script src="/mobil/mobil.js?v=42"></script>
 </body>
 </html>

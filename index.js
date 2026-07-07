@@ -1532,13 +1532,14 @@ app.post('/api/musteri', async (req, res) => {
 
         const query = `
             INSERT INTO [komur].[dbo].[Kimlik] (Adı, Soyadı, CEPTEL, Unvan, Adres, Ilce, Mahalle) 
-            VALUES (@ad, @soyad, @telefon, @unvan, @adres, @ilce, @mahalle)
+            VALUES (@ad, @soyad, @telefon, @unvan, @adres, @ilce, @mahalle);
+            SELECT CAST(SCOPE_IDENTITY() AS INT) AS yeniId;
         `;
 
-        await request.query(query);
-        
-        // Yanıtta yeniId göndermiyoruz
-        res.status(201).json({ success: true, mesaj: 'Müşteri başarıyla eklendi!' });
+        const insertRes = await request.query(query);
+        const yeniId = insertRes.recordset && insertRes.recordset[0] ? insertRes.recordset[0].yeniId : null;
+
+        res.status(201).json({ success: true, mesaj: 'Müşteri başarıyla eklendi!', yeniId });
 
     } catch (err) {
         console.error("Müşteri Kayıt Hatası:", err);
@@ -3960,6 +3961,31 @@ app.delete('/api/apartman-teslimat/:id', async (req, res) => {
         res.json({ mesaj: 'Teslimat geri alındı' });
     } catch (err) {
         console.error('TESLIMAT GERI AL HATASI:', err);
+        res.status(500).json({ hata: err.message });
+    }
+});
+
+// --- Bir müşterinin bağlı olduğu apartman daireleri ---
+app.get('/api/musteri/:id/apartman-daireler', async (req, res) => {
+    const musteriId = parseInt(req.params.id, 10);
+    if (!musteriId) return res.status(400).json({ hata: 'Geçersiz müşteri' });
+    try {
+        await ensureApartmanTablolari();
+        const pool = await sql.connect(config);
+        const result = await pool.request().input('mk', sql.Int, musteriId).query(`
+            SELECT D.Id, D.Blok, D.DaireNo, D.AnlasilanMiktar, D.TeslimEdilen, D.Birim, D.BirimFiyat,
+                   (D.AnlasilanMiktar - D.TeslimEdilen) AS Kalan,
+                   A.Id AS ApartmanId, A.Ad AS ApartmanAd,
+                   S.UrunAdi AS UrunAdi
+            FROM [komur].[dbo].[ApartmanDaireler] D
+            INNER JOIN [komur].[dbo].[Apartmanlar] A ON D.ApartmanId = A.Id
+            LEFT JOIN [komur].[dbo].[StokListesi] S ON D.UrunID = S.ID
+            WHERE D.MusteriKimlik = @mk
+            ORDER BY A.Ad ASC, D.Blok ASC, D.Sira ASC
+        `);
+        res.json(result.recordset || []);
+    } catch (err) {
+        console.error('MUSTERI APARTMAN HATASI:', err);
         res.status(500).json({ hata: err.message });
     }
 });
