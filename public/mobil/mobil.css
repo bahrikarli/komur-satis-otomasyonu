@@ -1759,6 +1759,15 @@ html, body {
 }
 .text-ok { color: #16a34a !important; }
 .text-info { color: #0284c7 !important; }
+.text-danger { color: #dc2626 !important; }
+.checkbox-satir {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.9rem;
+    color: #334155;
+}
+.checkbox-satir input { width: 18px; height: 18px; }
 .donusum-toplu-list {
     max-height: 50vh;
     overflow-y: auto;

@@ -161,6 +161,11 @@
                         <i class="fas fa-users me-1 text-primary opacity-75"></i> Müşteriler & Cari
                     </a>
                 </li>
+                <li class="nav-item">
+                    <a class="nav-link px-3 rounded-pill fw-medium" href="#" onclick="apartmanlariYukle(); return false;">
+                        <i class="fas fa-building me-1 text-warning opacity-75"></i> Apartmanlar
+                    </a>
+                </li>
                 
                 <li class="nav-item dropdown">
                     <a class="nav-link px-3 rounded-pill dropdown-toggle fw-medium" href="#" id="navbarDropdown" role="button" data-bs-toggle="dropdown">
@@ -2933,8 +2938,220 @@
 </div>
 
 
+<!-- ================= APARTMAN MODÜLÜ ================= -->
+<div class="modal fade" id="apartmanlarModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content border-0 shadow-lg">
+            <div class="modal-header bg-warning text-dark">
+                <h5 class="modal-title"><i class="fas fa-building me-2"></i> Apartmanlar (Toplu Satış)</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="d-flex justify-content-between mb-3">
+                    <input type="text" id="apartmanAra" class="form-control w-50" placeholder="Apartman ara..." onkeyup="apartmanFiltrele()">
+                    <button class="btn btn-primary" onclick="apartmanEkleModalAc()">
+                        <i class="fas fa-plus me-1"></i> Yeni Apartman
+                    </button>
+                </div>
+                <div id="apartmanKartListesi" class="row g-2">
+                    <div class="text-center text-muted py-4">Yükleniyor…</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="apartmanEkleModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content border-0 shadow-lg">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title"><i class="fas fa-plus-circle me-2"></i> <span id="apartmanEkleBaslik">Yeni Apartman</span></h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="apartmanDuzenleId">
+                <div class="mb-2">
+                    <label class="form-label fw-bold">Apartman / Site Adı <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control border-success" id="apartmanAd" placeholder="Örn: Güneş Sitesi">
+                </div>
+                <div class="row g-2">
+                    <div class="col-md-4"><label class="form-label">İl</label><input type="text" class="form-control" id="apartmanIl" value="Konya"></div>
+                    <div class="col-md-4"><label class="form-label">İlçe</label><input type="text" class="form-control" id="apartmanIlce"></div>
+                    <div class="col-md-4"><label class="form-label">Mahalle</label><input type="text" class="form-control" id="apartmanMahalle"></div>
+                </div>
+                <div class="mb-2 mt-2">
+                    <label class="form-label">Açık Adres</label>
+                    <input type="text" class="form-control" id="apartmanAdres" placeholder="Cadde, sokak, no...">
+                </div>
+                <div class="row g-2">
+                    <div class="col-md-6"><label class="form-label">Site Sorumlusu</label><input type="text" class="form-control" id="apartmanSorumluAd" placeholder="Yönetici adı"></div>
+                    <div class="col-md-6"><label class="form-label">Sorumlu Tel</label><input type="text" class="form-control" id="apartmanSorumluTel"></div>
+                </div>
+                <div class="mb-2 mt-2">
+                    <label class="form-label text-muted">Not (kapı kodu, araç girişi...)</label>
+                    <textarea class="form-control" id="apartmanAciklama" rows="2"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer bg-light">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
+                <button type="button" class="btn btn-success px-4 fw-bold" onclick="apartmanKaydet()"><i class="fas fa-save me-1"></i> Kaydet</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="apartmanDetayModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content border-0 shadow-lg" style="max-height:90vh">
+            <div class="modal-header bg-warning text-dark py-2">
+                <h5 class="modal-title fw-bold fs-6"><i class="fas fa-building me-2"></i> <span id="apartmanDetayAd">Apartman</span></h5>
+                <div class="ms-auto d-flex gap-2">
+                    <button class="btn btn-sm btn-outline-dark" onclick="daireOlusturModalAc()"><i class="fas fa-th me-1"></i> Daire Oluştur</button>
+                    <button class="btn btn-sm btn-outline-dark" onclick="topluAnlasmaModalAc()"><i class="fas fa-handshake me-1"></i> Toplu Anlaşma</button>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+            </div>
+            <div class="modal-body">
+                <div id="apartmanDetayOzet" class="row g-2 mb-3"></div>
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Blok</th><th>Daire</th><th>Müşteri</th><th>Ürün</th>
+                                <th class="text-end">Anlaşılan</th><th class="text-end">Teslim</th><th class="text-end">Kalan</th>
+                                <th class="text-center">Durum</th><th class="text-center">İşlem</th>
+                            </tr>
+                        </thead>
+                        <tbody id="daireListesiGovdesi"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="daireOlusturModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content border-0 shadow-lg">
+            <div class="modal-header bg-dark text-white">
+                <h5 class="modal-title"><i class="fas fa-th me-2"></i> Toplu Daire Oluştur</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted small">Blok adı ve daire aralığı verin; sistem otomatik oluşturur. Müşteri ve anlaşmayı sonra girersiniz.</p>
+                <div class="mb-2">
+                    <label class="form-label fw-bold">Blok Adı (opsiyonel)</label>
+                    <input type="text" class="form-control" id="daireBlok" placeholder="Örn: A">
+                </div>
+                <div class="row g-2">
+                    <div class="col-6"><label class="form-label">İlk Daire No</label><input type="number" class="form-control" id="daireBaslangic" value="1"></div>
+                    <div class="col-6"><label class="form-label">Son Daire No</label><input type="number" class="form-control" id="daireBitis" value="10"></div>
+                </div>
+            </div>
+            <div class="modal-footer bg-light">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
+                <button type="button" class="btn btn-success px-4 fw-bold" onclick="daireOlustur()"><i class="fas fa-plus me-1"></i> Oluştur</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="daireDuzenleModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content border-0 shadow-lg">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title"><i class="fas fa-home me-2"></i> Daire / Anlaşma</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="daireDuzenleId">
+                <div class="row g-2">
+                    <div class="col-4"><label class="form-label">Blok</label><input type="text" class="form-control" id="dDuzBlok"></div>
+                    <div class="col-8"><label class="form-label">Daire No</label><input type="text" class="form-control" id="dDuzNo"></div>
+                </div>
+                <div class="mb-2 mt-2">
+                    <label class="form-label fw-bold">Müşteri</label>
+                    <select class="form-select" id="dDuzMusteri"><option value="">— Seçilmedi —</option></select>
+                    <div class="form-text">Daire sahibi. Mevcut müşteriler listesinden seçin.</div>
+                </div>
+                <hr>
+                <div class="row g-2">
+                    <div class="col-md-6"><label class="form-label">Ürün</label><select class="form-select" id="dDuzUrun"><option value="">— Ürün —</option></select></div>
+                    <div class="col-md-3"><label class="form-label">Anlaşılan</label><input type="number" step="0.01" class="form-control" id="dDuzAnlasilan" value="0"></div>
+                    <div class="col-md-3"><label class="form-label">Birim</label><input type="text" class="form-control" id="dDuzBirim" placeholder="Ton"></div>
+                </div>
+                <div class="mb-2 mt-2">
+                    <label class="form-label">Birim Fiyat (₺)</label>
+                    <input type="number" step="0.01" class="form-control" id="dDuzFiyat" placeholder="Ton/adet fiyatı">
+                </div>
+            </div>
+            <div class="modal-footer bg-light">
+                <button type="button" class="btn btn-outline-danger me-auto" onclick="daireSil()"><i class="fas fa-trash-alt"></i></button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
+                <button type="button" class="btn btn-primary px-4 fw-bold" onclick="daireKaydet()"><i class="fas fa-save me-1"></i> Kaydet</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="daireTeslimatModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content border-0 shadow-lg">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title"><i class="fas fa-truck-ramp-box me-2"></i> Kömür Teslim Et</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="teslimatDaireId">
+                <div id="teslimatDaireBilgi" class="alert alert-light border small mb-3"></div>
+                <div class="mb-2">
+                    <label class="form-label fw-bold">Teslim Miktarı</label>
+                    <input type="number" step="0.01" class="form-control form-control-lg" id="teslimatMiktar" placeholder="0">
+                    <div class="form-text" id="teslimatKalanNot"></div>
+                </div>
+                <div id="teslimatGecmisi" class="mt-3"></div>
+            </div>
+            <div class="modal-footer bg-light">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
+                <button type="button" class="btn btn-success px-4 fw-bold" onclick="daireTeslimatKaydet()"><i class="fas fa-check me-1"></i> Teslim Et</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="topluAnlasmaModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content border-0 shadow-lg">
+            <div class="modal-header bg-info text-dark">
+                <h5 class="modal-title"><i class="fas fa-handshake me-2"></i> Toplu Anlaşma Uygula</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted small">Tüm dairelere aynı ürün/miktar/fiyatı tek seferde uygular.</p>
+                <div class="row g-2">
+                    <div class="col-md-6"><label class="form-label">Ürün</label><select class="form-select" id="taUrun"><option value="">— Ürün —</option></select></div>
+                    <div class="col-md-3"><label class="form-label">Miktar</label><input type="number" step="0.01" class="form-control" id="taMiktar"></div>
+                    <div class="col-md-3"><label class="form-label">Birim</label><input type="text" class="form-control" id="taBirim" placeholder="Ton"></div>
+                </div>
+                <div class="mb-2 mt-2">
+                    <label class="form-label">Birim Fiyat (₺)</label>
+                    <input type="number" step="0.01" class="form-control" id="taFiyat">
+                </div>
+                <div class="form-check mt-2">
+                    <input class="form-check-input" type="checkbox" id="taSadeceBos">
+                    <label class="form-check-label" for="taSadeceBos">Sadece anlaşması boş olan dairelere uygula</label>
+                </div>
+            </div>
+            <div class="modal-footer bg-light">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
+                <button type="button" class="btn btn-info px-4 fw-bold text-dark" onclick="topluAnlasmaUygula()"><i class="fas fa-check me-1"></i> Uygula</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script src="adres-sozlugu.js?v=1.0.77"></script>
-    <script src="script.js?v=1.0.86"></script>
+    <script src="script.js?v=1.0.87"></script>
 </body>
 </html>

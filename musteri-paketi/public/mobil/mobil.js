@@ -2786,11 +2786,17 @@
         const infoBtn = alimMi && h.ID
             ? `<button type="button" class="ekstre-info-btn" data-alim-detay="${h.ID}" title="Maliyet detayı"><i class="fas fa-info-circle"></i></button>`
             : '';
+        const silBtn = h.ID
+            ? `<button type="button" class="ekstre-sil-btn" data-tedarikci-sil="${h.ID}" data-tedarikci-tur="${h.Tur || (alimMi ? 'ALIM' : 'ODEME')}" title="Sil"><i class="fas fa-trash-alt"></i></button>`
+            : '';
+        const aksiyonHtml = (infoBtn || silBtn)
+            ? `<span class="ekstre-aksiyonlar">${infoBtn}${silBtn}</span>`
+            : '';
 
         return `<div class="ekstre-item">
             <div class="ust">
                 <span>${tarihGoster(h.Tarih, true)}</span>
-                <span class="ust-sag"><span class="tedarikci-tur ${turCls}">${turTxt}</span>${infoBtn}</span>
+                <span class="ust-sag"><span class="tedarikci-tur ${turCls}">${turTxt}</span>${aksiyonHtml}</span>
             </div>
             <div class="aciklama">${ekstreRaporKacis(h.Islem || '—')}</div>
             <div class="alt">
@@ -3119,6 +3125,23 @@
         }
     }
 
+    async function tedarikciHareketSil(hareketId, tur) {
+        const turEtiket = tur === 'ALIM' ? 'alım' : 'ödeme';
+        if (!confirm(`Bu ${turEtiket} kaydını silmek istediğinize emin misiniz?`)) return;
+        try {
+            const res = await apiFetch(`/api/tedarikci-hareket/${hareketId}?tur=${tur}`, { method: 'DELETE' });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.hata || 'Silinemedi');
+            toast('Kayıt silindi');
+            await tedarikciYukle();
+            if (aktifTedarikci) await tedarikciDetayAc(aktifTedarikci.ID);
+            await stoklariYukleCache();
+            stokYukle();
+        } catch (err) {
+            toast(err.message || 'Hata');
+        }
+    }
+
     function tedarikciOdemeAc() {
         const oz = tedarikciMobilOzet || {};
         const borcEl = $('tedarikciOdemeBorcOzet');
@@ -3303,6 +3326,353 @@
         }
     }
 
+    // =========================================================
+    // 🏢 APARTMAN (MOBİL)
+    // =========================================================
+    let apartmanCache = [];
+    let aktifApartman = null;
+    let aktifApartmanDaireler = [];
+
+    function aptSayi(n) {
+        return (parseFloat(n) || 0).toLocaleString('tr-TR', { maximumFractionDigits: 2 });
+    }
+
+    async function apartmanlariYukle() {
+        anaMenuKapat();
+        overlayAc('overlay-apartman');
+        const el = $('apartmanListe');
+        el.innerHTML = '<div class="empty-msg">Yükleniyor…</div>';
+        try {
+            const res = await apiFetch('/api/apartmanlar?_t=' + Date.now());
+            const rows = await res.json();
+            if (!Array.isArray(rows)) throw new Error(rows.hata || 'Liste alınamadı');
+            apartmanCache = rows;
+            apartmanGoster(rows);
+        } catch (err) {
+            el.innerHTML = `<div class="empty-msg">${err.message}</div>`;
+        }
+    }
+
+    function apartmanGoster(liste) {
+        const el = $('apartmanListe');
+        if (!liste.length) {
+            el.innerHTML = '<div class="empty-msg">Apartman yok. Sağ üstten ekleyin.</div>';
+            return;
+        }
+        el.innerHTML = liste.map((a) => {
+            const daire = a.DaireSayisi || 0;
+            const tamam = a.TamamDaire || 0;
+            const kismi = a.KismiDaire || 0;
+            const bekleyen = Math.max(0, daire - tamam - kismi);
+            const konum = [a.Mahalle, a.Ilce].filter(Boolean).join(' / ');
+            return `<div class="tedarikci-item" data-apt-id="${a.Id}" role="button" tabindex="0">
+                <div class="tedarikci-item-ust">
+                    <div>
+                        <div class="tedarikci-item-ad">${ekstreRaporKacis(a.Ad)}</div>
+                        <div class="tedarikci-item-meta">${ekstreRaporKacis(konum || '—')}</div>
+                        <div class="tedarikci-item-meta">✓ ${tamam} · ◐ ${kismi} · ○ ${bekleyen} · ${daire} daire</div>
+                    </div>
+                    <div class="tedarikci-bakiye">${aptSayi(a.ToplamTeslim)}/${aptSayi(a.ToplamAnlasilan)}</div>
+                </div>
+            </div>`;
+        }).join('');
+    }
+
+    function apartmanFiltrele(q) {
+        const s = String(q || '').trim().toLocaleLowerCase('tr-TR');
+        if (!s) return apartmanGoster(apartmanCache);
+        apartmanGoster(apartmanCache.filter((a) => {
+            const blob = [a.Ad, a.Mahalle, a.Ilce, a.SorumluAd].filter(Boolean).join(' ').toLocaleLowerCase('tr-TR');
+            return blob.includes(s);
+        }));
+    }
+
+    function apartmanEkleAc() {
+        ['aptEkleAd', 'aptEkleIlce', 'aptEkleMahalle', 'aptEkleAdres', 'aptEkleSorumlu', 'aptEkleSorumluTel'].forEach((id) => { if ($(id)) $(id).value = ''; });
+        modalAc('modal-apartman-ekle');
+    }
+
+    async function apartmanKaydet() {
+        const ad = $('aptEkleAd').value.trim();
+        if (!ad) { toast('Apartman adı gerekli'); return; }
+        try {
+            const res = await apiFetch('/api/apartman', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    ad,
+                    ilce: $('aptEkleIlce').value.trim(),
+                    mahalle: $('aptEkleMahalle').value.trim(),
+                    adres: $('aptEkleAdres').value.trim(),
+                    sorumluAd: $('aptEkleSorumlu').value.trim(),
+                    sorumluTel: $('aptEkleSorumluTel').value.trim()
+                })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.hata || 'Kayıt başarısız');
+            modalKapat('modal-apartman-ekle');
+            await apartmanlariYukle();
+            if (data.id) apartmanDetayAc(data.id);
+        } catch (err) { toast(err.message || 'Hata'); }
+    }
+
+    async function apartmanDetayAc(id) {
+        if (!stokCache.length) await stoklariYukleCache();
+        if (!musteriCache.length) {
+            try { const r = await apiFetch('/api/musteriler'); musteriCache = await r.json(); } catch (_) {}
+        }
+        try {
+            const res = await apiFetch(`/api/apartman/${id}?_t=` + Date.now());
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.hata || 'Detay alınamadı');
+            aktifApartman = data.apartman;
+            aktifApartmanDaireler = data.daireler || [];
+            $('aptDetayAd').textContent = data.apartman.Ad || 'Apartman';
+            $('aptDetayMeta').textContent = [data.apartman.Mahalle, data.apartman.Ilce].filter(Boolean).join(' / ') || '—';
+            apartmanDetayCiz();
+            overlayAc('overlay-apartman-detay');
+        } catch (err) { toast(err.message || 'Hata'); }
+    }
+
+    function apartmanDetayCiz() {
+        const daireler = aktifApartmanDaireler;
+        const toplamAnlasilan = daireler.reduce((t, d) => t + (parseFloat(d.AnlasilanMiktar) || 0), 0);
+        const toplamTeslim = daireler.reduce((t, d) => t + (parseFloat(d.TeslimEdilen) || 0), 0);
+        const tamam = daireler.filter((d) => d.AnlasilanMiktar > 0 && d.TeslimEdilen >= d.AnlasilanMiktar).length;
+        $('aptDetayOzet').innerHTML = `
+            <div class="cari-ozet-kutu"><div class="lbl">Daire</div><div class="val">${daireler.length}</div></div>
+            <div class="cari-ozet-kutu"><div class="lbl">Tamam</div><div class="val odeme">${tamam}</div></div>
+            <div class="cari-ozet-kutu wide"><div class="lbl">Teslim / Anlaşılan</div><div class="val">${aptSayi(toplamTeslim)} / ${aptSayi(toplamAnlasilan)}</div></div>
+        `;
+        const el = $('aptDaireListe');
+        if (!daireler.length) {
+            el.innerHTML = '<div class="empty-msg">Daire yok. Sağ üstten oluşturun.</div>';
+            return;
+        }
+        el.innerHTML = daireler.map((d) => {
+            const anlasilan = parseFloat(d.AnlasilanMiktar) || 0;
+            const teslim = parseFloat(d.TeslimEdilen) || 0;
+            const kalan = anlasilan - teslim;
+            let durum, cls;
+            if (anlasilan > 0 && teslim >= anlasilan) { durum = 'Tamam'; cls = 'tedarikci-tur--odeme'; }
+            else if (teslim > 0) { durum = 'Kısmi'; cls = 'tedarikci-tur--alim'; }
+            else if (anlasilan > 0) { durum = 'Bekliyor'; cls = 'tedarikci-tur--alim'; }
+            else { durum = 'Anlaşma yok'; cls = ''; }
+            const teslimBtn = (d.MusteriKimlik && d.UrunID && anlasilan > 0)
+                ? `<button type="button" class="ekstre-info-btn" data-teslim="${d.Id}" title="Teslim et"><i class="fas fa-truck-ramp-box"></i></button>`
+                : '';
+            const baslik = `${d.Blok ? d.Blok + ' ' : ''}Daire ${d.DaireNo || ''}`;
+            return `<div class="ekstre-item" data-daire="${d.Id}" role="button">
+                <div class="ust">
+                    <span>${ekstreRaporKacis(baslik)}</span>
+                    <span class="ust-sag"><span class="tedarikci-tur ${cls}">${durum}</span>${teslimBtn}</span>
+                </div>
+                <div class="aciklama">${d.MusteriAd ? ekstreRaporKacis(d.MusteriAd) : '<span class="text-danger">— müşteri yok —</span>'}</div>
+                <div class="alt">
+                    <span class="alt-detay">${d.UrunAdi ? ekstreRaporKacis(d.UrunAdi) : '-'}${anlasilan ? ' · ' + aptSayi(anlasilan) + ' ' + (d.Birim || '') : ''}</span>
+                    <span>${anlasilan ? 'Kalan: ' + aptSayi(kalan) : ''}</span>
+                </div>
+            </div>`;
+        }).join('');
+    }
+
+    function aptMusteriSecenekleri(secili) {
+        const opts = musteriCache.map((m) => {
+            const ad = m.Unvan || m.Adı || ('#' + m.Kimlik);
+            const sel = String(m.Kimlik) === String(secili) ? 'selected' : '';
+            return `<option value="${m.Kimlik}" ${sel}>${ekstreRaporKacis(ad)}</option>`;
+        }).join('');
+        return '<option value="">— Seçilmedi —</option>' + opts;
+    }
+
+    function aptUrunSecenekleri(secili) {
+        const opts = stokCache.map((u) => {
+            const sel = String(u.id) === String(secili) ? 'selected' : '';
+            return `<option value="${u.id}" data-birim="${ekstreRaporKacis(u.birim_turu || '')}" data-fiyat="${u.ton_fiyati || ''}" ${sel}>${ekstreRaporKacis(u.cins || u.temel_ad)}</option>`;
+        }).join('');
+        return '<option value="">— Ürün —</option>' + opts;
+    }
+
+    function daireOlusturAc() {
+        if (!aktifApartman) return;
+        $('daireBlok').value = '';
+        $('daireBaslangic').value = 1;
+        $('daireBitis').value = 10;
+        modalAc('modal-daire-olustur');
+    }
+
+    async function daireOlusturKaydet() {
+        const blok = $('daireBlok').value.trim();
+        const baslangic = parseInt($('daireBaslangic').value, 10);
+        const bitis = parseInt($('daireBitis').value, 10);
+        if (!Number.isFinite(baslangic) || !Number.isFinite(bitis) || bitis < baslangic) {
+            toast('Geçerli aralık girin'); return;
+        }
+        try {
+            const res = await apiFetch(`/api/apartman/${aktifApartman.Id}/daireler`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ blok, baslangic, bitis })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.hata || 'Oluşturulamadı');
+            modalKapat('modal-daire-olustur');
+            apartmanDetayAc(aktifApartman.Id);
+        } catch (err) { toast(err.message || 'Hata'); }
+    }
+
+    function daireDuzenleAc(daireId) {
+        const d = aktifApartmanDaireler.find((x) => x.Id === daireId);
+        if (!d) return;
+        $('btnDaireKaydet').dataset.id = d.Id;
+        $('btnDaireSil').dataset.id = d.Id;
+        $('dDuzBlok').value = d.Blok || '';
+        $('dDuzNo').value = d.DaireNo || '';
+        $('dDuzMusteri').innerHTML = aptMusteriSecenekleri(d.MusteriKimlik);
+        $('dDuzUrun').innerHTML = aptUrunSecenekleri(d.UrunID);
+        $('dDuzAnlasilan').value = d.AnlasilanMiktar || 0;
+        $('dDuzBirim').value = d.Birim || '';
+        $('dDuzFiyat').value = d.BirimFiyat != null ? d.BirimFiyat : '';
+        modalAc('modal-daire-duzenle');
+    }
+
+    async function daireKaydet() {
+        const id = $('btnDaireKaydet').dataset.id;
+        if (!id) return;
+        try {
+            const res = await apiFetch(`/api/apartman-daire/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    blok: $('dDuzBlok').value.trim(),
+                    daireNo: $('dDuzNo').value.trim(),
+                    musteriKimlik: $('dDuzMusteri').value || null,
+                    urunId: $('dDuzUrun').value || null,
+                    anlasilanMiktar: parseFloat($('dDuzAnlasilan').value) || 0,
+                    birim: $('dDuzBirim').value.trim(),
+                    birimFiyat: $('dDuzFiyat').value
+                })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.hata || 'Kayıt başarısız');
+            modalKapat('modal-daire-duzenle');
+            apartmanDetayAc(aktifApartman.Id);
+        } catch (err) { toast(err.message || 'Hata'); }
+    }
+
+    async function daireSil() {
+        const id = $('btnDaireSil').dataset.id;
+        if (!id) return;
+        if (!confirm('Bu daireyi silmek istediğinize emin misiniz?')) return;
+        try {
+            const res = await apiFetch(`/api/apartman-daire/${id}`, { method: 'DELETE' });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.hata || 'Silinemedi');
+            modalKapat('modal-daire-duzenle');
+            apartmanDetayAc(aktifApartman.Id);
+        } catch (err) { toast(err.message || 'Hata'); }
+    }
+
+    function daireTeslimatAc(daireId) {
+        const d = aktifApartmanDaireler.find((x) => x.Id === daireId);
+        if (!d) return;
+        const anlasilan = parseFloat(d.AnlasilanMiktar) || 0;
+        const teslim = parseFloat(d.TeslimEdilen) || 0;
+        const kalan = anlasilan - teslim;
+        $('btnDaireTeslimatKaydet').dataset.id = d.Id;
+        $('teslimatDaireBilgi').innerHTML = `<strong>${ekstreRaporKacis((d.Blok ? d.Blok + ' ' : '') + 'Daire ' + (d.DaireNo || ''))}</strong> · ${ekstreRaporKacis(d.MusteriAd || '')}<br>${ekstreRaporKacis(d.UrunAdi || '-')} · ${formatPara(d.BirimFiyat)}/${d.Birim || ''}`;
+        $('teslimatMiktar').value = kalan > 0 ? kalan : '';
+        $('teslimatKalanNot').textContent = `Anlaşılan ${aptSayi(anlasilan)}, teslim ${aptSayi(teslim)}, kalan ${aptSayi(kalan)} ${d.Birim || ''}`;
+        $('teslimatGecmisi').innerHTML = '';
+        modalAc('modal-daire-teslimat');
+        daireTeslimatGecmisiYukle(d.Id);
+    }
+
+    async function daireTeslimatGecmisiYukle(daireId) {
+        try {
+            const res = await apiFetch(`/api/apartman-daire/${daireId}/teslimatlar?_t=` + Date.now());
+            const rows = await res.json();
+            const kutu = $('teslimatGecmisi');
+            if (!Array.isArray(rows) || !rows.length) { kutu.innerHTML = ''; return; }
+            kutu.innerHTML = '<div class="form-hint mb-1">Teslimat geçmişi</div>' + rows.map((t) => {
+                const tar = (t.Tarih || '').split(' ')[0];
+                return `<div class="alt"><span class="alt-detay">${ekstreRaporKacis(tar)} · ${aptSayi(t.Miktar)}</span><button type="button" class="ekstre-sil-btn" data-teslim-sil="${t.Id}"><i class="fas fa-trash-alt"></i></button></div>`;
+            }).join('');
+        } catch (_) {}
+    }
+
+    async function daireTeslimatKaydet() {
+        const id = $('btnDaireTeslimatKaydet').dataset.id;
+        const miktar = parseFloat($('teslimatMiktar').value);
+        if (!miktar || miktar <= 0) { toast('Geçerli miktar girin'); return; }
+        try {
+            let res = await apiFetch(`/api/apartman-daire/${id}/teslimat`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ miktar, tarih: bugunIso() })
+            });
+            let data = await res.json();
+            if (res.status === 400 && data.kod === 'ASIM') {
+                if (!confirm(`${data.hata}\n\nYine de teslim edilsin mi?`)) return;
+                res = await apiFetch(`/api/apartman-daire/${id}/teslimat`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ miktar, tarih: bugunIso(), izinliAsim: true })
+                });
+                data = await res.json();
+            }
+            if (!res.ok) throw new Error(data.hata || 'Teslim başarısız');
+            toast('Teslimat kaydedildi');
+            modalKapat('modal-daire-teslimat');
+            apartmanDetayAc(aktifApartman.Id);
+        } catch (err) { toast(err.message || 'Hata'); }
+    }
+
+    async function daireTeslimatGeriAl(teslimatId) {
+        if (!confirm('Bu teslimatı geri almak istediğinize emin misiniz?')) return;
+        try {
+            const res = await apiFetch(`/api/apartman-teslimat/${teslimatId}`, { method: 'DELETE' });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.hata || 'Geri alınamadı');
+            modalKapat('modal-daire-teslimat');
+            apartmanDetayAc(aktifApartman.Id);
+        } catch (err) { toast(err.message || 'Hata'); }
+    }
+
+    function topluAnlasmaAc() {
+        if (!aktifApartman) return;
+        $('taUrun').innerHTML = aptUrunSecenekleri('');
+        $('taMiktar').value = '';
+        $('taBirim').value = '';
+        $('taFiyat').value = '';
+        $('taSadeceBos').checked = true;
+        modalAc('modal-toplu-anlasma');
+    }
+
+    async function topluAnlasmaKaydet() {
+        const urunId = $('taUrun').value || null;
+        const anlasilanMiktar = parseFloat($('taMiktar').value) || 0;
+        if (!urunId || anlasilanMiktar <= 0) { toast('Ürün ve miktar girin'); return; }
+        if (!confirm('Bu anlaşma dairelere uygulanacak. Devam?')) return;
+        try {
+            const res = await apiFetch(`/api/apartman/${aktifApartman.Id}/toplu-anlasma`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    urunId, anlasilanMiktar,
+                    birim: $('taBirim').value.trim(),
+                    birimFiyat: $('taFiyat').value,
+                    sadeceBos: $('taSadeceBos').checked
+                })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.hata || 'Uygulanamadı');
+            toast('Toplu anlaşma uygulandı');
+            modalKapat('modal-toplu-anlasma');
+            apartmanDetayAc(aktifApartman.Id);
+        } catch (err) { toast(err.message || 'Hata'); }
+    }
+
     async function musteriYukle() {
         const el = $('musteriListe');
         el.innerHTML = '<div class="empty-msg">Yükleniyor…</div>';
@@ -3399,6 +3769,51 @@
             anaMenuKapat();
             panelGoster('tedarikci');
         });
+        $('btnApartman')?.addEventListener('click', apartmanlariYukle);
+        $('btnApartmanKapat')?.addEventListener('click', overlayKapat);
+        $('btnApartmanDetayKapat')?.addEventListener('click', apartmanlariYukle);
+        $('apartmanAra')?.addEventListener('input', (e) => apartmanFiltrele(e.target.value));
+        $('apartmanListe')?.addEventListener('click', (e) => {
+            const item = e.target.closest('[data-apt-id]');
+            if (item?.dataset.aptId) apartmanDetayAc(Number(item.dataset.aptId));
+        });
+        $('btnApartmanEkleAc')?.addEventListener('click', apartmanEkleAc);
+        $('btnApartmanKaydet')?.addEventListener('click', apartmanKaydet);
+        $('btnDaireOlusturAc')?.addEventListener('click', daireOlusturAc);
+        $('btnDaireOlusturKaydet')?.addEventListener('click', daireOlusturKaydet);
+        $('btnDaireKaydet')?.addEventListener('click', daireKaydet);
+        $('btnDaireSil')?.addEventListener('click', daireSil);
+        $('btnDaireTeslimatKaydet')?.addEventListener('click', daireTeslimatKaydet);
+        $('btnTopluAnlasmaAc')?.addEventListener('click', topluAnlasmaAc);
+        $('btnTopluAnlasmaKaydet')?.addEventListener('click', topluAnlasmaKaydet);
+        $('aptDaireListe')?.addEventListener('click', (e) => {
+            const teslimBtn = e.target.closest('[data-teslim]');
+            if (teslimBtn?.dataset.teslim) {
+                e.preventDefault(); e.stopPropagation();
+                daireTeslimatAc(Number(teslimBtn.dataset.teslim));
+                return;
+            }
+            const item = e.target.closest('[data-daire]');
+            if (item?.dataset.daire) daireDuzenleAc(Number(item.dataset.daire));
+        });
+        $('teslimatGecmisi')?.addEventListener('click', (e) => {
+            const sil = e.target.closest('[data-teslim-sil]');
+            if (sil?.dataset.teslimSil) daireTeslimatGeriAl(Number(sil.dataset.teslimSil));
+        });
+        $('dDuzUrun')?.addEventListener('change', (e) => {
+            const opt = e.target.options[e.target.selectedIndex];
+            if (opt && opt.value) {
+                if (!$('dDuzBirim').value) $('dDuzBirim').value = opt.getAttribute('data-birim') || '';
+                if (!$('dDuzFiyat').value) $('dDuzFiyat').value = opt.getAttribute('data-fiyat') || '';
+            }
+        });
+        $('taUrun')?.addEventListener('change', (e) => {
+            const opt = e.target.options[e.target.selectedIndex];
+            if (opt && opt.value) {
+                if (!$('taBirim').value) $('taBirim').value = opt.getAttribute('data-birim') || '';
+                if (!$('taFiyat').value) $('taFiyat').value = opt.getAttribute('data-fiyat') || '';
+            }
+        });
         $('tedarikciAra')?.addEventListener('input', (e) => tedarikciFiltrele(e.target.value));
         $('tedarikciListe')?.addEventListener('click', (e) => {
             const item = e.target.closest('.tedarikci-item');
@@ -3415,8 +3830,19 @@
         $('tedarikciOdemeTutar')?.addEventListener('input', tedarikciOdemeTutarHesapla);
         $('tedarikciOdemeKur')?.addEventListener('input', tedarikciOdemeTutarHesapla);
         $('tedarikciHareketListe')?.addEventListener('click', (e) => {
-            const btn = e.target.closest('[data-alim-detay]');
-            if (btn?.dataset.alimDetay) tedarikciAlimDetayAc(Number(btn.dataset.alimDetay));
+            const infoBtn = e.target.closest('[data-alim-detay]');
+            if (infoBtn?.dataset.alimDetay) {
+                e.preventDefault();
+                e.stopPropagation();
+                tedarikciAlimDetayAc(Number(infoBtn.dataset.alimDetay));
+                return;
+            }
+            const silBtn = e.target.closest('[data-tedarikci-sil]');
+            if (silBtn?.dataset.tedarikciSil) {
+                e.preventDefault();
+                e.stopPropagation();
+                tedarikciHareketSil(Number(silBtn.dataset.tedarikciSil), silBtn.dataset.tedarikciTur || 'ALIM');
+            }
         });
         $('btnMalAlimKaydet')?.addEventListener('click', malAlimKaydet);
         $('btnTedarikciOdemeKaydet')?.addEventListener('click', tedarikciOdemeKaydet);
