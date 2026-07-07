@@ -3,8 +3,10 @@
     const STORAGE_SESSION = 'komurMobilOturum';
 
     let musteriCache = [];
+    let tedarikciCache = [];
     let stokCache = [];
     let aktifMusteri = null;
+    let aktifTedarikci = null;
     let aktifMusteriEkstreRows = [];
     let guncelToplamTaksitBorcu = 0;
     let aktifTaksitlerCache = [];
@@ -1394,7 +1396,8 @@
     const PANEL_BASLIKLAR = {
         stok: { title: 'Stok listesi', icon: 'fa-boxes-stacked' },
         sevk: { title: 'Bekleyen sevkiyat', icon: 'fa-truck' },
-        musteri: { title: 'Müşteri rehberi', icon: 'fa-users' }
+        musteri: { title: 'Müşteri rehberi', icon: 'fa-users' },
+        tedarikci: { title: 'Tedarikçiler', icon: 'fa-truck' }
     };
 
     function panelBaslikGuncelle() {
@@ -1431,6 +1434,7 @@
         if (aktifPanel === 'stok') stokYukle();
         if (aktifPanel === 'sevk') sevkYukle();
         if (aktifPanel === 'musteri') musteriYukle();
+        if (aktifPanel === 'tedarikci') tedarikciYukle();
         geriTusGuncelle();
         const scroll = $('mainScroll');
         if (scroll) scroll.scrollTop = 0;
@@ -1926,6 +1930,61 @@
         }
     }
 
+    let yapiPlanModu = 'otomatik';
+
+    function yapiPlanModuAyarla(mod) {
+        yapiPlanModu = mod === 'manuel' ? 'manuel' : 'otomatik';
+        $('btnYapiModOtomatik')?.classList.toggle('yapi-mod-btn--aktif', yapiPlanModu === 'otomatik');
+        $('btnYapiModManuel')?.classList.toggle('yapi-mod-btn--aktif', yapiPlanModu === 'manuel');
+        $('yapiOtomatikBlokMobil')?.classList.toggle('d-none', yapiPlanModu === 'manuel');
+        $('yapiManuelBlokMobil')?.classList.toggle('d-none', yapiPlanModu !== 'manuel');
+        if (yapiPlanModu === 'manuel' && !$('yapiManuelListe')?.children.length) {
+            yapiManuelSatirlariOlustur();
+        }
+    }
+
+    function ayEkleIso(iso, ay) {
+        const d = new Date(iso + 'T12:00:00');
+        d.setMonth(d.getMonth() + ay);
+        return d.toISOString().slice(0, 10);
+    }
+
+    function yapiManuelSatirlariOlustur() {
+        const adet = parseInt($('yapiManuelSayi')?.value, 10) || 1;
+        const bas = $('yapiManuelBaslangic')?.value || bugunIso();
+        const bakiye = parseFloat($('yapiTaksitTutar')?.value) || Number(aktifMusteri?.Bakiye) || 0;
+        const esit = adet > 0 && bakiye > 0 ? bakiye / adet : 0;
+        const liste = $('yapiManuelListe');
+        if (!liste) return;
+        liste.innerHTML = Array.from({ length: adet }, (_, i) => {
+            const n = i + 1;
+            const tarih = ayEkleIso(bas, i);
+            const tutar = esit > 0 ? esit.toFixed(2) : '';
+            return `<div class="yapi-manuel-satir">
+                <span class="yapi-manuel-satir-no">${n}</span>
+                <input type="number" class="field-input yapi-manuel-tutar" step="0.01" min="0.01" value="${tutar}" placeholder="₺">
+                <input type="date" class="field-input yapi-manuel-tarih" value="${tarih}">
+            </div>`;
+        }).join('');
+        liste.querySelectorAll('.yapi-manuel-tutar').forEach((inp) => {
+            inp.addEventListener('input', yapiManuelToplamGuncelle);
+        });
+        yapiManuelToplamGuncelle();
+    }
+
+    function yapiManuelToplamGuncelle() {
+        const el = $('yapiManuelToplam');
+        if (!el) return;
+        let t = 0;
+        document.querySelectorAll('.yapi-manuel-tutar').forEach((inp) => { t += parseFloat(inp.value) || 0; });
+        const bakiye = parseFloat($('yapiTaksitTutar')?.value) || Number(aktifMusteri?.Bakiye) || 0;
+        let uyari = '';
+        if (bakiye > 0 && Math.abs(t - bakiye) > 0.02) {
+            uyari = ` · bakiye ${formatPara(bakiye)}`;
+        }
+        el.textContent = `Toplam: ${formatPara(t)}${uyari}`;
+    }
+
     async function borcuTaksitlendirAc() {
         if (!aktifMusteri) return;
         const bakiye = Number(aktifMusteri.Bakiye) || 0;
@@ -1940,9 +1999,8 @@
             const odenmemisVarMi = taksitler.some((t) => String(t.DURUM) === '0');
             if (odenmemisVarMi) {
                 const onay = confirm(
-                    '⚠️ DİKKAT: MÜŞTERİNİN DEVAM EDEN TAKSİT PLANI VAR!\n\n' +
-                    'Yeni plan yaparsanız ödenmemiş eski taksitler silinir ve ' +
-                    `${formatPara(bakiye)} üzerinden yeni plan oluşturulur.\n\nOnaylıyor musunuz?`
+                    '⚠️ Devam eden taksit planı var.\n\n' +
+                    'Ödenmemiş taksitler silinir; ödenmiş / havuzda parası olanlar korunur.\n\nOnaylıyor musunuz?'
                 );
                 if (!onay) return;
             }
@@ -1958,21 +2016,74 @@
         if (tutarInp) tutarInp.value = bakiye.toFixed(2);
         const tarihInp = $('yapiBaslangicTarihi');
         if (tarihInp) tarihInp.value = bugunIso();
+        const manBas = $('yapiManuelBaslangic');
+        if (manBas) manBas.value = bugunIso();
         const sayiSel = $('yapiTaksitSayisi');
         if (sayiSel && !sayiSel.value) sayiSel.value = '3';
+        yapiPlanModuAyarla('otomatik');
+        const manListe = $('yapiManuelListe');
+        if (manListe) manListe.innerHTML = '';
 
         modalAc('modal-borc-yapilandir');
     }
 
     async function borcYapilandirKaydet() {
         if (!aktifMusteri) return;
+        const mid = musteriKimlik(aktifMusteri);
+
+        if (yapiPlanModu === 'manuel') {
+            const satirlar = document.querySelectorAll('#yapiManuelListe .yapi-manuel-satir');
+            if (!satirlar.length) {
+                toast('Önce taksit satırlarını oluşturun');
+                return;
+            }
+            const taksitler = [];
+            satirlar.forEach((row) => {
+                const miktar = parseFloat(row.querySelector('.yapi-manuel-tutar')?.value);
+                const tarih = row.querySelector('.yapi-manuel-tarih')?.value;
+                if (miktar > 0 && tarih) taksitler.push({ miktar, tarih });
+            });
+            if (taksitler.length < 1 || taksitler.length > 12) {
+                toast('1–12 arası geçerli taksit girin');
+                return;
+            }
+            const btn = $('btnBorcYapilandirKaydet');
+            if (btn) { btn.disabled = true; btn.textContent = 'Kaydediliyor…'; }
+            try {
+                const res = await apiFetch('/api/borc-taksitlendir-manuel', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        musteri_id: mid,
+                        taksitler,
+                        islemiYapan: islemYapanAdi()
+                    })
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(data.hata || 'Plan oluşturulamadı');
+                modalKapat('modal-borc-yapilandir');
+                toast('Manuel ödeme planı kaydedildi');
+                modalAc('modal-taksit');
+                const baslik = $('taksitModalBaslik');
+                if (baslik) baslik.textContent = `${musteriAdi(aktifMusteri)} — Ödeme planı`;
+                await taksitPlaniYukle();
+            } catch (err) {
+                toast(err.message || 'Hata');
+            } finally {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fas fa-save me-1"></i>Planı oluştur';
+                }
+            }
+            return;
+        }
+
         const tutar = parseFloat($('yapiTaksitTutar')?.value);
         const taksit = parseInt($('yapiTaksitSayisi')?.value, 10);
         const tarih = $('yapiBaslangicTarihi')?.value;
-        const mid = musteriKimlik(aktifMusteri);
 
-        if (!tutar || tutar <= 0 || !tarih || !taksit || taksit < 1) {
-            toast('Tutar, taksit sayısı ve tarih girin');
+        if (!tutar || tutar <= 0 || !tarih || !taksit || taksit < 1 || taksit > 12) {
+            toast('Tutar, tarih ve 1–12 arası taksit sayısı girin');
             return;
         }
 
@@ -2016,14 +2127,14 @@
     async function taksitPlaniTumunuSil() {
         if (!aktifMusteri) return;
         const ad = musteriAdi(aktifMusteri);
-        if (!confirm(`⚠️ ${ad} müşterisinin TÜM ödeme planı silinecek. Emin misiniz?`)) return;
+        if (!confirm(`⚠️ ${ad} — ödenmemiş taksitler silinecek.\n\nÖdenmiş kayıtlar korunur. Emin misiniz?`)) return;
 
         const mid = musteriKimlik(aktifMusteri);
         try {
             const res = await apiFetch(`/api/taksit-plani-tumunu-sil/${mid}`, { method: 'DELETE' });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) throw new Error(data.hata || 'Plan silinemedi');
-            toast('Ödeme planı temizlendi');
+            toast('Ödenmemiş taksitler temizlendi');
             guncelToplamTaksitBorcu = 0;
             await taksitPlaniYukle();
         } catch (err) {
@@ -2137,6 +2248,7 @@
                     <div class="rozet-icerik">
                         <div class="rozet-baslik">Müşteri</div>
                         <div class="rozet-satir"><span class="rozet-deger">${formatSayi(d.toplamMusteri)}</span><span class="rozet-birim">kişi</span></div>
+                        <div class="rozet-alt-satir"><span class="rozet-aktif">${formatSayi(d.aktifMusteri)} aktif</span> · <span class="rozet-pasif">${formatSayi(d.pasifMusteri)} pasif</span></div>
                         <span class="rozet-ipucu">Listeyi aç</span>
                     </div>
                 </div>
@@ -2346,10 +2458,16 @@
             const id = musteriKimlik(m);
             const b = bakiyeMetni(m.Bakiye);
             const meta = musteriTelMahalleMeta(m);
+            const durum = m.MusteriDurum || '';
+            const durumHtml = durum === 'Aktif'
+                ? '<span class="musteri-durum-rozet musteri-durum-rozet--aktif">Aktif</span>'
+                : durum === 'Pasif'
+                    ? '<span class="musteri-durum-rozet musteri-durum-rozet--pasif">Pasif</span>'
+                    : '';
             return `<div class="musteri-item" data-id="${id}" role="button" tabindex="0">
                 <div class="musteri-item-ust">
                     <div class="musteri-item-sol">
-                        ${musteriListeKimlikHtml(m)}
+                        ${musteriListeKimlikHtml(m)}${durumHtml}
                         <div class="musteri-meta">${ekstreRaporKacis(meta)}</div>
                     </div>
                     <div class="bakiye ${b.cls}">${b.txt}</div>
@@ -2500,6 +2618,691 @@
         }
     }
 
+    let sonTedarikciHareketleri = [];
+    let tedarikciMobilGuncelKur = null;
+    let tedarikciMobilOzet = {};
+
+    function alimParseUrunAdi(urunAdi) {
+        if (!urunAdi) return { temizAd: '', birimTuru: 'Ton' };
+        const s = String(urunAdi).trim();
+        let temizAd = s;
+        let birimTuru = 'Ton';
+        if (s.includes(' (')) {
+            const parcalar = s.split(' (');
+            temizAd = parcalar[0].trim();
+            birimTuru = (parcalar[1] || '').replace(/\)/g, '').trim() || 'Ton';
+        } else if (s.toLowerCase().includes('çuval')) birimTuru = 'Çuval';
+        else if (s.toLowerCase().includes('adet')) birimTuru = 'Adet';
+        return { temizAd, birimTuru };
+    }
+
+    function malAlimStokToGiris(stokMiktar, girisBirimi, satisBirimi, adetKg) {
+        const m = parseFloat(stokMiktar) || 0;
+        if (m <= 0) return 0;
+        const g = String(girisBirimi || '').trim();
+        const s = String(satisBirimi || 'Ton').trim();
+        if (!g || g === s) return m;
+        const kg = parseFloat(adetKg) || 0;
+        const cuvalKg = kg > 0 ? kg : malAlimCuvalKg(s);
+        if (g === 'Ton' && s === 'Adet' && kg > 0) return (m * kg) / 1000;
+        if (g === 'Ton' && /çuval/i.test(s) && cuvalKg > 0) return (m * cuvalKg) / 1000;
+        return m;
+    }
+
+    function alimHareketGirisBirimi(h) {
+        if (h.GirisBirimi) return h.GirisBirimi;
+        const satisBirimi = alimParseUrunAdi(h.UrunAdi).birimTuru;
+        const stokMiktar = parseFloat(h.Miktar) || 0;
+        const adetKg = parseFloat(h.AdetBasinaKg) || 0;
+        if (satisBirimi === 'Adet' && adetKg > 0 && stokMiktar > 0) return 'Ton';
+        if (satisBirimi === 'Adet' || /çuval/i.test(satisBirimi)) return 'Adet';
+        return h.AlimBirimi || 'Ton';
+    }
+
+    function alimHareketGirisOzet(h) {
+        const satisBirimi = alimParseUrunAdi(h.UrunAdi).birimTuru;
+        const alimBirimi = alimHareketGirisBirimi(h);
+        const adetKg = parseFloat(h.AdetBasinaKg) || 0;
+        const stokMiktar = parseFloat(h.Miktar) || 0;
+        const girisMiktar = h.GirisMiktar != null && parseFloat(h.GirisMiktar) > 0
+            ? parseFloat(h.GirisMiktar)
+            : malAlimStokToGiris(stokMiktar, alimBirimi, satisBirimi, adetKg);
+        const pb = h.ParaBirimi === 'USD' ? 'USD' : 'TRY';
+        const pbSembol = pb === 'USD' ? '$' : '₺';
+        const toplamBorcPb = pb === 'USD'
+            ? (parseFloat(h.DovizTutar) || 0)
+            : (parseFloat(h.ToplamTutar ?? h.Borc) || 0);
+        const birimMaliyetGiris = girisMiktar > 0 && toplamBorcPb > 0 ? toplamBorcPb / girisMiktar : 0;
+        const birimMaliyetStok = stokMiktar > 0 && toplamBorcPb > 0
+            ? toplamBorcPb / stokMiktar
+            : (parseFloat(h.BirimFiyat) || 0);
+        const stokBirimEtiket = satisBirimi === 'Adet' ? 'Torba' : satisBirimi;
+        return { satisBirimi, alimBirimi, adetKg, stokMiktar, girisMiktar, birimMaliyetGiris, birimMaliyetStok, stokBirimEtiket, toplamBorcPb, pbSembol, pb };
+    }
+
+    function alimMaliyetMetni(ozet, guncelKur) {
+        if (ozet.birimMaliyetGiris <= 0) return '—';
+        const satirlar = [`${ozet.birimMaliyetGiris.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ${ozet.pbSembol}/${ozet.alimBirimi}`];
+        const torbaGoster = (ozet.satisBirimi === 'Adet' || /çuval/i.test(ozet.satisBirimi))
+            && ozet.birimMaliyetStok > 0
+            && (ozet.alimBirimi !== ozet.satisBirimi || Math.abs(ozet.birimMaliyetGiris - ozet.birimMaliyetStok) > 0.005);
+        if (torbaGoster) {
+            satirlar.push(`${ozet.birimMaliyetStok.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ${ozet.pbSembol}/${ozet.stokBirimEtiket}`);
+        }
+        const kur = parseFloat(guncelKur) || 0;
+        if (ozet.pb === 'USD' && kur > 0) {
+            satirlar.push(`≈ ${(ozet.birimMaliyetGiris * kur).toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺/${ozet.alimBirimi}`);
+            if (torbaGoster) satirlar.push(`≈ ${(ozet.birimMaliyetStok * kur).toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺/${ozet.stokBirimEtiket}`);
+        }
+        return satirlar.join('\n');
+    }
+
+    function tedarikciGoster(liste) {
+        const el = $('tedarikciListe');
+        if (!liste.length) {
+            el.innerHTML = '<div class="empty-msg">Kayıt yok</div>';
+            return;
+        }
+        el.innerHTML = liste.map((t) => {
+            const bakiye = Number(t.Bakiye) || 0;
+            const cls = bakiye > 0 ? 'tedarikci-bakiye--borc' : bakiye < 0 ? 'tedarikci-bakiye--alacak' : '';
+            const doviz = Number(t.ToplamDovizBorc) || 0;
+            const kurNot = doviz > 0 && t.GuncelUsdKuru
+                ? `<div class="tedarikci-item-meta">$${doviz.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} · güncel ${(t.GuncelTlKarsiligi || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</div>`
+                : '';
+            return `<div class="tedarikci-item" data-id="${t.ID}" role="button" tabindex="0">
+                <div class="tedarikci-item-ust">
+                    <div>
+                        <div class="tedarikci-item-ad">${ekstreRaporKacis(t.FirmaAdi)}</div>
+                        <div class="tedarikci-item-meta">${ekstreRaporKacis(t.YetkiliKisi || '')} ${ekstreRaporKacis(t.Telefon || '')}</div>
+                        ${kurNot}
+                    </div>
+                    <div class="tedarikci-bakiye ${cls}">${formatPara(Math.abs(bakiye))}</div>
+                </div>
+            </div>`;
+        }).join('');
+    }
+
+    async function tedarikciYukle() {
+        const el = $('tedarikciListe');
+        el.innerHTML = '<div class="empty-msg">Yükleniyor…</div>';
+        try {
+            const res = await apiFetch('/api/tedarikciler');
+            const rows = await res.json();
+            if (!Array.isArray(rows)) throw new Error('Liste alınamadı');
+            tedarikciCache = rows;
+            tedarikciGoster(rows);
+        } catch (err) {
+            el.innerHTML = `<div class="empty-msg">${err.message}</div>`;
+        }
+    }
+
+    function tedarikciFiltrele(q) {
+        const s = String(q || '').trim().toLocaleLowerCase('tr-TR');
+        if (!s) {
+            tedarikciGoster(tedarikciCache);
+            return;
+        }
+        tedarikciGoster(tedarikciCache.filter((t) => {
+            const blob = [t.FirmaAdi, t.YetkiliKisi, t.Telefon].join(' ').toLocaleLowerCase('tr-TR');
+            return blob.includes(s);
+        }));
+    }
+
+    function tedarikciHareketSatirHtml(h) {
+        const borc = Number(h.Borc) || 0;
+        const odeme = Number(h.Odeme) || 0;
+        const alimMi = h.Tur === 'ALIM' || borc > 0;
+        const turCls = alimMi ? 'tedarikci-tur--alim' : 'tedarikci-tur--odeme';
+        const turTxt = alimMi ? 'Alım' : 'Ödeme';
+
+        let tutarHtml = '—';
+        if (borc > 0) tutarHtml = `<span class="borc">${formatPara(borc)}</span>`;
+        if (odeme > 0) tutarHtml = `<span class="odeme">${formatPara(odeme)}</span>`;
+
+        let altDetay = '';
+        if (alimMi && h.Miktar) {
+            const ozet = alimHareketGirisOzet(h);
+            const stokNot = ozet.alimBirimi !== ozet.satisBirimi
+                ? ` (${ozet.girisMiktar.toLocaleString('tr-TR', { maximumFractionDigits: 2 })} ${ozet.alimBirimi})`
+                : '';
+            altDetay = `${ozet.girisMiktar.toLocaleString('tr-TR', { maximumFractionDigits: 2 })} ${ozet.alimBirimi} → ${formatSayi(ozet.stokMiktar)} ${ozet.satisBirimi}${stokNot}`;
+            const maliyet = alimMaliyetMetni(ozet, tedarikciMobilGuncelKur);
+            if (maliyet !== '—') altDetay += '\n' + maliyet;
+        }
+
+        const kurSatir = (h.ParaBirimi === 'USD' && h.DovizTutar)
+            ? `<div class="bakiye-satir">$${Number(h.DovizTutar).toLocaleString('tr-TR', { minimumFractionDigits: 2 })} @ ${Number(h.IslemKuru || 1).toLocaleString('tr-TR', { minimumFractionDigits: 4 })}</div>`
+            : '';
+
+        const odemeUsd = (!alimMi && h.ParaBirimi === 'USD' && h.DovizTutar)
+            ? `<div class="bakiye-satir">$${Number(h.DovizTutar).toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ödeme</div>`
+            : '';
+
+        const notSatir = (h.Aciklama && h.Aciklama !== 'null')
+            ? `<div class="bakiye-satir">${ekstreRaporKacis(h.Aciklama)}</div>`
+            : '';
+
+        const infoBtn = alimMi && h.ID
+            ? `<button type="button" class="ekstre-info-btn" data-alim-detay="${h.ID}" title="Maliyet detayı"><i class="fas fa-info-circle"></i></button>`
+            : '';
+
+        return `<div class="ekstre-item">
+            <div class="ust">
+                <span>${tarihGoster(h.Tarih, true)}</span>
+                <span class="ust-sag"><span class="tedarikci-tur ${turCls}">${turTxt}</span>${infoBtn}</span>
+            </div>
+            <div class="aciklama">${ekstreRaporKacis(h.Islem || '—')}</div>
+            <div class="alt">
+                <span class="alt-detay pre-line">${ekstreRaporKacis(altDetay)}</span>
+                ${tutarHtml}
+            </div>
+            ${kurSatir}${odemeUsd}${notSatir}
+        </div>`;
+    }
+
+    function tedarikciOzetGuncelle(toplamAlim, toplamOdeme, bakiye) {
+        const alimEl = $('tedarikciOzetAlim');
+        const odemeEl = $('tedarikciOzetOdeme');
+        const bakiyeEl = $('tedarikciOzetBakiye');
+        if (alimEl) alimEl.textContent = formatPara(toplamAlim);
+        if (odemeEl) odemeEl.textContent = formatPara(toplamOdeme);
+        if (bakiyeEl) {
+            bakiyeEl.textContent = formatPara(Math.abs(bakiye));
+            bakiyeEl.className = 'val ' + (bakiye > 0 ? 'bakiye-borc' : bakiye < 0 ? 'bakiye-alacak' : '');
+        }
+    }
+
+    async function tedarikciDetayAc(id) {
+        const t = tedarikciCache.find((x) => x.ID === id);
+        if (!t) {
+            toast('Tedarikçi bulunamadı');
+            return;
+        }
+        aktifTedarikci = t;
+        $('tedarikciDetayAd').textContent = t.FirmaAdi || 'Tedarikçi';
+        const meta = [t.YetkiliKisi, t.Telefon].filter(Boolean).join(' · ');
+        $('tedarikciDetayMeta').textContent = meta || '—';
+
+        const kurNot = $('tedarikciMobilKurNotu');
+        const bakiye = Number(t.Bakiye) || 0;
+        const doviz = Number(t.ToplamDovizBorc) || 0;
+        if (kurNot) {
+            if (doviz > 0 && t.GuncelUsdKuru) {
+                kurNot.classList.remove('d-none');
+                kurNot.innerHTML = `<i class="fas fa-coins me-1"></i>Güncel kur <strong>${Number(t.GuncelUsdKuru).toLocaleString('tr-TR', { minimumFractionDigits: 4 })} ₺</strong> — kayıtlı <strong>$${doviz.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</strong> borcun karşılığı <strong>${formatPara(t.GuncelTlKarsiligi || 0)}</strong>`;
+            } else if (bakiye > 0) {
+                kurNot.classList.remove('d-none');
+                kurNot.innerHTML = `<i class="fas fa-info-circle me-1"></i>Defter borcu: <strong>${formatPara(bakiye)}</strong>`;
+            } else {
+                kurNot.classList.add('d-none');
+            }
+        }
+
+        overlayAc('overlay-tedarikci');
+        const liste = $('tedarikciHareketListe');
+        liste.innerHTML = '<div class="empty-msg">Yükleniyor…</div>';
+        try {
+            const res = await apiFetch(`/api/tedarikci-hareketleri/${id}?_t=${Date.now()}`);
+            const yanit = await res.json();
+            const hareketler = Array.isArray(yanit) ? yanit : (yanit.hareketler || []);
+            sonTedarikciHareketleri = hareketler;
+            tedarikciMobilGuncelKur = yanit.guncelUsdKuru || null;
+            if (!hareketler.length) {
+                tedarikciOzetGuncelle(0, 0, 0);
+                liste.innerHTML = '<div class="empty-msg">Hareket yok</div>';
+                return;
+            }
+
+            let toplamAlim = 0;
+            let toplamOdeme = 0;
+            let toplamDovizBorc = 0;
+            hareketler.forEach((h) => {
+                toplamAlim += Number(h.Borc) || 0;
+                toplamOdeme += Number(h.Odeme) || 0;
+                if (h.ParaBirimi === 'USD' && h.DovizTutar) {
+                    const dv = parseFloat(h.DovizTutar) || 0;
+                    if (h.Tur === 'ALIM') toplamDovizBorc += dv;
+                    else if (h.Tur === 'ODEME') toplamDovizBorc -= dv;
+                }
+            });
+            const guncelBakiye = toplamAlim - toplamOdeme;
+            tedarikciMobilOzet = { tlBakiye: guncelBakiye, usdBorc: Math.max(0, toplamDovizBorc), guncelKur: tedarikciMobilGuncelKur };
+            tedarikciOzetGuncelle(toplamAlim, toplamOdeme, guncelBakiye);
+
+            const gosterim = [...hareketler].reverse();
+            liste.innerHTML = gosterim.map(tedarikciHareketSatirHtml).join('');
+        } catch (err) {
+            liste.innerHTML = `<div class="empty-msg">${err.message}</div>`;
+        }
+    }
+
+    function malAlimUrunMeta() {
+        const sel = $('malAlimUrun');
+        if (!sel || sel.selectedIndex < 0) return { satisBirimi: 'Ton', adetKg: 0, alimBirimi: 'Ton' };
+        const opt = sel.options[sel.selectedIndex];
+        return {
+            satisBirimi: opt.getAttribute('data-birim') || 'Ton',
+            adetKg: parseFloat(opt.getAttribute('data-adet-kg')) || 0,
+            alimBirimi: opt.getAttribute('data-alim-birimi') || 'Ton'
+        };
+    }
+
+    function malAlimCuvalKg(birim) {
+        const m = String(birim || '').match(/(\d+(?:[.,]\d+)?)\s*KG/i);
+        return m ? parseFloat(String(m[1]).replace(',', '.')) : 0;
+    }
+
+    function malAlimGirisToStok(girisMiktar, girisBirimi, satisBirimi, adetKg) {
+        const miktar = parseFloat(girisMiktar) || 0;
+        if (miktar <= 0) return 0;
+        const g = String(girisBirimi || '').trim();
+        const s = String(satisBirimi || 'Ton').trim();
+        if (!g || g === s) return miktar;
+        const cuvalKg = malAlimCuvalKg(s);
+        if (g === 'Ton') {
+            const kg = miktar * 1000;
+            if (s === 'Adet' && adetKg > 0) return kg / adetKg;
+            if (/çuval/i.test(s) && cuvalKg > 0) return kg / cuvalKg;
+        }
+        return miktar;
+    }
+
+    function malAlimGirisBirimSecenekleri(meta) {
+        if (meta.satisBirimi === 'Adet' || /çuval/i.test(meta.satisBirimi)) return ['Ton', 'Adet'];
+        if (meta.alimBirimi !== meta.satisBirimi) return [meta.alimBirimi || 'Ton', meta.satisBirimi];
+        return [meta.satisBirimi || meta.alimBirimi || 'Ton'];
+    }
+
+    function malAlimUrunDegisti(preferredGiris) {
+        const meta = malAlimUrunMeta();
+        const miktarLbl = $('malAlimMiktarEtiket');
+        const girisSel = $('malAlimGirisBirimi');
+        const opts = [...new Set(malAlimGirisBirimSecenekleri(meta))];
+        if (girisSel) {
+            girisSel.innerHTML = opts.map((b) => `<option value="${b}">${b}</option>`).join('');
+            const secim = preferredGiris && opts.includes(preferredGiris)
+                ? preferredGiris
+                : (opts.includes('Ton') ? 'Ton' : opts[0]);
+            girisSel.value = secim;
+        }
+        if (miktarLbl) miktarLbl.textContent = `Miktar (${girisSel?.value || meta.alimBirimi})`;
+        malAlimEtiketGuncelle();
+        malAlimOzetGuncelle();
+    }
+
+    function malAlimEtiketGuncelle() {
+        const odeme = $('malAlimOdeme')?.value || '';
+        const acik = odeme.includes('Açık Hesap') || odeme.includes('Borç');
+        const pb = $('malAlimParaBirimi')?.value || 'TRY';
+        const girisBirimi = $('malAlimGirisBirimi')?.value || 'Ton';
+        const sembol = acik && pb === 'USD' ? '$' : '₺';
+        const maliyetEtiket = $('malAlimBirimMaliyetEtiket');
+        const toplamEtiket = $('malAlimToplamEtiket2');
+        if (maliyetEtiket) maliyetEtiket.textContent = `${girisBirimi} başına (${sembol})`;
+        if (toplamEtiket) toplamEtiket.textContent = acik ? 'Toplam borç' : 'Toplam ödeme';
+    }
+
+    function malAlimOdemeDegisti() {
+        const odeme = $('malAlimOdeme')?.value || '';
+        const acik = odeme.includes('Açık Hesap') || odeme.includes('Borç');
+        const blok = $('malAlimBorcBlok');
+        if (blok) blok.style.display = acik ? '' : 'none';
+        malAlimEtiketGuncelle();
+        malAlimOzetGuncelle();
+    }
+
+    function malAlimParaBirimiDegisti() {
+        const pb = $('malAlimParaBirimi')?.value || 'TRY';
+        const kurLbl = document.querySelector('label[for="malAlimKur"]');
+        const kurInp = $('malAlimKur');
+        if (kurLbl) kurLbl.style.display = pb === 'USD' ? '' : 'none';
+        if (kurInp) kurInp.style.display = pb === 'USD' ? '' : 'none';
+        malAlimEtiketGuncelle();
+        if (pb === 'USD') malAlimKurDoldur();
+        malAlimOzetGuncelle();
+    }
+
+    async function tcmbKurAl() {
+        try {
+            const res = await apiFetch('/api/tcmb-piyasa');
+            const data = await res.json();
+            if (data.ok && data.usd?.satis) {
+                const kur = parseFloat(String(data.usd.satis).replace(/\./g, '').replace(',', '.'));
+                if (kur > 0) return kur;
+            }
+        } catch (_e) { /* sessiz */ }
+        return null;
+    }
+
+    async function kurInputDoldur(hedefId) {
+        const kur = await tcmbKurAl();
+        const el = $(hedefId);
+        if (kur && el && !parseFloat(el.value)) el.value = kur.toFixed(4);
+    }
+
+    async function malAlimKurDoldur() {
+        await kurInputDoldur('malAlimKur');
+    }
+
+    function malAlimOzetGuncelle() {
+        const girisMiktar = parseFloat($('malAlimMiktar')?.value) || 0;
+        const birimMaliyet = parseFloat($('malAlimBirimMaliyet')?.value) || 0;
+        const pb = $('malAlimParaBirimi')?.value || 'TRY';
+        const kur = parseFloat($('malAlimKur')?.value) || 1;
+        const odeme = $('malAlimOdeme')?.value || '';
+        const acik = odeme.includes('Açık Hesap') || odeme.includes('Borç');
+        const meta = malAlimUrunMeta();
+        const girisBirimi = $('malAlimGirisBirimi')?.value || meta.alimBirimi;
+        const stokMiktar = malAlimGirisToStok(girisMiktar, girisBirimi, meta.satisBirimi, meta.adetKg);
+        const toplamBorc = girisMiktar > 0 && birimMaliyet > 0 ? girisMiktar * birimMaliyet : 0;
+        const birimFiyatStok = stokMiktar > 0 && toplamBorc > 0 ? toplamBorc / stokMiktar : 0;
+        const pbSembol = acik && pb === 'USD' ? '$' : '₺';
+
+        const toplamGost = $('malAlimToplamGosterge');
+        if (toplamGost) {
+            toplamGost.textContent = toplamBorc > 0
+                ? toplamBorc.toLocaleString('tr-TR', { minimumFractionDigits: 2 }) + ' ' + pbSembol
+                : '0,00';
+        }
+
+        const birimHesap = $('malAlimBirimFiyatHesap');
+        if (birimHesap) {
+            birimHesap.textContent = stokMiktar > 0 && toplamBorc > 0
+                ? `Stok: ${birimFiyatStok.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ${pbSembol}/${meta.satisBirimi}`
+                : (girisMiktar > 0 && birimMaliyet > 0 ? `${girisMiktar} ${girisBirimi} × ${birimMaliyet.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ${pbSembol}` : 'Miktar × birim maliyet = toplam');
+        }
+
+        const donusum = $('malAlimDonusumNotu');
+        if (donusum) {
+            donusum.textContent = girisBirimi !== meta.satisBirimi && stokMiktar > 0
+                ? `Stoğa: ${formatSayi(stokMiktar)} ${meta.satisBirimi}`
+                : (stokMiktar > 0 ? `Stok: ${formatSayi(stokMiktar)} ${meta.satisBirimi}` : '');
+        }
+
+        let tl = toplamBorc;
+        const ozet = $('malAlimOzet');
+        if (!ozet) return;
+        if (acik && pb === 'USD' && toplamBorc > 0) {
+            tl = toplamBorc * kur;
+            ozet.innerHTML = `$${toplamBorc.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} × kur ${kur.toLocaleString('tr-TR', { minimumFractionDigits: 4 })} → defter <strong>${formatPara(tl)}</strong>`;
+        } else {
+            ozet.textContent = toplamBorc > 0 ? `Deftere: ${formatPara(tl)}` : '—';
+        }
+    }
+
+    async function malAlimAc() {
+        if (!aktifTedarikci) return;
+        if (!stokCache.length) await stoklariYukleCache();
+        const sel = $('malAlimUrun');
+        sel.innerHTML = stokCache.map((r) => {
+            const birim = r.birim_turu || r.Birim || 'Ton';
+            const adetKg = r.adet_basina_kg || r.AdetBasinaKg || '';
+            const alimBirimi = r.alim_birimi || r.AlimBirimi || 'Ton';
+            return `<option value="${r.id}" data-birim="${birim}" data-adet-kg="${adetKg}" data-alim-birimi="${alimBirimi}">${r.cins || r.temel_ad}</option>`;
+        }).join('');
+        $('malAlimMiktar').value = '';
+        $('malAlimBirimMaliyet').value = '';
+        $('malAlimOdeme').value = 'Açık Hesap (Borç)';
+        $('malAlimParaBirimi').value = 'TRY';
+        malAlimUrunDegisti();
+        malAlimOdemeDegisti();
+        malAlimParaBirimiDegisti();
+        await malAlimKurDoldur();
+        malAlimOzetGuncelle();
+        modalAc('modal-mal-alim');
+    }
+
+    async function malAlimKaydet() {
+        if (!aktifTedarikci) return;
+        const urunId = parseInt($('malAlimUrun').value, 10);
+        const girisMiktar = parseFloat($('malAlimMiktar').value);
+        const birimMaliyet = parseFloat($('malAlimBirimMaliyet')?.value) || 0;
+        const toplamBorcKayit = girisMiktar > 0 && birimMaliyet > 0 ? girisMiktar * birimMaliyet : 0;
+        const meta = malAlimUrunMeta();
+        const girisBirimi = $('malAlimGirisBirimi')?.value || meta.alimBirimi;
+        const stokMiktar = malAlimGirisToStok(girisMiktar, girisBirimi, meta.satisBirimi, meta.adetKg);
+        if (!urunId || !girisMiktar || girisMiktar <= 0 || stokMiktar <= 0) {
+            toast('Miktar girin');
+            return;
+        }
+        if (!toplamBorcKayit || toplamBorcKayit <= 0) {
+            toast('Birim maliyet girin');
+            return;
+        }
+        const birimFiyat = stokMiktar > 0 ? toplamBorcKayit / stokMiktar : 0;
+        const odeme = $('malAlimOdeme').value;
+        const acik = odeme.includes('Açık Hesap') || odeme.includes('Borç');
+        const paraBirimi = acik ? ($('malAlimParaBirimi').value || 'TRY') : 'TRY';
+        const islemKuru = paraBirimi === 'USD' ? (parseFloat($('malAlimKur').value) || 0) : 1;
+        if (girisBirimi !== meta.satisBirimi && meta.satisBirimi === 'Adet' && meta.adetKg <= 0) {
+            toast('Üründe 1 adet kaç KG tanımlı değil');
+            return;
+        }
+        if (acik && paraBirimi === 'USD' && islemKuru <= 0) {
+            toast('USD borç için kur girin');
+            return;
+        }
+        const btn = $('btnMalAlimKaydet');
+        btn.disabled = true;
+        try {
+            const res = await apiFetch('/api/mal-alimi', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    tarih: bugunIso(),
+                    tedarikciId: aktifTedarikci.ID,
+                    tedarikciFirma: aktifTedarikci.FirmaAdi,
+                    urunId,
+                    miktar: stokMiktar,
+                    birimFiyat,
+                    girisMiktar,
+                    girisBirimi,
+                    toplamBorc: toplamBorcKayit,
+                    odeme,
+                    paraBirimi, islemKuru,
+                    aciklama: '',
+                    islemiYapan: oturumOku()?.kullanici || 'Mobil'
+                })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.hata || 'Kayıt başarısız');
+            toast('Mal alımı kaydedildi');
+            modalKapat('modal-mal-alim');
+            await tedarikciYukle();
+            const guncel = tedarikciCache.find((x) => x.ID === aktifTedarikci.ID);
+            if (guncel) await tedarikciDetayAc(guncel.ID);
+        } catch (err) {
+            toast(err.message || 'Hata');
+        } finally {
+            btn.disabled = false;
+        }
+    }
+
+    function tedarikciOdemeAc() {
+        const oz = tedarikciMobilOzet || {};
+        const borcEl = $('tedarikciOdemeBorcOzet');
+        if (borcEl) {
+            let metin = `Defter borcu: ${formatPara(oz.tlBakiye || 0)}`;
+            if (oz.usdBorc > 0) metin += ` · Döviz: $${oz.usdBorc.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}`;
+            borcEl.textContent = metin;
+        }
+        $('tedarikciOdemeTutar').value = '';
+        $('tedarikciOdemeParaBirimi').value = 'TRY';
+        if (oz.guncelKur && $('tedarikciOdemeKur')) $('tedarikciOdemeKur').value = parseFloat(oz.guncelKur).toFixed(4);
+        tedarikciOdemeParaDegisti();
+        modalAc('modal-tedarikci-odeme');
+    }
+
+    function tedarikciOdemeParaDegisti() {
+        const pb = $('tedarikciOdemeParaBirimi')?.value || 'TRY';
+        const kurBlok = $('tedarikciOdemeKurBlok');
+        const etiket = $('tedarikciOdemeTutarEtiket');
+        if (kurBlok) kurBlok.style.display = pb === 'USD' ? '' : 'none';
+        if (etiket) etiket.textContent = pb === 'USD' ? 'Tutar ($)' : 'Tutar (₺)';
+        if (pb === 'USD') kurInputDoldur('tedarikciOdemeKur').then(() => tedarikciOdemeTutarHesapla());
+        else tedarikciOdemeTutarHesapla();
+    }
+
+    function tedarikciOdemeTutarHesapla() {
+        const pb = $('tedarikciOdemeParaBirimi')?.value || 'TRY';
+        const tutar = parseFloat($('tedarikciOdemeTutar')?.value) || 0;
+        const kur = parseFloat($('tedarikciOdemeKur')?.value) || 0;
+        const defterEl = $('tedarikciOdemeDefterTutar');
+        if (!defterEl) return;
+        if (pb === 'USD' && tutar > 0 && kur > 0) {
+            defterEl.textContent = formatPara(tutar * kur);
+        } else if (pb === 'TRY' && tutar > 0) {
+            defterEl.textContent = formatPara(tutar);
+        } else {
+            defterEl.textContent = '0,00 ₺';
+        }
+    }
+
+    function tedarikciAlimDetayAc(hareketId) {
+        const h = sonTedarikciHareketleri.find((x) => x.ID === hareketId && x.Tur === 'ALIM');
+        if (!h) { toast('Kayıt bulunamadı'); return; }
+        const ozet = alimHareketGirisOzet(h);
+        const kayitKur = parseFloat(h.IslemKuru) || 1;
+        $('alimDetayBaslik').textContent = (h.Islem || '').replace(/^Alım:\s*/, '');
+        let html = `<div class="detay-kutu"><div class="lbl">Toptancıdan alım</div><div class="val">${ozet.girisMiktar.toLocaleString('tr-TR', { maximumFractionDigits: 2 })} ${ozet.alimBirimi}</div></div>`;
+        html += `<div class="detay-kutu"><div class="lbl">Stoğa giren</div><div class="val">${ozet.stokMiktar.toLocaleString('tr-TR', { maximumFractionDigits: 2 })} ${ozet.satisBirimi}</div></div>`;
+        html += `<div class="detay-kutu"><div class="lbl">${ozet.alimBirimi} başına</div><div class="val">${ozet.birimMaliyetGiris.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ${ozet.pbSembol}/${ozet.alimBirimi}</div></div>`;
+        const torbaGoster = (ozet.satisBirimi === 'Adet' || /çuval/i.test(ozet.satisBirimi))
+            && ozet.birimMaliyetStok > 0
+            && (ozet.alimBirimi !== ozet.satisBirimi || Math.abs(ozet.birimMaliyetGiris - ozet.birimMaliyetStok) > 0.005);
+        if (torbaGoster) {
+            html += `<div class="detay-kutu"><div class="lbl">${ozet.stokBirimEtiket} başına</div><div class="val text-ok">${ozet.birimMaliyetStok.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ${ozet.pbSembol}/${ozet.stokBirimEtiket}</div></div>`;
+        }
+        if (ozet.pb === 'USD') {
+            html += `<div class="detay-kutu"><div class="lbl">İşlem kuru</div><div class="val">${kayitKur.toLocaleString('tr-TR', { minimumFractionDigits: 4 })} ₺</div></div>`;
+            if (tedarikciMobilGuncelKur) {
+                html += `<div class="detay-kutu"><div class="lbl">Güncel kur karşılığı</div><div class="val text-info">${alimMaliyetMetni(ozet, tedarikciMobilGuncelKur).split('\n').slice(-2).join('<br>')}</div></div>`;
+            }
+            html += `<div class="detay-kutu detay-kutu--vurgu"><div class="lbl">Toplam borç</div><div class="val">$${ozet.toplamBorcPb.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} → ${formatPara(h.Borc)}</div></div>`;
+        } else {
+            html += `<div class="detay-kutu detay-kutu--vurgu"><div class="lbl">Toplam borç</div><div class="val">${formatPara(ozet.toplamBorcPb)}</div></div>`;
+        }
+        $('alimDetayIcerik').innerHTML = html;
+        modalAc('modal-alim-detay');
+    }
+
+    async function donusumTopluAc() {
+        const liste = $('donusumTopluListe');
+        if (!liste) return;
+        liste.innerHTML = '<div class="empty-msg">Yükleniyor…</div>';
+        modalAc('modal-donusum-toplu');
+        try {
+            const rows = await stoklariYukleCache();
+            const donusumluler = rows.filter((u) => {
+                const b = u.birim_turu || u.Birim || '';
+                return b === 'Adet' || /çuval/i.test(b);
+            });
+            if (!donusumluler.length) {
+                liste.innerHTML = '<div class="empty-msg">Adet/çuval ürün yok</div>';
+                return;
+            }
+            liste.innerHTML = donusumluler.map((u) => {
+                const birim = u.birim_turu || u.Birim || 'Adet';
+                let kg = u.adet_basina_kg || u.AdetBasinaKg || '';
+                if (!kg && /çuval/i.test(birim)) {
+                    const m = String(birim).match(/(\d+(?:[.,]\d+)?)\s*KG/i);
+                    if (m) kg = parseFloat(String(m[1]).replace(',', '.'));
+                }
+                const alim = u.alim_birimi || u.AlimBirimi || 'Ton';
+                const ad = ekstreRaporKacis(u.cins || u.temel_ad || u.UrunAdi || '');
+                return `<div class="donusum-satir" data-id="${u.id || u.ID}">
+                    <div class="donusum-ad">${ad} <span class="badge-mini">${birim}</span></div>
+                    <label class="field-label small">1 adet KG</label>
+                    <input type="number" step="0.1" min="0" class="field-input toplu-kg-inp" value="${kg}" placeholder="25">
+                    <label class="field-label small">Alım birimi</label>
+                    <select class="field-input toplu-alim-inp">
+                        <option value="Ton" ${alim === 'Ton' ? 'selected' : ''}>Ton</option>
+                        <option value="Adet" ${alim === 'Adet' ? 'selected' : ''}>Adet</option>
+                    </select>
+                </div>`;
+            }).join('');
+        } catch (err) {
+            liste.innerHTML = `<div class="empty-msg">${err.message}</div>`;
+        }
+    }
+
+    function donusumHizliKg(tumune) {
+        const kg = parseFloat($('topluKgHizli')?.value);
+        if (!kg || kg <= 0) { toast('KG değeri girin'); return; }
+        document.querySelectorAll('#donusumTopluListe .toplu-kg-inp').forEach((inp) => {
+            if (tumune || !inp.value) inp.value = kg;
+        });
+    }
+
+    async function donusumTopluKaydet() {
+        const satirlar = document.querySelectorAll('#donusumTopluListe .donusum-satir');
+        const kayitlar = [];
+        satirlar.forEach((tr) => {
+            const id = tr.getAttribute('data-id');
+            const kg = parseFloat(tr.querySelector('.toplu-kg-inp')?.value);
+            const alimBirimi = tr.querySelector('.toplu-alim-inp')?.value || 'Ton';
+            kayitlar.push({ id, adetBasinaKg: kg > 0 ? kg : null, alimBirimi });
+        });
+        if (!kayitlar.length) { toast('Kayıt yok'); return; }
+        try {
+            const res = await apiFetch('/api/komur-donusum-toplu', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ kayitlar })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.hata || 'Kayıt başarısız');
+            toast(`${kayitlar.length} ürün kaydedildi`);
+            modalKapat('modal-donusum-toplu');
+            await stoklariYukleCache();
+            stokYukle();
+        } catch (err) {
+            toast(err.message || 'Hata');
+        }
+    }
+
+    async function tedarikciOdemeKaydet() {
+        if (!aktifTedarikci) return;
+        const tutar = parseFloat($('tedarikciOdemeTutar').value);
+        const tur = $('tedarikciOdemeTur').value;
+        const paraBirimi = $('tedarikciOdemeParaBirimi')?.value || 'TRY';
+        const islemKuru = paraBirimi === 'USD' ? (parseFloat($('tedarikciOdemeKur')?.value) || 0) : 1;
+        if (!tutar || tutar <= 0) {
+            toast('Geçerli tutar girin');
+            return;
+        }
+        if (paraBirimi === 'USD' && islemKuru <= 0) {
+            toast('USD ödeme için kur girin');
+            return;
+        }
+        const btn = $('btnTedarikciOdemeKaydet');
+        btn.disabled = true;
+        try {
+            const res = await apiFetch('/api/tedarikci-odeme', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    tedarikciId: aktifTedarikci.ID,
+                    tarih: bugunIso(),
+                    tutar, tur, aciklama: '',
+                    paraBirimi, islemKuru
+                })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.hata || 'Ödeme başarısız');
+            toast('Ödeme kaydedildi');
+            modalKapat('modal-tedarikci-odeme');
+            await tedarikciYukle();
+            const guncel = tedarikciCache.find((x) => x.ID === aktifTedarikci.ID);
+            if (guncel) await tedarikciDetayAc(guncel.ID);
+        } catch (err) {
+            toast(err.message || 'Hata');
+        } finally {
+            btn.disabled = false;
+        }
+    }
+
     async function musteriYukle() {
         const el = $('musteriListe');
         el.innerHTML = '<div class="empty-msg">Yükleniyor…</div>';
@@ -2592,6 +3395,38 @@
         });
         $('btnVadesiGelen')?.addEventListener('click', vadesiGelenleriAc);
         $('btnBorcluMusteri')?.addEventListener('click', borcluMusterileriAc);
+        $('btnTedarikci')?.addEventListener('click', () => {
+            anaMenuKapat();
+            panelGoster('tedarikci');
+        });
+        $('tedarikciAra')?.addEventListener('input', (e) => tedarikciFiltrele(e.target.value));
+        $('tedarikciListe')?.addEventListener('click', (e) => {
+            const item = e.target.closest('.tedarikci-item');
+            if (!item?.dataset.id) return;
+            tedarikciDetayAc(Number(item.dataset.id));
+        });
+        $('btnTedarikciKapat')?.addEventListener('click', overlayKapat);
+        $('btnTedarikciMalAlim')?.addEventListener('click', malAlimAc);
+        $('btnTedarikciOdeme')?.addEventListener('click', tedarikciOdemeAc);
+        $('btnStokDonusum')?.addEventListener('click', donusumTopluAc);
+        $('btnDonusumTopluKaydet')?.addEventListener('click', donusumTopluKaydet);
+        $('btnTopluKgBos')?.addEventListener('click', () => donusumHizliKg(false));
+        $('tedarikciOdemeParaBirimi')?.addEventListener('change', tedarikciOdemeParaDegisti);
+        $('tedarikciOdemeTutar')?.addEventListener('input', tedarikciOdemeTutarHesapla);
+        $('tedarikciOdemeKur')?.addEventListener('input', tedarikciOdemeTutarHesapla);
+        $('tedarikciHareketListe')?.addEventListener('click', (e) => {
+            const btn = e.target.closest('[data-alim-detay]');
+            if (btn?.dataset.alimDetay) tedarikciAlimDetayAc(Number(btn.dataset.alimDetay));
+        });
+        $('btnMalAlimKaydet')?.addEventListener('click', malAlimKaydet);
+        $('btnTedarikciOdemeKaydet')?.addEventListener('click', tedarikciOdemeKaydet);
+        $('malAlimOdeme')?.addEventListener('change', malAlimOdemeDegisti);
+        $('malAlimParaBirimi')?.addEventListener('change', malAlimParaBirimiDegisti);
+        $('malAlimUrun')?.addEventListener('change', malAlimUrunDegisti);
+        $('malAlimGirisBirimi')?.addEventListener('change', () => { malAlimEtiketGuncelle(); malAlimOzetGuncelle(); });
+        ['malAlimMiktar', 'malAlimBirimMaliyet', 'malAlimKur'].forEach((id) => {
+            $(id)?.addEventListener('input', malAlimOzetGuncelle);
+        });
         $('raporArama')?.addEventListener('input', raporListeCiz);
         $('raporListe')?.addEventListener('click', (e) => {
             const item = e.target.closest('.rapor-item');
@@ -2663,6 +3498,9 @@
         $('btnTaksitYapilandir')?.addEventListener('click', borcuTaksitlendirAc);
         $('btnTaksitPlaniTemizle')?.addEventListener('click', taksitPlaniTumunuSil);
         $('btnBorcYapilandirKaydet')?.addEventListener('click', borcYapilandirKaydet);
+        $('btnYapiModOtomatik')?.addEventListener('click', () => yapiPlanModuAyarla('otomatik'));
+        $('btnYapiModManuel')?.addEventListener('click', () => yapiPlanModuAyarla('manuel'));
+        $('btnYapiManuelSatir')?.addEventListener('click', yapiManuelSatirlariOlustur);
         $('btnSatisKaydet').addEventListener('click', satisKaydet);
         $('btnOdemeKaydet').addEventListener('click', odemeKaydet);
 

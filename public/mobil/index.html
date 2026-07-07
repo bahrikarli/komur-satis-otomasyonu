@@ -14,7 +14,7 @@
     <link rel="icon" type="image/png" sizes="512x512" href="/mobil/icon-512.png">
     <link rel="apple-touch-icon" href="/mobil/icon-192.png">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="/mobil/mobil.css?v=29">
+    <link rel="stylesheet" href="/mobil/mobil.css?v=33">
 </head>
 <body>
     <div id="app">
@@ -72,6 +72,9 @@
                         <button type="button" class="musteri-menu-item" id="btnBorcluMusteri" role="menuitem">
                             <i class="fas fa-hand-holding-usd"></i> Borçlu müşteriler
                         </button>
+                        <button type="button" class="musteri-menu-item" id="btnTedarikci" role="menuitem">
+                            <i class="fas fa-truck"></i> Tedarikçiler
+                        </button>
                     </div>
                 </div>
                 <button type="button" class="icon-btn top-bar-cikis" id="btnCikis" title="Çıkış"><i class="fas fa-right-from-bracket"></i></button>
@@ -96,6 +99,7 @@
                     <div id="stokOzetListe" class="mini-list">—</div>
                 </div>
                 <div id="panel-stok" class="panel">
+                    <button type="button" class="btn btn-outline-primary btn-block mb-2" id="btnStokDonusum"><i class="fas fa-weight-hanging me-1"></i>KG / Dönüşüm</button>
                     <div id="stokListe" class="stok-list">Yükleniyor…</div>
                 </div>
                 <div id="panel-sevk" class="panel">
@@ -104,6 +108,10 @@
                 <div id="panel-musteri" class="panel">
                     <input type="search" id="musteriAra" class="field-input search" placeholder="Müşteri ara (ad, unvan, tel)…">
                     <div id="musteriListe" class="musteri-list">Yükleniyor…</div>
+                </div>
+                <div id="panel-tedarikci" class="panel">
+                    <input type="search" id="tedarikciAra" class="field-input search" placeholder="Tedarikçi ara…">
+                    <div id="tedarikciListe" class="tedarikci-list">Yükleniyor…</div>
                 </div>
             </div>
             <nav class="bottom-nav">
@@ -283,7 +291,7 @@
             <div id="taksitOzetBar" class="taksit-ozet-bar d-none"></div>
             <div class="taksit-modal-aksiyon">
                 <button type="button" class="btn btn-outline btn-sm flex-btn" id="btnTaksitYapilandir"><i class="fas fa-calculator me-1"></i>Yapılandır</button>
-                <button type="button" class="btn btn-ghost btn-sm" id="btnTaksitPlaniTemizle" title="Tüm ödeme planını sil"><i class="fas fa-broom"></i></button>
+                <button type="button" class="btn btn-ghost btn-sm" id="btnTaksitPlaniTemizle" title="Ödenmemiş taksitleri temizle (ödenenler kalır)"><i class="fas fa-broom"></i></button>
             </div>
             <div id="taksitListe" class="taksit-liste">Yükleniyor…</div>
         </div>
@@ -292,33 +300,67 @@
     <!-- Borç yapılandırma (masaüstü borcSatisModal) -->
     <div id="modal-borc-yapilandir" class="modal" aria-hidden="true">
         <div class="modal-backdrop" data-modal-kapat="modal-borc-yapilandir"></div>
-        <div class="modal-sheet">
+        <div class="modal-sheet modal-sheet--tall">
             <div class="modal-head modal-head--koyu">
                 <button type="button" class="icon-btn modal-geri-btn" data-modal-kapat="modal-borc-yapilandir" aria-label="Geri"><i class="fas fa-arrow-left"></i></button>
                 <h3 class="modal-head-baslik">Borç yapılandır</h3>
             </div>
-            <div class="yapi-musteri-ad" id="yapiMusteriAd">—</div>
-            <div class="yapi-bakiye-kutu">
-                <span>Güncel bakiye</span>
-                <strong id="yapilandirmaBakiyesi">—</strong>
+            <div class="musteri-form-govde musteri-form-compact">
+                <div class="yapi-musteri-ad" id="yapiMusteriAd">—</div>
+                <div class="yapi-bakiye-kutu">
+                    <span>Güncel bakiye</span>
+                    <strong id="yapilandirmaBakiyesi">—</strong>
+                </div>
+                <div class="yapi-mod-secim">
+                    <button type="button" class="yapi-mod-btn yapi-mod-btn--aktif" id="btnYapiModOtomatik" data-mod="otomatik">Eşit taksit</button>
+                    <button type="button" class="yapi-mod-btn" id="btnYapiModManuel" data-mod="manuel">Manuel plan</button>
+                </div>
+                <div id="yapiOtomatikBlokMobil">
+                    <label class="field-label" for="yapiTaksitTutar">Yapılandırılacak tutar (₺)</label>
+                    <input id="yapiTaksitTutar" class="field-input" type="number" min="0.01" step="0.01">
+                    <label class="field-label" for="yapiTaksitSayisi">Taksit sayısı</label>
+                    <select id="yapiTaksitSayisi" class="field-input">
+                        <option value="1">1 taksit</option>
+                        <option value="2">2 taksit</option>
+                        <option value="3">3 taksit</option>
+                        <option value="4">4 taksit</option>
+                        <option value="5">5 taksit</option>
+                        <option value="6">6 taksit</option>
+                        <option value="7">7 taksit</option>
+                        <option value="8">8 taksit</option>
+                        <option value="9">9 taksit</option>
+                        <option value="10">10 taksit</option>
+                        <option value="11">11 taksit</option>
+                        <option value="12">12 taksit</option>
+                    </select>
+                    <label class="field-label" for="yapiBaslangicTarihi">İlk taksit tarihi</label>
+                    <input id="yapiBaslangicTarihi" class="field-input" type="date">
+                </div>
+                <div id="yapiManuelBlokMobil" class="d-none">
+                    <div class="yapi-manuel-ust">
+                        <div>
+                            <label class="field-label" for="yapiManuelSayi">Taksit sayısı</label>
+                            <select id="yapiManuelSayi" class="field-input">
+                                <option value="1">1</option><option value="2">2</option><option value="3" selected>3</option>
+                                <option value="4">4</option><option value="5">5</option><option value="6">6</option>
+                                <option value="7">7</option><option value="8">8</option><option value="9">9</option>
+                                <option value="10">10</option><option value="11">11</option><option value="12">12</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="field-label" for="yapiManuelBaslangic">1. vade</label>
+                            <input id="yapiManuelBaslangic" class="field-input" type="date">
+                        </div>
+                        <button type="button" class="btn btn-outline btn-sm" id="btnYapiManuelSatir">Satırları oluştur</button>
+                    </div>
+                    <p class="hint">Her taksit tutarını ve vadesini girin. Ödenmiş taksitler korunur.</p>
+                    <div id="yapiManuelListe" class="yapi-manuel-liste"></div>
+                    <div id="yapiManuelToplam" class="yapi-manuel-toplam">Toplam: —</div>
+                </div>
+                <button type="button" class="btn btn-success btn-block mt-2" id="btnBorcYapilandirKaydet">
+                    <i class="fas fa-save me-1"></i>Planı oluştur
+                </button>
             </div>
-            <label class="field-label" for="yapiTaksitTutar">Yapılandırılacak tutar (₺)</label>
-            <input id="yapiTaksitTutar" class="field-input" type="number" min="0.01" step="0.01">
-            <label class="field-label" for="yapiTaksitSayisi">Taksit sayısı</label>
-            <select id="yapiTaksitSayisi" class="field-input">
-                <option value="1">Tek vade</option>
-                <option value="2">2 taksit</option>
-                <option value="3">3 taksit</option>
-                <option value="4">4 taksit</option>
-                <option value="5">5 taksit</option>
-                <option value="6">6 taksit</option>
-                <option value="12">12 taksit</option>
-            </select>
-            <label class="field-label" for="yapiBaslangicTarihi">İlk taksit tarihi</label>
-            <input id="yapiBaslangicTarihi" class="field-input" type="date">
-            <button type="button" class="btn btn-success btn-block mt-2" id="btnBorcYapilandirKaydet">
-                <i class="fas fa-save me-1"></i>Planı oluştur
-            </button>
         </div>
     </div>
 
@@ -480,9 +522,151 @@
         </div>
     </div>
 
+    <!-- Tedarikçi detay -->
+    <section id="overlay-tedarikci" class="overlay">
+        <header class="overlay-bar overlay-bar--musteri">
+            <button type="button" class="icon-btn" id="btnTedarikciKapat" aria-label="Geri"><i class="fas fa-arrow-left"></i></button>
+            <div class="overlay-title-wrap">
+                <div class="musteri-detay-isim" id="tedarikciDetayAd">Tedarikçi</div>
+                <div class="musteri-detay-meta" id="tedarikciDetayMeta">—</div>
+            </div>
+        </header>
+        <div class="overlay-scroll">
+            <div class="cari-ozet" id="tedarikciOzet">
+                <div class="cari-ozet-kutu">
+                    <div class="lbl">Toplam alım</div>
+                    <div class="val borc" id="tedarikciOzetAlim">—</div>
+                </div>
+                <div class="cari-ozet-kutu">
+                    <div class="lbl">Toplam ödeme</div>
+                    <div class="val odeme" id="tedarikciOzetOdeme">—</div>
+                </div>
+                <div class="cari-ozet-kutu wide">
+                    <div class="lbl">Güncel bakiye</div>
+                    <div class="val" id="tedarikciOzetBakiye">—</div>
+                </div>
+            </div>
+            <div class="tedarikci-kur-notu d-none" id="tedarikciMobilKurNotu"></div>
+            <div class="action-row action-row-2">
+                <button type="button" class="btn btn-primary flex-btn" id="btnTedarikciMalAlim"><i class="fas fa-plus me-1"></i>Mal alımı</button>
+                <button type="button" class="btn btn-success flex-btn" id="btnTedarikciOdeme"><i class="fas fa-hand-holding-usd me-1"></i>Ödeme yap</button>
+            </div>
+            <div class="section-title">Hesap hareketleri</div>
+            <div id="tedarikciHareketListe" class="ekstre-list">Yükleniyor…</div>
+        </div>
+    </section>
+
+    <!-- Tedarikçi mal alım modal -->
+    <div id="modal-mal-alim" class="modal" aria-hidden="true">
+        <div class="modal-backdrop" data-modal-kapat="modal-mal-alim"></div>
+        <div class="modal-sheet modal-sheet--musteri-form">
+            <div class="modal-head">
+                <button type="button" class="icon-btn modal-geri-btn" data-modal-kapat="modal-mal-alim" aria-label="Geri"><i class="fas fa-arrow-left"></i></button>
+                <h3 class="modal-head-baslik">Mal alımı</h3>
+            </div>
+            <div class="musteri-form-govde musteri-form-compact">
+                <label class="field-label" for="malAlimUrun">Ürün</label>
+                <select id="malAlimUrun" class="field-input"></select>
+                <label class="field-label" for="malAlimMiktar" id="malAlimMiktarEtiket">Miktar (ton)</label>
+                <input id="malAlimMiktar" class="field-input" type="number" step="0.01" min="0">
+                <label class="field-label" for="malAlimGirisBirimi">Giriş birimi</label>
+                <select id="malAlimGirisBirimi" class="field-input"></select>
+                <div class="form-hint" id="malAlimDonusumNotu"></div>
+                <label class="field-label" for="malAlimOdeme">Ödeme</label>
+                <select id="malAlimOdeme" class="field-input">
+                    <option value="Açık Hesap (Borç)">Açık hesap (borç)</option>
+                    <option value="Nakit (Kasa)">Peşin nakit</option>
+                    <option value="Havale / EFT">Havale / EFT</option>
+                </select>
+                <div id="malAlimBorcBlok">
+                    <label class="field-label" for="malAlimParaBirimi">Borç para birimi</label>
+                    <select id="malAlimParaBirimi" class="field-input">
+                        <option value="TRY">Türk Lirası (₺)</option>
+                        <option value="USD">Amerikan Doları ($)</option>
+                    </select>
+                    <label class="field-label" for="malAlimKur">İşlem kuru (₺/$)</label>
+                    <input id="malAlimKur" class="field-input" type="number" step="0.0001" min="0">
+                </div>
+                <label class="field-label" for="malAlimBirimMaliyet" id="malAlimBirimMaliyetEtiket">Birim maliyet (₺)</label>
+                <input id="malAlimBirimMaliyet" class="field-input" type="number" step="0.01" min="0" placeholder="Ton/adet fiyatı">
+                <label class="field-label" id="malAlimToplamEtiket2">Toplam borç</label>
+                <div class="mal-alim-toplam-gosterge" id="malAlimToplamGosterge">0,00</div>
+                <div class="form-hint" id="malAlimBirimFiyatHesap">Miktar × birim maliyet = toplam</div>
+                <div class="mal-alim-ozet" id="malAlimOzet">Toplam: —</div>
+                <button type="button" class="btn btn-primary btn-block musteri-form-kaydet" id="btnMalAlimKaydet">Kaydet</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tedarikçi ödeme modal -->
+    <div id="modal-tedarikci-odeme" class="modal" aria-hidden="true">
+        <div class="modal-backdrop" data-modal-kapat="modal-tedarikci-odeme"></div>
+        <div class="modal-sheet">
+            <div class="modal-head">
+                <button type="button" class="icon-btn modal-geri-btn" data-modal-kapat="modal-tedarikci-odeme" aria-label="Geri"><i class="fas fa-arrow-left"></i></button>
+                <h3 class="modal-head-baslik">Tedarikçi ödemesi</h3>
+            </div>
+            <div class="musteri-form-govde musteri-form-compact">
+                <div class="form-hint mb-2" id="tedarikciOdemeBorcOzet">—</div>
+                <label class="field-label" for="tedarikciOdemeParaBirimi">Para birimi</label>
+                <select id="tedarikciOdemeParaBirimi" class="field-input">
+                    <option value="TRY">₺ TRY (TL borç)</option>
+                    <option value="USD">$ USD (döviz borç)</option>
+                </select>
+                <div id="tedarikciOdemeKurBlok">
+                    <label class="field-label" for="tedarikciOdemeKur">Kur (₺/$)</label>
+                    <input id="tedarikciOdemeKur" class="field-input" type="number" step="0.0001" min="0">
+                </div>
+                <label class="field-label" for="tedarikciOdemeTutar" id="tedarikciOdemeTutarEtiket">Tutar (₺)</label>
+                <input id="tedarikciOdemeTutar" class="field-input" type="number" min="0.01" step="0.01">
+                <div class="form-hint">Deftere: <strong id="tedarikciOdemeDefterTutar">0,00 ₺</strong></div>
+                <label class="field-label" for="tedarikciOdemeTur">Ödeme türü</label>
+                <select id="tedarikciOdemeTur" class="field-input">
+                    <option value="Nakit">Nakit</option>
+                    <option value="Havale/EFT">Havale/EFT</option>
+                    <option value="Kredi Kartı">Kredi Kartı</option>
+                </select>
+                <button type="button" class="btn btn-success btn-block mt-2" id="btnTedarikciOdemeKaydet">Ödemeyi kaydet</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Alım maliyet detayı -->
+    <div id="modal-alim-detay" class="modal" aria-hidden="true">
+        <div class="modal-backdrop" data-modal-kapat="modal-alim-detay"></div>
+        <div class="modal-sheet modal-sheet--musteri-form">
+            <div class="modal-head">
+                <button type="button" class="icon-btn modal-geri-btn" data-modal-kapat="modal-alim-detay" aria-label="Geri"><i class="fas fa-arrow-left"></i></button>
+                <h3 class="modal-head-baslik" id="alimDetayBaslik">Alım detayı</h3>
+            </div>
+            <div class="musteri-form-govde" id="alimDetayIcerik">—</div>
+        </div>
+    </div>
+
+    <!-- KG / Dönüşüm toplu -->
+    <div id="modal-donusum-toplu" class="modal" aria-hidden="true">
+        <div class="modal-backdrop" data-modal-kapat="modal-donusum-toplu"></div>
+        <div class="modal-sheet modal-sheet--musteri-form">
+            <div class="modal-head">
+                <button type="button" class="icon-btn modal-geri-btn" data-modal-kapat="modal-donusum-toplu" aria-label="Geri"><i class="fas fa-arrow-left"></i></button>
+                <h3 class="modal-head-baslik">KG / Dönüşüm</h3>
+            </div>
+            <div class="musteri-form-govde musteri-form-compact">
+                <p class="form-hint">Adet/çuval ürünlerde ton alımında stoğa doğru miktar düşsün diye birim ağırlığı girin.</p>
+                <label class="field-label" for="topluKgHizli">Hızlı: tüm satırlara KG</label>
+                <div class="action-row action-row-2 mb-2">
+                    <input id="topluKgHizli" class="field-input" type="number" step="0.1" min="0" placeholder="25">
+                    <button type="button" class="btn btn-outline-primary flex-btn" id="btnTopluKgBos">Boşlara uygula</button>
+                </div>
+                <div id="donusumTopluListe" class="donusum-toplu-list">Yükleniyor…</div>
+                <button type="button" class="btn btn-primary btn-block mt-2" id="btnDonusumTopluKaydet">Kaydet</button>
+            </div>
+        </div>
+    </div>
+
     <div id="toast" class="toast d-none"></div>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js" crossorigin="anonymous"></script>
     <script src="/adres-sozlugu.js"></script>
-    <script src="/mobil/mobil.js?v=34"></script>
+    <script src="/mobil/mobil.js?v=40"></script>
 </body>
 </html>

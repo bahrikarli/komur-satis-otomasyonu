@@ -395,6 +395,7 @@
                     <div>
                         <h6 class="card-subtitle text-muted mb-1">Kayıtlı Müşteri</h6>
                         <h2 class="card-title fw-bold mb-0" id="kayitliMusteriGosterge">-- <small>Kişi</small></h2>
+                        <p class="small text-muted mb-0 mt-1" id="musteriAktifPasifGosterge">—</p>
                     </div>
                 </div>
             </div>
@@ -431,6 +432,9 @@
 </button>
                         <button id="btnYeniStokEkle" class="btn btn-warning btn-sm me-2 fw-bold" onclick="yeniStokModalAc()">
     <i class="fas fa-plus"></i> Yeni Ürün
+</button>
+                        <button class="btn btn-outline-success btn-sm me-2 fw-bold" onclick="stokDonusumTopluModalAc()" title="Adet ürünlerin KG ve alım birimini toplu gir">
+    <i class="fas fa-weight-hanging"></i> KG / Dönüşüm
 </button>
                         <button class="btn btn-outline-dark btn-sm" onclick="stoklariYukle()">
                             <i class="fas fa-sync-alt me-1"></i>Yenile
@@ -788,6 +792,13 @@
                 <div class="alert alert-info py-2">
                     <strong>Güncel Bakiye:</strong> <span id="yapilandirmaBakiyesi">0</span> ₺
                 </div>
+                <div class="btn-group w-100 mb-3" role="group" aria-label="Plan türü">
+                    <input type="radio" class="btn-check" name="yapiPlanModu" id="yapiModOtomatik" value="otomatik" checked onchange="yapiPlanModuDegisti()">
+                    <label class="btn btn-outline-primary btn-sm" for="yapiModOtomatik">Eşit taksit</label>
+                    <input type="radio" class="btn-check" name="yapiPlanModu" id="yapiModManuel" value="manuel" onchange="yapiPlanModuDegisti()">
+                    <label class="btn btn-outline-primary btn-sm" for="yapiModManuel">Manuel plan</label>
+                </div>
+                <div id="yapiOtomatikBlok">
                 <div class="row g-3">
                     <div class="col-12">
                         <label class="form-label fw-bold">Yapılandırılacak Tutar</label>
@@ -796,12 +807,17 @@
                     <div class="col-6">
                         <label class="form-label fw-bold">Taksit Sayısı</label>
                         <select id="yapiTaksitSayisi" class="form-select border-primary">
-                            <option value="1">Tek Vade</option>
+                            <option value="1">1 Taksit (Tek Vade)</option>
                             <option value="2">2 Taksit</option>
                             <option value="3">3 Taksit</option>
                             <option value="4">4 Taksit</option>
                             <option value="5">5 Taksit</option>
                             <option value="6">6 Taksit</option>
+                            <option value="7">7 Taksit</option>
+                            <option value="8">8 Taksit</option>
+                            <option value="9">9 Taksit</option>
+                            <option value="10">10 Taksit</option>
+                            <option value="11">11 Taksit</option>
                             <option value="12">12 Taksit</option>
                         </select>
                     </div>
@@ -809,6 +825,32 @@
                         <label class="form-label fw-bold">İlk Taksit Tarihi</label>
                         <input type="date" id="yapiBaslangicTarihi" class="form-control border-primary">
                     </div>
+                </div>
+                </div>
+                <div id="yapiManuelBlok" class="d-none">
+                    <div class="row g-2 mb-2 align-items-end">
+                        <div class="col-5">
+                            <label class="form-label fw-bold small">Taksit sayısı</label>
+                            <select id="yapiManuelSayi" class="form-select form-select-sm">
+                                <option value="1">1</option><option value="2">2</option><option value="3" selected>3</option>
+                                <option value="4">4</option><option value="5">5</option><option value="6">6</option>
+                                <option value="7">7</option><option value="8">8</option><option value="9">9</option>
+                                <option value="10">10</option><option value="11">11</option><option value="12">12</option>
+                            </select>
+                        </div>
+                        <div class="col-5">
+                            <label class="form-label fw-bold small">1. taksit vadesi</label>
+                            <input type="date" id="yapiManuelBaslangic" class="form-control form-control-sm">
+                        </div>
+                        <div class="col-2">
+                            <button type="button" class="btn btn-sm btn-outline-primary w-100" onclick="yapiManuelSatirlariOlustur()" title="Satırları oluştur">
+                                <i class="fas fa-list"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="small text-muted mb-2">Her taksit için tutar ve vadeyi elle girin. Ödenmiş taksitler korunur.</div>
+                    <div id="yapiManuelListe" class="yapi-manuel-liste border rounded p-2 bg-light" style="max-height: 42vh; overflow-y: auto;"></div>
+                    <div id="yapiManuelToplam" class="small fw-bold text-end mt-2 text-primary">Toplam: 0,00 ₺</div>
                 </div>
             </div>
             <div class="modal-footer">
@@ -1178,6 +1220,17 @@
                         <label class="form-label fw-bold text-success">1 Çuval Kaç KG? <span class="text-danger">*</span></label>
                         <input type="number" step="0.1" class="form-control border-success" id="stokCuvalKg" placeholder="Örn: 25">
                     </div>
+                    <div class="mb-3 d-none" id="adetKgAlanDiv">
+                        <label class="form-label fw-bold text-success">1 Adet Kaç KG? <span class="text-muted small">(toptancıdan ton alınca stoğa adet çevrilir)</span></label>
+                        <input type="number" step="0.1" class="form-control border-success" id="stokAdetKg" placeholder="Örn: 25">
+                    </div>
+                    <div class="mb-3 d-none" id="alimBirimiAlanDiv">
+                        <label class="form-label fw-bold text-secondary">Toptancıdan alım birimi</label>
+                        <select class="form-select" id="stokAlimBirimi">
+                            <option value="Ton">Ton</option>
+                            <option value="Adet">Adet (stok birimiyle aynı)</option>
+                        </select>
+                    </div>
                     <div class="mb-3">
                         <label class="form-label fw-bold" id="lblStokFiyat">Ton Fiyatı (₺) <span class="text-danger">*</span></label>
                         <input type="number" step="0.01" class="form-control" id="stokFiyat" placeholder="Örn: 7500" required>
@@ -1213,76 +1266,130 @@
 </div>
 
 <div class="modal fade" id="stokDuzenleModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered modal-xl">
-        <div class="modal-content border-0 shadow">
-            <div class="modal-header bg-primary text-white">
+    <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable" style="max-width: min(1100px, 96vw);">
+        <div class="modal-content border-0 shadow" style="max-height: min(92vh, 900px);">
+            <div class="modal-header bg-primary text-white py-2">
                 <h5 class="modal-title fw-bold"><i class="fas fa-edit me-2"></i>Ürün Düzenle ve Alım Geçmişi</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
-            <div class="modal-body p-0">
-                <div class="row g-0">
+            <div class="modal-body p-0 overflow-hidden" style="max-height: calc(92vh - 118px);">
+                <div class="row g-0 h-100">
                     
-                    <div class="col-md-4 p-4 border-end bg-light">
+                    <div class="col-md-4 p-3 border-end bg-light overflow-auto" style="max-height: calc(92vh - 118px);">
                         <form id="stokDuzenleFormu">
                             <input type="hidden" id="duzenleStokId">
                             <input type="hidden" id="duzenleStokEtiketiOrig" value="">
-                            <div class="mb-3">
-                                <label class="form-label fw-bold">Ürün Adı / Cinsi <span class="text-danger">*</span></label>
-                                <input type="text" class="form-control form-control-lg" id="duzenleUrunAdi" required autocomplete="off">
-                                <div class="form-text small">İsim ile birimin tek dilimde olduğundan emin olun: <strong>Temel ad (birim)</strong> — stoğun ve satış eşlemesinin referansı bu satırdır.</div>
+                            <div class="mb-2">
+                                <label class="form-label fw-bold small mb-1">Ürün Adı / Cinsi <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control" id="duzenleUrunAdi" required autocomplete="off">
                             </div>
-                            <div class="mb-3">
-                                <label class="form-label fw-bold">Satış Fiyatı (₺) <span class="text-danger">*</span></label>
-                                <input type="number" step="0.01" class="form-control" id="duzenleFiyat" required>
+                            <div class="row g-2 mb-2">
+                                <div class="col-6">
+                                    <label class="form-label fw-bold small mb-1">Satış Fiyatı (₺)</label>
+                                    <input type="number" step="0.01" class="form-control form-control-sm" id="duzenleFiyat" required>
+                                </div>
+                                <div class="col-6">
+                                    <label class="form-label fw-bold small mb-1 text-muted">Başlangıç Stoğu</label>
+                                    <input type="number" step="0.01" class="form-control form-control-sm" id="duzenleMiktar" required>
+                                </div>
                             </div>
-                            <div class="mb-3">
-                                <label class="form-label fw-bold text-muted">Başlangıç Stoğu (Manuel Düzeltme)</label>
-                                <input type="number" step="0.01" class="form-control" id="duzenleMiktar" required>
+                            <div class="mb-2" id="duzenleAdetKgDiv">
+                                <label class="form-label fw-bold text-success small mb-1">1 Adet Kaç KG?</label>
+                                <input type="number" step="0.1" class="form-control form-control-sm" id="duzenleAdetKg" placeholder="Örn: 25">
                             </div>
-                            <div class="mb-3">
-                                <label class="form-label fw-bold">Stok eşikleri <span class="text-danger">*</span></label>
+                            <div class="mb-2" id="duzenleAlimBirimiDiv">
+                                <label class="form-label fw-bold text-secondary small mb-1">Toptancıdan alım birimi</label>
+                                <select class="form-select form-select-sm" id="duzenleAlimBirimi">
+                                    <option value="Ton">Ton</option>
+                                    <option value="Adet">Adet</option>
+                                </select>
+                            </div>
+                            <div class="mb-0">
+                                <label class="form-label fw-bold small mb-1">Stok eşikleri <span class="text-danger">*</span></label>
                                 <div class="row g-2">
                                     <div class="col-6">
-                                        <input type="number" step="0.01" min="0" class="form-control" id="duzenleEsikAlt" placeholder="Alt eşik" required>
-                                        <div class="form-text small">Altı/eşiti → Yetersiz</div>
+                                        <input type="number" step="0.01" min="0" class="form-control form-control-sm" id="duzenleEsikAlt" placeholder="Alt" required>
                                     </div>
                                     <div class="col-6">
-                                        <input type="number" step="0.01" min="0" class="form-control" id="duzenleEsikUst" placeholder="Üst eşik" required>
-                                        <div class="form-text small">Üstü/eşiti → Yeterli</div>
+                                        <input type="number" step="0.01" min="0" class="form-control form-control-sm" id="duzenleEsikUst" placeholder="Üst" required>
                                     </div>
                                 </div>
+                                <div class="form-text small">Alt → Yetersiz, üst → Yeterli. KG/dönüşüm için stok listesinde <strong>KG / Dönüşüm</strong> butonunu kullanabilirsiniz.</div>
                             </div>
                         </form>
                     </div>
 
-                    <div class="col-md-8 p-0">
-                        <div class="bg-white h-100 d-flex flex-column">
-                            <div class="p-3 border-bottom bg-light">
-                                <h6 class="mb-0 fw-bold text-secondary"><i class="fas fa-history me-1"></i> Bu Ürünün Son Alım Hareketleri</h6>
-                            </div>
-                            <div class="table-responsive flex-grow-1" style="max-height: 350px; overflow-y: auto;">
-                                <table class="table table-hover table-sm mb-0">
-                                    <thead class="table-dark sticky-top">
-                                        <tr>
-                                            <th class="ps-3">Tarih</th>
-                                            <th>Tedarikçi Firma</th>
-                                            <th class="text-center">Miktar</th>
-                                            <th class="text-end pe-3">Birim Alış Fiyatı</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="urunAlimGecmisiGövdesi">
+                    <div class="col-md-8 d-flex flex-column overflow-hidden" style="max-height: calc(92vh - 118px);">
+                        <div class="p-2 border-bottom bg-light flex-shrink-0">
+                            <h6 class="mb-0 fw-bold text-secondary small"><i class="fas fa-history me-1"></i> Son Alım Hareketleri</h6>
+                        </div>
+                        <div class="table-responsive flex-grow-1 overflow-auto">
+                            <table class="table table-hover table-sm mb-0">
+                                <thead class="table-dark sticky-top">
+                                    <tr>
+                                        <th class="ps-3">Tarih</th>
+                                        <th>Tedarikçi</th>
+                                        <th class="text-center">Stok</th>
+                                        <th class="text-end pe-3">Maliyet</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="urunAlimGecmisiGövdesi">
                                         </tbody>
-                                </table>
-                            </div>
+                            </table>
                         </div>
                     </div>
 
                 </div>
             </div>
-            <div class="modal-footer bg-light">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
-                <button type="button" class="btn btn-primary fw-bold" onclick="stokGuncelleKaydet()">
-                    <i class="fas fa-save me-1"></i> Değişiklikleri Kaydet
+            <div class="modal-footer bg-light py-2 flex-shrink-0">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">İptal</button>
+                <button type="button" class="btn btn-primary btn-sm fw-bold" onclick="stokGuncelleKaydet()">
+                    <i class="fas fa-save me-1"></i> Kaydet
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="stokDonusumTopluModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content border-0 shadow" style="max-height: 90vh;">
+            <div class="modal-header bg-success text-white py-2">
+                <h5 class="modal-title fw-bold"><i class="fas fa-weight-hanging me-2"></i>Toplu KG / Dönüşüm Tanımları</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body py-2">
+                <p class="small text-muted mb-2">Adet veya çuval satılan ürünlerde toptancıdan <strong>ton</strong> alınca stoğa doğru miktar düşsün diye birim ağırlığını girin.</p>
+                <div class="row g-2 align-items-end mb-2 p-2 bg-light rounded border">
+                    <div class="col-md-4">
+                        <label class="form-label small fw-bold mb-1">Hızlı: tüm satırlara KG</label>
+                        <input type="number" step="0.1" class="form-control form-control-sm" id="topluKgHizli" placeholder="Örn: 25">
+                    </div>
+                    <div class="col-md-4">
+                        <button type="button" class="btn btn-outline-primary btn-sm w-100" onclick="stokDonusumHizliKgUygula()">Boş olanlara uygula</button>
+                    </div>
+                    <div class="col-md-4">
+                        <button type="button" class="btn btn-outline-secondary btn-sm w-100" onclick="stokDonusumHizliKgUygula(true)">Tümüne uygula</button>
+                    </div>
+                </div>
+                <div class="table-responsive" style="max-height: 55vh; overflow-y: auto;">
+                    <table class="table table-sm table-hover align-middle mb-0">
+                        <thead class="table-dark sticky-top">
+                            <tr>
+                                <th>Ürün</th>
+                                <th class="text-center" style="width:70px">Birim</th>
+                                <th style="width:110px">1 birim = KG</th>
+                                <th style="width:120px">Alım birimi</th>
+                            </tr>
+                        </thead>
+                        <tbody id="stokDonusumTopluTablo"></tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer py-2">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">İptal</button>
+                <button type="button" class="btn btn-success btn-sm fw-bold" onclick="stokDonusumTopluKaydet()">
+                    <i class="fas fa-save me-1"></i> Tümünü Kaydet
                 </button>
             </div>
         </div>
@@ -2003,68 +2110,98 @@
 </div>
 
 <div class="modal fade" id="malAlimModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-lg"> <div class="modal-content border-0 shadow-lg">
-            <div class="modal-header bg-primary text-white">
-                <h5 class="modal-title"><i class="fas fa-truck-loading me-2"></i> Yeni Malzeme / Stok Alımı</h5>
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content border-0 shadow-lg" style="max-height:92vh">
+            <div class="modal-header bg-primary text-white py-2">
+                <h5 class="modal-title fs-6"><i class="fas fa-truck-loading me-2"></i> Mal / Stok Alımı</h5>
                 <button type="button" class="btn-close btn-close-white" onclick="malAlimindanGeriDon()"></button>
             </div>
-            <div class="modal-body">
+            <div class="modal-body py-2 px-3">
                 <form id="malAlimFormu">
-                    <div class="row g-3 align-items-end">
-                        
+                    <div class="row g-2 align-items-end">
                         <div class="col-md-4">
-                            <label class="form-label fw-bold">İşlem Tarihi</label>
-                            <input type="date" class="form-control" id="alimTarih" required>
+                            <label class="form-label fw-bold small mb-1">Tarih</label>
+                            <input type="date" class="form-control form-control-sm" id="alimTarih" required>
                         </div>
                         <div class="col-md-8">
-                            <label class="form-label fw-bold">Tedarikçi (Toptancı) Firma</label>
-                            <select class="form-select" id="alimTedarikci" required>
-                                </select>
+                            <label class="form-label fw-bold small mb-1">Tedarikçi</label>
+                            <select class="form-select form-select-sm" id="alimTedarikci" required></select>
                         </div>
-
-                        <div class="col-md-8">
-                            <label class="form-label fw-bold">Alınan Ürün</label>
-                            <select class="form-select" id="alimUrunSec" required>
-                                </select>
+                        <div class="col-md-7">
+                            <label class="form-label fw-bold small mb-1">Ürün</label>
+                            <select class="form-select form-select-sm" id="alimUrunSec" required></select>
                         </div>
-                        <div class="mb-3"> <label class="form-label fw-bold">Ödeme Durumu</label>
-    <select class="form-select border-primary" id="alimOdemeDurumu" required>
-        <option value="Açık Hesap (Borç)" selected>Deftere Yaz (Açık Hesap / Borç)</option>
-        
-        <option value="Nakit (Kasa)">Peşin - Nakit (Kasa Çıkışı)</option>
-        <option value="Havale / EFT">Banka - Havale / EFT</option>
-        <option value="Kredi Kartı">Kredi Kartı</option>
-        <option value="Çek / Senet">Çek / Senet Verildi</option>
-    </select>
-</div>
-
-                        <div class="col-md-4">
-    <label class="form-label fw-bold text-primary">Alış Miktarı <span id="alimBirimGosterge" class="badge bg-secondary ms-1">Birim?</span></label>
-    <input type="number" class="form-control fw-bold border-primary" id="alimMiktar" step="0.01" oninput="alimHesapla()" required>
-</div>
-                        <div class="col-md-4">
-                            <label class="form-label fw-bold text-danger">Birim Alış (₺)</label>
-                            <input type="number" class="form-control fw-bold border-danger" id="alimBirimFiyat" step="0.01" oninput="alimHesapla()" required>
+                        <div class="col-md-5">
+                            <label class="form-label fw-bold small mb-1">Ödeme</label>
+                            <select class="form-select form-select-sm" id="alimOdemeDurumu" required onchange="alimOdemeDurumuDegisti()">
+                                <option value="Açık Hesap (Borç)" selected>Deftere Yaz (Borç)</option>
+                                <option value="Nakit (Kasa)">Peşin Nakit</option>
+                                <option value="Havale / EFT">Havale / EFT</option>
+                                <option value="Kredi Kartı">Kredi Kartı</option>
+                                <option value="Çek / Senet">Çek / Senet</option>
+                            </select>
                         </div>
-                        <div class="col-md-4">
-                            <div class="d-flex flex-column justify-content-center text-center h-100 bg-light rounded border p-2">
-                                <span class="text-muted small">Toplam Fatura Tutarı</span>
-                                <div class="h5 mb-0 fw-bold text-dark" id="alimToplamTutarGosterge">0,00 ₺</div>
+                        <div class="col-12 d-none" id="alimBorcDovizBlok">
+                            <div class="row g-2 p-2 bg-light rounded border small">
+                                <div class="col-md-4">
+                                    <label class="form-label fw-bold small mb-0">Para birimi</label>
+                                    <select class="form-select form-select-sm" id="alimParaBirimi" onchange="alimParaBirimiDegisti()">
+                                        <option value="TRY" selected>₺ TRY</option>
+                                        <option value="USD">$ USD</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-4" id="alimKurKutusu">
+                                    <label class="form-label fw-bold small mb-0">Kur (₺/$)</label>
+                                    <div class="input-group input-group-sm">
+                                        <input type="number" class="form-control" id="alimKur" step="0.0001" min="0" oninput="alimHesapla()">
+                                        <button type="button" class="btn btn-outline-secondary" onclick="alimKurTcmbCek()" title="TCMB"><i class="fas fa-sync-alt"></i></button>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="small text-muted" id="alimDovizTutarGosterge">—</div>
+                                    <div class="small text-secondary" id="alimHesapOzeti"></div>
+                                </div>
                             </div>
                         </div>
-
-                        <div class="col-md-12">
-                            <label class="form-label fw-bold text-muted">Not / Açıklama</label>
-                            <textarea class="form-control" id="alimAciklama" rows="1"></textarea>
+                        <div class="col-md-3">
+                            <label class="form-label fw-bold small mb-1 text-primary">Miktar <span id="alimBirimGosterge" class="badge bg-secondary">?</span></label>
+                            <input type="number" class="form-control form-control-sm fw-bold" id="alimMiktar" step="0.01" oninput="alimHesapla()" required>
                         </div>
-
+                        <div class="col-md-3" id="alimGirisBirimiKutu">
+                            <label class="form-label fw-bold small mb-1">Giriş birimi</label>
+                            <select class="form-select form-select-sm" id="alimGirisBirimi" onchange="alimGirisBirimiDegisti()">
+                                <option value="Ton">Ton</option>
+                            </select>
+                            <div class="form-text small" id="alimDonusumNotu"></div>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label fw-bold small mb-1 text-warning" id="alimBirimMaliyetEtiket">Birim maliyet (₺)</label>
+                            <input type="number" class="form-control form-control-sm fw-bold border-warning" id="alimBirimMaliyet" step="0.01" min="0" oninput="alimHesapla()" required placeholder="Ton/adet fiyatı">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label fw-bold small mb-1 text-danger" id="alimToplamEtiket">Toplam borç</label>
+                            <div class="form-control form-control-sm bg-light fw-bold text-danger" id="alimToplamGosterge">0,00</div>
+                            <div class="form-text small" id="alimBirimFiyatHesap">Stok birim fiyatı: —</div>
+                        </div>
+                        <input type="hidden" id="alimToplamBorc" value="">
+                        <input type="hidden" id="alimBirimFiyat" value="">
+                        <div class="col-12">
+                            <div class="d-flex flex-wrap gap-3 align-items-center p-2 bg-light rounded border small">
+                                <span><span class="text-muted" id="alimToplamEtiket2">Deftere:</span> <strong id="alimToplamTutarGosterge">0,00 ₺</strong></span>
+                                <span class="text-success fw-bold" id="alimStokMiktarGosterge"></span>
+                            </div>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label fw-bold small mb-1">Not</label>
+                            <input type="text" class="form-control form-control-sm" id="alimAciklama" placeholder="İsteğe bağlı">
+                        </div>
                     </div>
                 </form>
             </div>
-            <div class="modal-footer bg-light">
-                <button type="button" class="btn btn-secondary" onclick="malAlimindanGeriDon()">İptal</button>
-                <button type="button" class="btn btn-primary px-4 fw-bold" onclick="malAlimiKaydet()">
-                    <i class="fas fa-save me-1"></i> Stoğa Ekle
+            <div class="modal-footer bg-light py-2">
+                <button type="button" class="btn btn-secondary btn-sm" onclick="malAlimindanGeriDon()">İptal</button>
+                <button type="button" class="btn btn-primary btn-sm px-4 fw-bold" onclick="malAlimiKaydet()">
+                    <i class="fas fa-save me-1"></i> Kaydet
                 </button>
             </div>
         </div>
@@ -2174,29 +2311,33 @@
     </div>
 </div>
 <div class="modal fade" id="tedarikciDetayModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-xl">
-        <div class="modal-content border-0 shadow-lg">
-<div class="modal-header bg-info text-dark">
-                <h5 class="modal-title fw-bold"><i class="fas fa-file-invoice-dollar me-2"></i> <span id="detayTedarikciAdi">Firma Detayı</span></h5>
+    <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content border-0 shadow-lg" style="max-height:88vh">
+<div class="modal-header bg-info text-dark py-2">
+                <h5 class="modal-title fw-bold fs-6"><i class="fas fa-file-invoice-dollar me-2"></i> <span id="detayTedarikciAdi">Firma Detayı</span></h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body p-0">
                 <div class="row g-0 bg-light border-bottom">
-                    <div class="col-md-4 p-3 border-end text-center">
+                    <div class="col-md-4 py-2 px-2 border-end text-center">
                         <div class="text-muted small fw-bold">TOPLAM ALIM</div>
-                        <div class="h4 mb-0 text-danger fw-bold" id="ozetToplamBorc">0,00 ₺</div>
+                        <div class="h5 mb-0 text-danger fw-bold" id="ozetToplamBorc">0,00 ₺</div>
                     </div>
-                    <div class="col-md-4 p-3 border-end text-center">
+                    <div class="col-md-4 py-2 px-2 border-end text-center">
                         <div class="text-muted small fw-bold">TOPLAM ÖDEME</div>
-                        <div class="h4 mb-0 text-success fw-bold" id="ozetToplamOdeme">0,00 ₺</div>
+                        <div class="h5 mb-0 text-success fw-bold" id="ozetToplamOdeme">0,00 ₺</div>
                     </div>
-                    <div class="col-md-4 p-3 text-center bg-white">
+                    <div class="col-md-4 py-2 px-2 text-center bg-white">
                         <div class="text-muted small fw-bold">GÜNCEL BAKİYE</div>
-                        <div class="h4 mb-0 fw-bold" id="ozetGuncelBakiye">0,00 ₺</div>
+                        <div class="h5 mb-0 fw-bold" id="ozetGuncelBakiye">0,00 ₺</div>
                     </div>
                 </div>
+                <div class="px-2 py-1 bg-warning bg-opacity-10 border-bottom d-none" id="tedarikciKurNotu">
+                    <i class="fas fa-info-circle me-1 text-warning"></i>
+                    <span class="small" id="tedarikciKurNotuMetin">—</span>
+                </div>
 
-                <div class="table-responsive" style="max-height: 500px;">
+                <div class="table-responsive" style="max-height:min(42vh, 380px);">
                     <table class="table table-hover mb-0">
                         <thead class="table-dark sticky-top">
     <tr>
@@ -2204,8 +2345,8 @@
         <th>İşlem Türü</th>
         <th class="text-center">Miktar</th> <th class="text-end">Birim Fiyat</th> <th class="text-end">Borç (Alım)</th>
         <th class="text-end">Ödeme</th>
-        
         <th>Açıklama</th>
+        <th class="text-center" style="width:110px">İşlem</th>
     </tr>
 </thead>
                         <tbody id="tedarikciHareketGövdesi">
@@ -2213,17 +2354,17 @@
                     </table>
                 </div>
             </div>
-            <div class="modal-footer bg-light d-flex justify-content-between">
+            <div class="modal-footer bg-light py-2 d-flex justify-content-between">
     <div>
-        <button class="btn btn-primary fw-bold" onclick="detaydanMalAliminiAc()">
+        <button class="btn btn-sm btn-primary fw-bold" onclick="detaydanMalAliminiAc()">
             <i class="fas fa-plus-box me-1"></i> Yeni Mal Alımı
         </button>
     </div>
     <div>
-        <button class="btn btn-success fw-bold me-2" onclick="tedarikciOdemeModalAc()">
+        <button class="btn btn-sm btn-success fw-bold me-2" onclick="tedarikciOdemeModalAc()">
             <i class="fas fa-hand-holding-usd me-1"></i> Ödeme Yap
         </button>
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Kapat</button>
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Kapat</button>
     </div>
 </div>
         </div>
@@ -2278,6 +2419,23 @@
         </div>
     </div>
 </div>
+
+<div class="modal fade" id="tedarikciAlimDetayModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg">
+            <div class="modal-header bg-info text-white py-2">
+                <h5 class="modal-title fs-6 fw-bold"><i class="fas fa-info-circle me-2"></i> <span id="tedarikciAlimDetayBaslik">Alım Detayı</span></h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body py-3" id="tedarikciAlimDetayIcerik">—</div>
+            <div class="modal-footer py-2 bg-light">
+                <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Kapat</button>
+                <button type="button" class="btn btn-sm btn-warning" id="tedarikciAlimDetayDuzenleBtn"><i class="fas fa-edit me-1"></i> Düzenle</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="modal fade" id="tedarikciOdemeModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog">
         <div class="modal-content border-0 shadow-lg">
@@ -2297,10 +2455,35 @@
         <input type="date" class="form-control fw-bold border-primary" id="odemeTarih" required>
     </div>
 </div>
+                    <div class="row g-3 mb-2">
+                        <div class="col-12">
+                            <div class="alert alert-light border small py-2 mb-0" id="odemeBorcOzet">—</div>
+                        </div>
+                    </div>
+                    <div class="row g-3 mb-2">
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold small mb-1">Para birimi</label>
+                            <select class="form-select form-select-sm border-success" id="odemeParaBirimi" onchange="odemeParaBirimiDegisti()">
+                                <option value="TRY" selected>₺ TRY (TL borç)</option>
+                                <option value="USD">$ USD (Döviz borç)</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4 d-none" id="odemeKurKutusu">
+                            <label class="form-label fw-bold small mb-1">Kur (₺/$)</label>
+                            <div class="input-group input-group-sm">
+                                <input type="number" class="form-control" id="odemeKur" step="0.0001" min="0" oninput="odemeTutarHesapla()">
+                                <button type="button" class="btn btn-outline-secondary" onclick="odemeKurTcmbCek()" title="TCMB"><i class="fas fa-sync-alt"></i></button>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold small mb-1 text-muted" id="odemeDefterNotu">Deftere yazılacak</label>
+                            <div class="form-control form-control-sm bg-light fw-bold" id="odemeDefterTutar">0,00 ₺</div>
+                        </div>
+                    </div>
                     <div class="row g-3">
                         <div class="col-md-6">
-                            <label class="form-label fw-bold text-success">Ödenen Tutar (₺)</label>
-                            <input type="number" class="form-control border-success fw-bold h4 mb-0" id="odemeTutari" step="0.01" required>
+                            <label class="form-label fw-bold text-success" id="odemeTutarEtiket">Ödenen Tutar (₺)</label>
+                            <input type="number" class="form-control border-success fw-bold h4 mb-0" id="odemeTutari" step="0.01" oninput="odemeTutarHesapla()" required>
                         </div>
                         <div class="col-md-6">
                             <label class="form-label fw-bold">Ödeme Türü</label>
@@ -2752,6 +2935,6 @@
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script src="adres-sozlugu.js?v=1.0.77"></script>
-    <script src="script.js?v=1.0.83"></script>
+    <script src="script.js?v=1.0.86"></script>
 </body>
 </html>

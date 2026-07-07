@@ -531,6 +531,151 @@ END
     stokEsikKolonlariHazir = true;
 }
 
+let stokDonusumKolonlariHazir = false;
+async function ensureStokDonusumKolonlari() {
+    if (stokDonusumKolonlariHazir) return;
+    const pool = await sql.connect(config);
+    await pool.request().query(`
+IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[komur].[dbo].[StokListesi]') AND type in (N'U'))
+AND NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[komur].[dbo].[StokListesi]') AND name = N'AdetBasinaKg')
+BEGIN
+    ALTER TABLE [komur].[dbo].[StokListesi] ADD [AdetBasinaKg] DECIMAL(18,4) NULL;
+END
+IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[komur].[dbo].[StokListesi]') AND type in (N'U'))
+AND NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[komur].[dbo].[StokListesi]') AND name = N'AlimBirimi')
+BEGIN
+    ALTER TABLE [komur].[dbo].[StokListesi] ADD [AlimBirimi] NVARCHAR(20) NULL;
+END
+    `);
+    stokDonusumKolonlariHazir = true;
+}
+
+function parseCuvalKgFromBirim(birimTuru) {
+    const m = String(birimTuru || '').match(/(\d+(?:[.,]\d+)?)\s*KG/i);
+    return m ? parseFloat(String(m[1]).replace(',', '.')) : 0;
+}
+
+/** Toptancı giriş biriminden stok (satış) birimine çeviri */
+function girisMiktarToStokMiktar(girisMiktar, girisBirimi, satisBirimi, adetBasinaKg) {
+    const miktar = parseFloat(girisMiktar) || 0;
+    if (miktar <= 0) return 0;
+    const g = String(girisBirimi || '').trim();
+    const s = String(satisBirimi || 'Ton').trim();
+    if (!g || g === s) return miktar;
+
+    const adetKg = parseFloat(adetBasinaKg) || 0;
+    const cuvalKg = adetKg > 0 ? adetKg : parseCuvalKgFromBirim(s);
+
+    if (g === 'Ton') {
+        const kg = miktar * 1000;
+        if (s === 'Adet' && adetKg > 0) return kg / adetKg;
+        if (/çuval/i.test(s) && cuvalKg > 0) return kg / cuvalKg;
+        if (s === 'Ton') return miktar;
+    }
+    if (g === 'Kg') {
+        if (s === 'Adet' && adetKg > 0) return miktar / adetKg;
+        if (/çuval/i.test(s) && cuvalKg > 0) return miktar / cuvalKg;
+        if (s === 'Ton') return miktar / 1000;
+    }
+    return miktar;
+}
+
+const MUSTERI_AKTIF_BASLANGIC = '2025-01-01';
+
+async function musteriAktifPasifSayilari() {
+    const result = await sql.query(`
+        WITH SonHareket AS (
+            SELECT Kisi, MAX(CAST(TARİH AS DATE)) AS SonTarih
+            FROM [komur].[dbo].[MusteriHareket] WITH (NOLOCK)
+            GROUP BY Kisi
+        )
+        SELECT
+            SUM(CASE WHEN SonTarih >= '${MUSTERI_AKTIF_BASLANGIC}' THEN 1 ELSE 0 END) AS aktifMusteri,
+            SUM(CASE WHEN SonTarih < '${MUSTERI_AKTIF_BASLANGIC}' THEN 1 ELSE 0 END) AS pasifMusteri
+        FROM SonHareket
+    `);
+    const row = result.recordset[0] || {};
+    return {
+        aktifMusteri: Number(row.aktifMusteri) || 0,
+        pasifMusteri: Number(row.pasifMusteri) || 0
+    };
+}
+
+let malAlimDovizKolonlariHazir = false;
+async function ensureMalAlimDovizKolonlari() {
+    if (malAlimDovizKolonlariHazir) return;
+    const pool = await sql.connect(config);
+    await pool.request().query(`
+IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[komur].[dbo].[MalAlimlari]') AND type in (N'U'))
+AND NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[komur].[dbo].[MalAlimlari]') AND name = N'ParaBirimi')
+BEGIN
+    ALTER TABLE [komur].[dbo].[MalAlimlari] ADD [ParaBirimi] NVARCHAR(3) NOT NULL CONSTRAINT DF_MalAlimlari_ParaBirimi DEFAULT N'TRY';
+END
+IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[komur].[dbo].[MalAlimlari]') AND type in (N'U'))
+AND NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[komur].[dbo].[MalAlimlari]') AND name = N'IslemKuru')
+BEGIN
+    ALTER TABLE [komur].[dbo].[MalAlimlari] ADD [IslemKuru] DECIMAL(18,4) NOT NULL CONSTRAINT DF_MalAlimlari_IslemKuru DEFAULT 1;
+END
+IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[komur].[dbo].[MalAlimlari]') AND type in (N'U'))
+AND NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[komur].[dbo].[MalAlimlari]') AND name = N'DovizTutar')
+BEGIN
+    ALTER TABLE [komur].[dbo].[MalAlimlari] ADD [DovizTutar] DECIMAL(18,2) NULL;
+END
+IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[komur].[dbo].[MalAlimlari]') AND type in (N'U'))
+AND NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[komur].[dbo].[MalAlimlari]') AND name = N'GirisBirimi')
+BEGIN
+    ALTER TABLE [komur].[dbo].[MalAlimlari] ADD [GirisBirimi] NVARCHAR(20) NULL;
+END
+IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[komur].[dbo].[MalAlimlari]') AND type in (N'U'))
+AND NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[komur].[dbo].[MalAlimlari]') AND name = N'GirisMiktar')
+BEGIN
+    ALTER TABLE [komur].[dbo].[MalAlimlari] ADD [GirisMiktar] DECIMAL(18,2) NULL;
+END
+    `);
+    malAlimDovizKolonlariHazir = true;
+}
+
+let tedarikciOdemeDovizKolonlariHazir = false;
+async function ensureTedarikciOdemeDovizKolonlari() {
+    if (tedarikciOdemeDovizKolonlariHazir) return;
+    const pool = await sql.connect(config);
+    await pool.request().query(`
+IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[komur].[dbo].[TedarikciOdemeleri]') AND type in (N'U'))
+AND NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[komur].[dbo].[TedarikciOdemeleri]') AND name = N'ParaBirimi')
+BEGIN
+    ALTER TABLE [komur].[dbo].[TedarikciOdemeleri] ADD [ParaBirimi] NVARCHAR(3) NOT NULL CONSTRAINT DF_TedarikciOdemeleri_ParaBirimi DEFAULT N'TRY';
+END
+IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[komur].[dbo].[TedarikciOdemeleri]') AND type in (N'U'))
+AND NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[komur].[dbo].[TedarikciOdemeleri]') AND name = N'IslemKuru')
+BEGIN
+    ALTER TABLE [komur].[dbo].[TedarikciOdemeleri] ADD [IslemKuru] DECIMAL(18,4) NOT NULL CONSTRAINT DF_TedarikciOdemeleri_IslemKuru DEFAULT 1;
+END
+IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[komur].[dbo].[TedarikciOdemeleri]') AND type in (N'U'))
+AND NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[komur].[dbo].[TedarikciOdemeleri]') AND name = N'DovizTutar')
+BEGIN
+    ALTER TABLE [komur].[dbo].[TedarikciOdemeleri] ADD [DovizTutar] DECIMAL(18,2) NULL;
+END
+    `);
+    tedarikciOdemeDovizKolonlariHazir = true;
+}
+
+let tcmbUsdSatisOnbellek = { deger: null, zaman: 0 };
+async function tcmbUsdSatisSayi() {
+    const simdi = Date.now();
+    if (tcmbUsdSatisOnbellek.deger != null && simdi - tcmbUsdSatisOnbellek.zaman < 5 * 60 * 1000) {
+        return tcmbUsdSatisOnbellek.deger;
+    }
+    try {
+        const dov = await tcmbGunlukDovizXmldenGunluk();
+        const kur = tcmbReferansSatis(dov.usd);
+        if (kur != null && Number.isFinite(kur)) {
+            tcmbUsdSatisOnbellek = { deger: kur, zaman: simdi };
+            return kur;
+        }
+    } catch (_e) { /* TCMB erişilemezse null */ }
+    return null;
+}
+
 // --- MSSQL Bağlantı Ayarları ---
 const config = {
     user: process.env.MSSQL_USER || 'sa',
@@ -888,8 +1033,19 @@ app.get('/api/musteriler', async (req, res) => {
                 
                 ISNULL(SUM(MH.BORÇ), 0) AS ToplamBorc,
                 ISNULL(SUM(MH.ÖDEME), 0) AS ToplamOdeme,
-                (ISNULL(SUM(MH.BORÇ), 0) - ISNULL(SUM(MH.ÖDEME), 0)) AS Bakiye
-            
+                (ISNULL(SUM(MH.BORÇ), 0) - ISNULL(SUM(MH.ÖDEME), 0)) AS Bakiye,
+                CASE
+                    WHEN EXISTS (
+                        SELECT 1 FROM [komur].[dbo].[MusteriHareket] MH2 WITH (NOLOCK)
+                        WHERE MH2.Kisi = K.Kimlik AND CAST(MH2.TARİH AS DATE) >= '${MUSTERI_AKTIF_BASLANGIC}'
+                    ) THEN N'Aktif'
+                    WHEN EXISTS (
+                        SELECT 1 FROM [komur].[dbo].[MusteriHareket] MH3 WITH (NOLOCK)
+                        WHERE MH3.Kisi = K.Kimlik
+                    ) THEN N'Pasif'
+                    ELSE N'Yeni'
+                END AS MusteriDurum
+
             -- 🚨 PRO DOKUNUŞ 1: Timeout hatalarını bitiren WITH (NOLOCK) eklentileri 🚨
             FROM [komur].[dbo].[Kimlik] K WITH (NOLOCK)
             LEFT JOIN [komur].[dbo].[MusteriHareket] MH WITH (NOLOCK) ON K.Kimlik = MH.Kisi
@@ -1102,6 +1258,9 @@ app.post('/api/satis', async (req, res) => {
 
         if (satis_odeme_turu === 'Taksitli') {
             const taksitAdet = parseInt(taksit_sayisi) || 1;
+            if (taksitAdet < 1 || taksitAdet > 12) {
+                return res.status(400).json({ hata: 'Taksit sayısı 1 ile 12 arasında olmalıdır.' });
+            }
             const birimTaksit = parseFloat(toplam_tutar) / taksitAdet;
             
             // Taksit tarihi için sadece yıl-ay-gün kısmını kullan
@@ -1191,6 +1350,7 @@ app.post('/api/tahsilat', async (req, res) => {
 app.get('/api/komur', async (req, res) => {
     try {
         await ensureStokEsikKolonlari();
+        await ensureStokDonusumKolonlari();
         const query = `
             SELECT 
                 S.ID as id,
@@ -1198,7 +1358,9 @@ app.get('/api/komur', async (req, res) => {
                 S.SatisFiyati as ton_fiyati,
                 ISNULL(S.BaslangicStogu, 0) AS mevcut_stok_ton,
                 S.EsikAlt as esik_alt,
-                S.EsikUst as esik_ust
+                S.EsikUst as esik_ust,
+                S.AdetBasinaKg as adet_basina_kg,
+                S.AlimBirimi as alim_birimi
             FROM [komur].[dbo].[StokListesi] S
             WHERE S.TakipEdilsinMi = 1
         `;
@@ -1208,7 +1370,10 @@ app.get('/api/komur', async (req, res) => {
             return {
                 ...row,
                 temel_ad: p.temizAd,
-                birim_turu: p.birimTuru
+                birim_turu: p.birimTuru,
+                Birim: p.birimTuru,
+                AdetBasinaKg: row.adet_basina_kg,
+                AlimBirimi: row.alim_birimi
             };
         });
         res.json(zengin);
@@ -1220,14 +1385,15 @@ app.get('/api/komur', async (req, res) => {
 
 // YENİ KÖMÜR / STOK EKLEME API'si
 app.post('/api/komur', async (req, res) => {
-    const { UrunAdi, TonFiyati, MevcutStok, EsikAlt, EsikUst } = req.body;
+    const { UrunAdi, TonFiyati, MevcutStok, EsikAlt, EsikUst, AdetBasinaKg, AlimBirimi } = req.body;
 
     try {
         await ensureStokEsikKolonlari();
+        await ensureStokDonusumKolonlari();
         const query = `
             INSERT INTO [komur].[dbo].[StokListesi] 
-            (UrunAdi, SatisFiyati, BaslangicStogu, EsikAlt, EsikUst, TakipEdilsinMi) 
-            VALUES (@urunAdi, @fiyat, @miktar, @esikAlt, @esikUst, 1)
+            (UrunAdi, SatisFiyati, BaslangicStogu, EsikAlt, EsikUst, AdetBasinaKg, AlimBirimi, TakipEdilsinMi) 
+            VALUES (@urunAdi, @fiyat, @miktar, @esikAlt, @esikUst, @adetKg, @alimBirimi, 1)
         `;
 
         const request = new sql.Request();
@@ -1236,6 +1402,8 @@ app.post('/api/komur', async (req, res) => {
         request.input('miktar', sql.Decimal(18,2), MevcutStok);
         request.input('esikAlt', sql.Decimal(18,2), EsikAlt);
         request.input('esikUst', sql.Decimal(18,2), EsikUst);
+        request.input('adetKg', sql.Decimal(18, 4), AdetBasinaKg > 0 ? AdetBasinaKg : null);
+        request.input('alimBirimi', sql.NVarChar, AlimBirimi || null);
 
         await request.query(query);
         res.status(201).json({ mesaj: 'Ürün başarıyla eklendi.' });
@@ -1251,6 +1419,7 @@ app.get('/api/ozet', async (req, res) => {
     try {
         // 1. Toplam Müşteri Sayısını Çekiyoruz (Tablo adı Kimlik olarak güncellendi!)
         const musteriRes = await sql.query('SELECT COUNT(*) as toplam FROM [komur].[dbo].[Kimlik]');
+        const { aktifMusteri, pasifMusteri } = await musteriAktifPasifSayilari();
         
         // 2. Bugünkü Satışları Un ve Kömür olarak gruplayıp topluyoruz
         const satisQuery = `
@@ -1265,6 +1434,8 @@ app.get('/api/ozet', async (req, res) => {
 
         res.json({
             toplamMusteri: musteriRes.recordset[0].toplam,
+            aktifMusteri,
+            pasifMusteri,
             bugunUn: satisRes.recordset[0].UnSatis,
             bugunKomur: satisRes.recordset[0].KomurSatis
         });
@@ -1278,6 +1449,7 @@ app.get('/api/ozet', async (req, res) => {
 app.get('/api/mobil-ozet', async (req, res) => {
     try {
         const musteriRes = await sql.query('SELECT COUNT(*) as toplam FROM [komur].[dbo].[Kimlik]');
+        const { aktifMusteri, pasifMusteri } = await musteriAktifPasifSayilari();
         const satisQuery = `
             SELECT 
                 ISNULL(SUM(CASE WHEN UPPER(AÇIKLAMA) LIKE '%UN%' THEN ADET ELSE 0 END), 0) as UnSatis,
@@ -1304,6 +1476,8 @@ app.get('/api/mobil-ozet', async (req, res) => {
 
         res.json({
             toplamMusteri: musteriRes.recordset[0].toplam,
+            aktifMusteri,
+            pasifMusteri,
             bugunUn: satisRes.recordset[0].UnSatis,
             bugunKomur: satisRes.recordset[0].KomurSatis,
             bekleyenSevk: sevkRes.recordset[0].adet,
@@ -1374,17 +1548,20 @@ app.post('/api/musteri', async (req, res) => {
 // STOK GÜNCELLEME API
 app.put('/api/komur/:id', async (req, res) => {
     const id = req.params.id;
-    const { UrunAdi, TonFiyati, MevcutStok, EsikAlt, EsikUst } = req.body;
+    const { UrunAdi, TonFiyati, MevcutStok, EsikAlt, EsikUst, AdetBasinaKg, AlimBirimi } = req.body;
 
     try {
         await ensureStokEsikKolonlari();
+        await ensureStokDonusumKolonlari();
         const query = `
             UPDATE [komur].[dbo].[StokListesi]
             SET UrunAdi = @urunAdi, 
                 SatisFiyati = @fiyat, 
                 BaslangicStogu = @miktar,
                 EsikAlt = @esikAlt,
-                EsikUst = @esikUst
+                EsikUst = @esikUst,
+                AdetBasinaKg = @adetKg,
+                AlimBirimi = @alimBirimi
             WHERE ID = @id
         `;
         const request = new sql.Request();
@@ -1394,11 +1571,48 @@ app.put('/api/komur/:id', async (req, res) => {
         request.input('miktar', sql.Decimal(18,2), MevcutStok);
         request.input('esikAlt', sql.Decimal(18,2), EsikAlt);
         request.input('esikUst', sql.Decimal(18,2), EsikUst);
+        request.input('adetKg', sql.Decimal(18, 4), AdetBasinaKg > 0 ? AdetBasinaKg : null);
+        request.input('alimBirimi', sql.NVarChar, AlimBirimi || null);
 
         await request.query(query);
         res.status(200).json({ mesaj: 'Ürün başarıyla güncellendi.' });
     } catch (err) {
         console.error("Güncelleme Hatası:", err);
+        res.status(500).json({ hata: err.message });
+    }
+});
+
+// Toplu KG / alım birimi güncelleme (adet ve çuval ürünler)
+app.put('/api/komur-donusum-toplu', async (req, res) => {
+    const { kayitlar } = req.body;
+    if (!Array.isArray(kayitlar) || kayitlar.length === 0) {
+        return res.status(400).json({ hata: 'Kayıt listesi boş.' });
+    }
+    try {
+        await ensureStokDonusumKolonlari();
+        const pool = await sql.connect(config);
+        const transaction = new sql.Transaction(pool);
+        await transaction.begin();
+        try {
+            for (const k of kayitlar) {
+                const id = parseInt(k.id, 10);
+                if (!id) continue;
+                const adetKg = parseFloat(k.adetBasinaKg);
+                const alimBirimi = k.alimBirimi || 'Ton';
+                await transaction.request()
+                    .input('id', sql.Int, id)
+                    .input('adetKg', sql.Decimal(18, 4), adetKg > 0 ? adetKg : null)
+                    .input('alimBirimi', sql.NVarChar, alimBirimi)
+                    .query(`UPDATE [komur].[dbo].[StokListesi] SET AdetBasinaKg = @adetKg, AlimBirimi = @alimBirimi WHERE ID = @id AND TakipEdilsinMi = 1`);
+            }
+            await transaction.commit();
+            res.json({ success: true, guncellenen: kayitlar.length });
+        } catch (err) {
+            await transaction.rollback();
+            throw err;
+        }
+    } catch (err) {
+        console.error('Toplu dönüşüm hatası:', err);
         res.status(500).json({ hata: err.message });
     }
 });
@@ -1974,32 +2188,36 @@ app.get('/api/musteri-taksitler/:id', async (req, res) => {
 
 app.post('/api/borc-taksitlendir', async (req, res) => {
     const { musteri_id, toplam_tutar, taksit_sayisi, baslangic_tarihi, islemiYapan } = req.body;
+    const adet = parseInt(taksit_sayisi, 10);
+    if (!adet || adet < 1 || adet > 12) {
+        return res.status(400).json({ hata: 'Taksit sayısı 1 ile 12 arasında olmalıdır.' });
+    }
     
     try {
         const pool = await sql.connect(config);
 
-        // 🚨 OTOMATİK SÜPÜRGE: Yeni plan yapmadan önce eski ödenmemiş (DURUM='0') taksitleri siliyoruz
-        // Böylece 400 Hatası (Zaten plan var) almazsın, sistem eskisini silip yenisini yazar.
+        // Ödenmemiş ve kısmi ödemesi olmayan taksitleri sil (tam ödenenler ve havuzda parası olanlar kalır)
         await pool.request()
             .input('kisi', sql.Int, musteri_id)
-            .query("DELETE FROM [komur].[dbo].[TAKSIT] WHERE kişi = @kisi AND DURUM = '0'");
+            .query(`DELETE FROM [komur].[dbo].[TAKSIT] 
+                WHERE kişi = @kisi AND DURUM = '0' AND ISNULL(ODEMELER, 0) = 0`);
 
         // 🎯 KURUŞ HASSASİYETİ (0.01 Hatasını Öldüren Kısım)
         // Toplam tutarı kuruşa çevirip bölüyoruz, sonra tekrar liraya çeviriyoruz
         const toplamKurus = Math.round(parseFloat(toplam_tutar) * 100);
-        const birimTaksitKurus = Math.floor(toplamKurus / parseInt(taksit_sayisi));
-        let sonTaksitKurus = toplamKurus - (birimTaksitKurus * (parseInt(taksit_sayisi) - 1));
+        const birimTaksitKurus = Math.floor(toplamKurus / adet);
+        let sonTaksitKurus = toplamKurus - (birimTaksitKurus * (adet - 1));
 
         let vadeTarihi = new Date(baslangic_tarihi);
 
-        for (let i = 1; i <= taksit_sayisi; i++) {
+        for (let i = 1; i <= adet; i++) {
             // Son taksitte kuruş farkı kalmasın diye dengeleme yapıyoruz
-            const guncelMiktar = (i === parseInt(taksit_sayisi) ? sonTaksitKurus : birimTaksitKurus) / 100;
+            const guncelMiktar = (i === adet ? sonTaksitKurus : birimTaksitKurus) / 100;
 
             const request = pool.request();
             request.input('kisi', sql.Int, musteri_id);
             request.input('miktar', sql.Decimal(18, 2), guncelMiktar);
-            request.input('aciklama', taksit_sayisi == 1 ? "Vadeli Borç" : `${i}/${taksit_sayisi}`);
+            request.input('aciklama', adet == 1 ? "Vadeli Borç" : `${i}/${adet}`);
             request.input('vade', sql.DateTime, new Date(vadeTarihi));
             request.input('yapan', sql.NVarChar, islemiYapan || 'Sistem');
 
@@ -2019,16 +2237,63 @@ app.post('/api/borc-taksitlendir', async (req, res) => {
         res.status(500).json({ hata: "Sistem hatası: " + err.message });
     }
 });
+
+// Manuel taksit planı: tutar ve vade her satır için ayrı girilir
+app.post('/api/borc-taksitlendir-manuel', async (req, res) => {
+    const { musteri_id, taksitler, islemiYapan } = req.body;
+    if (!Array.isArray(taksitler) || taksitler.length < 1 || taksitler.length > 12) {
+        return res.status(400).json({ hata: '1 ile 12 arasında taksit satırı gönderin.' });
+    }
+
+    const satirlar = [];
+    for (let i = 0; i < taksitler.length; i++) {
+        const miktar = parseFloat(taksitler[i].miktar);
+        const tarih = taksitler[i].tarih;
+        if (!tarih || !Number.isFinite(miktar) || miktar <= 0) {
+            return res.status(400).json({ hata: `${i + 1}. taksit için geçerli tutar ve tarih girin.` });
+        }
+        satirlar.push({ miktar, tarih, sira: i + 1, toplam: taksitler.length });
+    }
+
+    try {
+        const pool = await sql.connect(config);
+        await pool.request()
+            .input('kisi', sql.Int, musteri_id)
+            .query(`DELETE FROM [komur].[dbo].[TAKSIT] 
+                WHERE kişi = @kisi AND DURUM = '0' AND ISNULL(ODEMELER, 0) = 0`);
+
+        for (const s of satirlar) {
+            const aciklama = satirlar.length === 1 ? 'Vadeli Borç' : `${s.sira}/${s.toplam}`;
+            await pool.request()
+                .input('kisi', sql.Int, musteri_id)
+                .input('miktar', sql.Decimal(18, 2), s.miktar)
+                .input('aciklama', sql.NVarChar, aciklama)
+                .input('vade', sql.DateTime, new Date(s.tarih))
+                .input('yapan', sql.NVarChar, islemiYapan || 'Sistem')
+                .query(`
+                    INSERT INTO [komur].[dbo].[TAKSIT] (TARIH, MIKTAR, AÇIKLAMA, kişi, DURUM, IslemiYapan)
+                    VALUES (@vade, @miktar, @aciklama, @kisi, '0', @yapan)
+                `);
+        }
+
+        console.log(`✅ Manuel taksit planı: Müşteri ${musteri_id}, ${satirlar.length} satır`);
+        res.json({ success: true, adet: satirlar.length });
+    } catch (err) {
+        console.error('❌ Manuel taksitlendirme hatası:', err.message);
+        res.status(500).json({ hata: 'Sistem hatası: ' + err.message });
+    }
+});
+
 app.delete('/api/taksit-plani-tumunu-sil/:kisiId', async (req, res) => {
     const musteriId = req.params.kisiId;
     try {
         const pool = await sql.connect(config);
-        // Sadece bu kişiye ait (kişi = @id) olanları siler
-        await pool.request()
+        const silinen = await pool.request()
             .input('id', sql.Int, musteriId)
-            .query("DELETE FROM [komur].[dbo].[TAKSIT] WHERE kişi = @id");
-            
-        res.json({ success: true, mesaj: "Müşterinin planı temizlendi." });
+            .query(`DELETE FROM [komur].[dbo].[TAKSIT] 
+                WHERE kişi = @id AND DURUM = '0' AND ISNULL(ODEMELER, 0) = 0`);
+        const adet = silinen.rowsAffected?.[0] ?? 0;
+        res.json({ success: true, mesaj: 'Ödenmemiş taksitler temizlendi.', silinen: adet });
     } catch (err) {
         res.status(500).json({ hata: err.message });
     }
@@ -2398,39 +2663,83 @@ app.get('/api/gunluk-giderler', async (req, res) => {
 // --- 1. YENİ MAL ALIMI KAYDETME (Tarih eklendi) ---
 // --- 1. YENİ MAL ALIMI KAYDETME API'SI ---
 app.post('/api/mal-alimi', async (req, res) => {
-    // BURASI DÜZELTİLDİ: tedarikciId ve tedarikciFirma ayrı ayrı alınıyor
-    const { tarih, tedarikciId, tedarikciFirma, urunId, miktar, birimFiyat, odeme, aciklama, islemiYapan } = req.body;
-    const toplamTutar = miktar * birimFiyat;
+    const { tarih, tedarikciId, tedarikciFirma, urunId, miktar, birimFiyat, odeme, aciklama, islemiYapan, paraBirimi, islemKuru, girisMiktar, girisBirimi, toplamBorc } = req.body;
+    await ensureMalAlimDovizKolonlari();
+
+    const pb = (paraBirimi === 'USD') ? 'USD' : 'TRY';
+    const kur = pb === 'USD' ? (parseFloat(islemKuru) || 0) : 1;
+    if (pb === 'USD' && kur <= 0) {
+        return res.status(400).json({ hata: 'USD borç için geçerli bir kur girin.' });
+    }
+
+    let stokMiktar = parseFloat(miktar) || 0;
+    let birimFiyatHesap = parseFloat(birimFiyat) || 0;
+    const toplamBorcSayi = parseFloat(toplamBorc);
 
     try {
         const pool = await sql.connect(config);
+        await ensureStokDonusumKolonlari();
+        const urunRes = await pool.request()
+            .input('u', sql.Int, urunId)
+            .query(`SELECT UrunAdi, AdetBasinaKg FROM [komur].[dbo].[StokListesi] WHERE ID = @u`);
+        if (!urunRes.recordset.length) {
+            return res.status(400).json({ hata: 'Ürün bulunamadı.' });
+        }
+        const urunAdi = urunRes.recordset[0].UrunAdi;
+        const adetKg = urunRes.recordset[0].AdetBasinaKg;
+        const { birimTuru: satisBirimi } = parseStokUrunAdi(urunAdi);
+
+        const gMiktar = girisMiktar != null ? parseFloat(girisMiktar) : stokMiktar;
+        const gBirim = girisBirimi || satisBirimi;
+        if (girisMiktar != null || girisBirimi) {
+            stokMiktar = girisMiktarToStokMiktar(gMiktar, gBirim, satisBirimi, adetKg);
+        }
+        if (stokMiktar <= 0) {
+            return res.status(400).json({ hata: 'Geçerli bir miktar girin.' });
+        }
+
+        if (toplamBorcSayi > 0) {
+            birimFiyatHesap = toplamBorcSayi / stokMiktar;
+        } else if (birimFiyatHesap <= 0) {
+            return res.status(400).json({ hata: 'Toplam borç veya birim fiyat girin.' });
+        }
+
+        const dovizTutar = pb === 'USD' ? (toplamBorcSayi > 0 ? toplamBorcSayi : stokMiktar * birimFiyatHesap) : null;
+        const toplamTutar = pb === 'USD'
+            ? (toplamBorcSayi > 0 ? toplamBorcSayi * kur : stokMiktar * birimFiyatHesap * kur)
+            : (toplamBorcSayi > 0 ? toplamBorcSayi : stokMiktar * birimFiyatHesap);
+        const birimMaliyetTl = pb === 'USD' ? birimFiyatHesap * kur : birimFiyatHesap;
+        const kayitGirisBirimi = gBirim;
+        const kayitGirisMiktar = gMiktar;
+
         const transaction = new sql.Transaction(pool);
         await transaction.begin();
 
         try {
-            // BURASI DÜZELTİLDİ: TedarikciID ve TedarikciFirma SQL'e doğru sütunlarda gidiyor
             await transaction.request()
                 .input('tarih', sql.NVarChar, tarih || new Date().toISOString().split('T')[0])
-                .input('tId', sql.Int, tedarikciId)           // ID Sütunu
-                .input('tFirma', sql.NVarChar, tedarikciFirma) // İsim Sütunu
+                .input('tId', sql.Int, tedarikciId)
+                .input('tFirma', sql.NVarChar, tedarikciFirma)
                 .input('u', sql.Int, urunId)
-                .input('m', sql.Decimal(18,2), miktar)
-                .input('b', sql.Decimal(18,2), birimFiyat)
+                .input('m', sql.Decimal(18,2), stokMiktar)
+                .input('b', sql.Decimal(18,2), birimFiyatHesap)
                 .input('top', sql.Decimal(18,2), toplamTutar)
                 .input('o', sql.NVarChar, odeme)
                 .input('a', sql.NVarChar, aciklama)
                 .input('y', sql.NVarChar, islemiYapan)
+                .input('pb', sql.NVarChar, pb)
+                .input('kur', sql.Decimal(18, 4), kur)
+                .input('dt', sql.Decimal(18, 2), dovizTutar)
+                .input('gb', sql.NVarChar, kayitGirisBirimi)
+                .input('gm', sql.Decimal(18, 2), kayitGirisMiktar)
                 .query(`INSERT INTO [komur].[dbo].[MalAlimlari] 
-                       (Tarih, TedarikciID, TedarikciFirma, UrunID, Miktar, BirimMaliyet, ToplamTutar, OdemeDurumu, Aciklama, IslemiYapan) 
-                        VALUES (@tarih, @tId, @tFirma, @u, @m, @b, @top, @o, @a, @y)`);
+                       (Tarih, TedarikciID, TedarikciFirma, UrunID, Miktar, BirimMaliyet, ToplamTutar, OdemeDurumu, Aciklama, IslemiYapan, ParaBirimi, IslemKuru, DovizTutar, GirisBirimi, GirisMiktar) 
+                        VALUES (@tarih, @tId, @tFirma, @u, @m, @b, @top, @o, @a, @y, @pb, @kur, @dt, @gb, @gm)`);
 
-            // ... (Stoğu güncelleyen kodlar aynı kalacak, buraya dokunma) ...
-
-            // 2. Stoğu ve Alış Fiyatını Güncelle (Ortalama Maliyet Zekası)
             await transaction.request()
                 .input('u', sql.Int, urunId)
-                .input('m', sql.Decimal(18,2), miktar)
-                .input('b', sql.Decimal(18,2), birimFiyat)
+                .input('m', sql.Decimal(18,2), stokMiktar)
+                .input('b', sql.Decimal(18,2), birimMaliyetTl)
                 .query(`
                     UPDATE [komur].[dbo].[StokListesi] 
                     SET 
@@ -2458,11 +2767,15 @@ app.post('/api/mal-alimi', async (req, res) => {
 // --- 2. ALIMLARI LİSTELEME API (Düzenleme için UrunID eklendi) ---
 app.get('/api/mal-alimlari', async (req, res) => {
     try {
+        await ensureMalAlimDovizKolonlari();
         const pool = await sql.connect(config);
         const result = await pool.request().query(`
             SELECT 
-                M.ID, M.Tarih, M.TedarikciFirma, M.UrunID, S.UrunAdi, 
-                M.Miktar, M.BirimMaliyet, M.ToplamTutar, M.OdemeDurumu, M.Aciklama, M.IslemiYapan
+                M.ID, M.Tarih, M.TedarikciID, M.TedarikciFirma, M.UrunID, S.UrunAdi, 
+                M.Miktar, M.BirimMaliyet, M.ToplamTutar, M.OdemeDurumu, M.Aciklama, M.IslemiYapan,
+                ISNULL(M.ParaBirimi, N'TRY') AS ParaBirimi, ISNULL(M.IslemKuru, 1) AS IslemKuru, M.DovizTutar,
+                ISNULL(S.AlimBirimi, N'Ton') AS AlimBirimi, S.AdetBasinaKg,
+                M.GirisBirimi, M.GirisMiktar
             FROM [komur].[dbo].[MalAlimlari] M
             LEFT JOIN [komur].[dbo].[StokListesi] S ON M.UrunID = S.ID
             ORDER BY M.Tarih DESC
@@ -2473,39 +2786,89 @@ app.get('/api/mal-alimlari', async (req, res) => {
 
 // --- 3. DÜZENLEME (GÜNCELLEME) API (YEPYENİ EKLENDİ) ---
 app.put('/api/mal-alimi/:id', async (req, res) => {
-    const { tarih, tedarikci, urunId, miktar, birimFiyat, odeme, aciklama, islemiYapan } = req.body;
+    const { tarih, tedarikci, tedarikciFirma, urunId, miktar, birimFiyat, odeme, aciklama, islemiYapan, paraBirimi, islemKuru, girisMiktar, girisBirimi, toplamBorc } = req.body;
     const alimId = req.params.id;
-    const toplamTutar = miktar * birimFiyat;
+    const tedarikciAd = tedarikciFirma || tedarikci;
+    await ensureMalAlimDovizKolonlari();
+
+    const pb = (paraBirimi === 'USD') ? 'USD' : 'TRY';
+    const kur = pb === 'USD' ? (parseFloat(islemKuru) || 0) : 1;
+    if (pb === 'USD' && kur <= 0) {
+        return res.status(400).json({ hata: 'USD borç için geçerli bir kur girin.' });
+    }
+
+    let stokMiktar = parseFloat(miktar) || 0;
+    let birimFiyatHesap = parseFloat(birimFiyat) || 0;
+    const toplamBorcSayi = parseFloat(toplamBorc);
 
     try {
         const pool = await sql.connect(config);
+        await ensureStokDonusumKolonlari();
+        const urunRes = await pool.request()
+            .input('u', sql.Int, urunId)
+            .query(`SELECT UrunAdi, AdetBasinaKg FROM [komur].[dbo].[StokListesi] WHERE ID = @u`);
+        if (!urunRes.recordset.length) {
+            return res.status(400).json({ hata: 'Ürün bulunamadı.' });
+        }
+        const urunAdi = urunRes.recordset[0].UrunAdi;
+        const adetKg = urunRes.recordset[0].AdetBasinaKg;
+        const { birimTuru: satisBirimi } = parseStokUrunAdi(urunAdi);
+
+        const gMiktar = girisMiktar != null ? parseFloat(girisMiktar) : stokMiktar;
+        const gBirim = girisBirimi || satisBirimi;
+        if (girisMiktar != null || girisBirimi) {
+            stokMiktar = girisMiktarToStokMiktar(gMiktar, gBirim, satisBirimi, adetKg);
+        }
+        if (stokMiktar <= 0) {
+            return res.status(400).json({ hata: 'Geçerli bir miktar girin.' });
+        }
+        if (toplamBorcSayi > 0) {
+            birimFiyatHesap = toplamBorcSayi / stokMiktar;
+        } else if (birimFiyatHesap <= 0) {
+            return res.status(400).json({ hata: 'Toplam borç veya birim fiyat girin.' });
+        }
+
+        const dovizTutar = pb === 'USD' ? (toplamBorcSayi > 0 ? toplamBorcSayi : stokMiktar * birimFiyatHesap) : null;
+        const toplamTutar = pb === 'USD'
+            ? (toplamBorcSayi > 0 ? toplamBorcSayi * kur : stokMiktar * birimFiyatHesap * kur)
+            : (toplamBorcSayi > 0 ? toplamBorcSayi : stokMiktar * birimFiyatHesap);
+        const birimMaliyetTl = pb === 'USD' ? birimFiyatHesap * kur : birimFiyatHesap;
+        const kayitGirisBirimi = gBirim;
+        const kayitGirisMiktar = gMiktar;
+
         const transaction = new sql.Transaction(pool);
         await transaction.begin();
 
         try {
-            // 1. Eski miktarı bulalım ki aradaki farkı hesaplayalım
             const eskiKayit = await transaction.request()
                 .input('id', sql.Int, alimId)
                 .query(`SELECT UrunID, Miktar FROM [komur].[dbo].[MalAlimlari] WHERE ID = @id`);
                 
             const eskiMiktar = eskiKayit.recordset[0].Miktar;
-            const miktarFarki = miktar - eskiMiktar; // Örneğin: 10'du, 15 yaptık. Fark: +5 ton.
+            const miktarFarki = stokMiktar - eskiMiktar;
 
             // 2. Faturayı (MalAlimlari) Güncelle
             await transaction.request()
                 .input('id', sql.Int, alimId)
                 .input('tarih', sql.NVarChar, tarih)
-                .input('t', sql.NVarChar, tedarikci)
+                .input('t', sql.NVarChar, tedarikciAd)
                 .input('u', sql.Int, urunId)
-                .input('m', sql.Decimal(18,2), miktar)
-                .input('b', sql.Decimal(18,2), birimFiyat)
+                .input('m', sql.Decimal(18,2), stokMiktar)
+                .input('b', sql.Decimal(18,2), birimFiyatHesap)
                 .input('top', sql.Decimal(18,2), toplamTutar)
                 .input('o', sql.NVarChar, odeme)
                 .input('a', sql.NVarChar, aciklama)
+                .input('pb', sql.NVarChar, pb)
+                .input('kur', sql.Decimal(18, 4), kur)
+                .input('dt', sql.Decimal(18, 2), dovizTutar)
+                .input('gb', sql.NVarChar, kayitGirisBirimi)
+                .input('gm', sql.Decimal(18, 2), kayitGirisMiktar)
                 .query(`
                     UPDATE [komur].[dbo].[MalAlimlari] SET 
                         Tarih=@tarih, TedarikciFirma=@t, UrunID=@u, Miktar=@m, 
-                        BirimMaliyet=@b, ToplamTutar=@top, OdemeDurumu=@o, Aciklama=@a 
+                        BirimMaliyet=@b, ToplamTutar=@top, OdemeDurumu=@o, Aciklama=@a,
+                        ParaBirimi=@pb, IslemKuru=@kur, DovizTutar=@dt,
+                        GirisBirimi=@gb, GirisMiktar=@gm
                     WHERE ID=@id
                 `);
 
@@ -2513,7 +2876,7 @@ app.put('/api/mal-alimi/:id', async (req, res) => {
             await transaction.request()
                 .input('u', sql.Int, urunId)
                 .input('fark', sql.Decimal(18,2), miktarFarki)
-                .input('b', sql.Decimal(18,2), birimFiyat)
+                .input('b', sql.Decimal(18,2), birimMaliyetTl)
                 .query(`
                     UPDATE [komur].[dbo].[StokListesi] SET 
                         BaslangicStogu = BaslangicStogu + @fark, 
@@ -2574,15 +2937,34 @@ app.delete('/api/mal-alimi/:id', async (req, res) => {
 // --- TOPTANCI LİSTESİ VE BAKİYE ÇEKME ---
 app.get('/api/tedarikciler', async (req, res) => {
     try {
+        await ensureMalAlimDovizKolonlari();
+        await ensureTedarikciOdemeDovizKolonlari();
         const pool = await sql.connect(config);
         const result = await pool.request().query(`
             SELECT T.*, 
             (SELECT ISNULL(SUM(ToplamTutar),0) FROM MalAlimlari WHERE TedarikciID = T.ID) - 
-            (SELECT ISNULL(SUM(OdenenTutar),0) FROM TedarikciOdemeleri WHERE TedarikciID = T.ID) as Bakiye
+            (SELECT ISNULL(SUM(OdenenTutar),0) FROM TedarikciOdemeleri WHERE TedarikciID = T.ID) as Bakiye,
+            (SELECT ISNULL(SUM(DovizTutar),0) FROM MalAlimlari WHERE TedarikciID = T.ID AND ParaBirimi = N'USD') -
+            (SELECT ISNULL(SUM(DovizTutar),0) FROM TedarikciOdemeleri WHERE TedarikciID = T.ID AND ParaBirimi = N'USD') as ToplamDovizBorc
             FROM Tedarikciler T
         `);
-        res.json(result.recordset);
-    } catch (err) { res.status(500).json({ hata: err.message }); }
+        const guncelKur = await tcmbUsdSatisSayi();
+        const kayitlar = result.recordset.map((t) => {
+            const dovizBorc = parseFloat(t.ToplamDovizBorc) || 0;
+            const bakiye = parseFloat(t.Bakiye) || 0;
+            return {
+                ...t,
+                GuncelUsdKuru: guncelKur,
+                GuncelTlKarsiligi: (guncelKur != null && dovizBorc > 0)
+                    ? Math.round(dovizBorc * guncelKur * 100) / 100
+                    : (bakiye > 0 ? bakiye : null)
+            };
+        });
+        res.json(kayitlar);
+    } catch (err) {
+        console.error('TEDARIKCI LISTESI HATASI:', err);
+        res.status(500).json({ hata: err.message });
+    }
 });
 
 // --- YENİ TOPTANCI EKLEME ---
@@ -2604,11 +2986,14 @@ app.post('/api/tedarikci', async (req, res) => {
 // --- TOPTANCI HESAP HAREKETLERİ (EKSTRE) API'Sİ (GÜNCELLENDİ) ---
 app.get('/api/tedarikci-hareketleri/:id', async (req, res) => {
     try {
+        await ensureMalAlimDovizKolonlari();
+        await ensureTedarikciOdemeDovizKolonlari();
         const pool = await sql.connect(config);
         const result = await pool.request()
             .input('id', sql.Int, req.params.id)
             .query(`
-                SELECT ID, Tur, Tarih, Islem, Miktar, BirimFiyat, Borc, Odeme, Aciklama FROM (
+                SELECT ID, Tur, Tarih, Islem, Miktar, BirimFiyat, Borc, Odeme, Aciklama, ParaBirimi, IslemKuru, DovizTutar,
+                    UrunID, OdemeDurumu, AlimBirimi, AdetBasinaKg, UrunAdi, GirisBirimi, GirisMiktar FROM (
                     -- ALIMLAR (Miktar ve Birim Fiyat var)
                     SELECT 
                         M.ID,
@@ -2619,7 +3004,17 @@ app.get('/api/tedarikci-hareketleri/:id', async (req, res) => {
                         M.BirimMaliyet as BirimFiyat, 
                         M.ToplamTutar as Borc, 
                         0 as Odeme, 
-                        M.Aciklama 
+                        M.Aciklama,
+                        ISNULL(M.ParaBirimi, N'TRY') as ParaBirimi,
+                        ISNULL(M.IslemKuru, 1) as IslemKuru,
+                        M.DovizTutar,
+                        M.UrunID,
+                        M.OdemeDurumu,
+                        ISNULL(S.AlimBirimi, N'Ton') as AlimBirimi,
+                        S.AdetBasinaKg,
+                        S.UrunAdi,
+                        M.GirisBirimi,
+                        M.GirisMiktar
                     FROM [komur].[dbo].[MalAlimlari] M
                     LEFT JOIN [komur].[dbo].[StokListesi] S ON M.UrunID = S.ID
                     WHERE M.TedarikciID = @id
@@ -2636,31 +3031,54 @@ app.get('/api/tedarikci-hareketleri/:id', async (req, res) => {
                         NULL as BirimFiyat, 
                         0 as Borc, 
                         OdenenTutar as Odeme, 
-                        Aciklama 
+                        Aciklama,
+                        ISNULL(ParaBirimi, N'TRY') as ParaBirimi,
+                        ISNULL(IslemKuru, 1) as IslemKuru,
+                        DovizTutar,
+                        NULL as UrunID,
+                        NULL as OdemeDurumu,
+                        NULL as AlimBirimi,
+                        NULL as AdetBasinaKg,
+                        NULL as UrunAdi,
+                        NULL as GirisBirimi,
+                        NULL as GirisMiktar
                     FROM [komur].[dbo].[TedarikciOdemeleri]
                     WHERE TedarikciID = @id
                 ) AS Hareketler
                 ORDER BY Tarih ASC
             `);
-        res.json(result.recordset);
+        const guncelKur = await tcmbUsdSatisSayi();
+        res.json({ hareketler: result.recordset, guncelUsdKuru: guncelKur });
     } catch (err) { res.status(500).json({ hata: err.message }); }
 });// --- ÜRÜNE ÖZEL MAL ALIM GEÇMİŞİ API'Sİ ---
 app.get('/api/urun-alimlari/:id', async (req, res) => {
     try {
+        await ensureMalAlimDovizKolonlari();
         const pool = await sql.connect(config);
         const result = await pool.request()
             .input('id', sql.Int, req.params.id)
             .query(`
                 SELECT TOP 50
-                    Tarih, 
-                    ISNULL(TedarikciFirma, 'Bilinmeyen Toptancı') as Firma, 
-                    Miktar, 
-                    BirimMaliyet as Fiyat 
-                FROM [komur].[dbo].[MalAlimlari] 
-                WHERE UrunID = @id 
-                ORDER BY Tarih DESC
+                    M.ID, M.Tarih, 
+                    ISNULL(M.TedarikciFirma, N'Bilinmeyen Toptancı') as Firma, 
+                    M.Miktar, 
+                    M.BirimMaliyet as Fiyat,
+                    M.ToplamTutar,
+                    ISNULL(M.ParaBirimi, N'TRY') as ParaBirimi,
+                    ISNULL(M.IslemKuru, 1) as IslemKuru,
+                    M.DovizTutar,
+                    M.GirisBirimi,
+                    M.GirisMiktar,
+                    ISNULL(S.AlimBirimi, N'Ton') as AlimBirimi,
+                    S.AdetBasinaKg,
+                    S.UrunAdi
+                FROM [komur].[dbo].[MalAlimlari] M
+                LEFT JOIN [komur].[dbo].[StokListesi] S ON M.UrunID = S.ID
+                WHERE M.UrunID = @id 
+                ORDER BY M.Tarih DESC
             `);
-        res.json(result.recordset);
+        const guncelKur = await tcmbUsdSatisSayi();
+        res.json({ alimlar: result.recordset, guncelUsdKuru: guncelKur });
     } catch (err) { 
         console.error("Geçmiş Çekme Hatası:", err);
         res.status(500).json({ hata: err.message }); 
@@ -2703,11 +3121,18 @@ app.post('/api/stok-paketleme', async (req, res) => {
 // --- TOPTANCI ÖDEME KAYDETME API'Sİ ---
 // --- TOPTANCI ÖDEME KAYDETME API'Sİ ---
 app.post('/api/tedarikci-odeme', async (req, res) => {
-    // BURASI DÜZELTİLDİ: "tarih" verisini de req.body'den alıyoruz
-    const { tedarikciId, tarih, tutar, tur, aciklama } = req.body;
+    const { tedarikciId, tarih, tutar, tur, aciklama, paraBirimi, islemKuru } = req.body;
+    await ensureTedarikciOdemeDovizKolonlari();
     
-    // Eğer ön yüzden tarih gelmezse güvenlik amaçlı bugünü al
     const islemTarihi = tarih || new Date().toISOString().split('T')[0];
+    const pb = (paraBirimi === 'USD') ? 'USD' : 'TRY';
+    const kur = pb === 'USD' ? (parseFloat(islemKuru) || 0) : 1;
+    const tutarSayi = parseFloat(tutar) || 0;
+    if (tutarSayi <= 0) return res.status(400).json({ hata: 'Geçerli bir tutar girin.' });
+    if (pb === 'USD' && kur <= 0) return res.status(400).json({ hata: 'USD ödeme için geçerli bir kur girin.' });
+
+    const dovizTutar = pb === 'USD' ? tutarSayi : null;
+    const odenenTl = pb === 'USD' ? Math.round(tutarSayi * kur * 100) / 100 : tutarSayi;
 
     try {
         const pool = await sql.connect(config);
@@ -2717,12 +3142,15 @@ app.post('/api/tedarikci-odeme', async (req, res) => {
         try {
             await transaction.request()
                 .input('tId', sql.Int, tedarikciId)
-                .input('tar', sql.NVarChar, islemTarihi) // islemTarihi olarak değiştirdik
-                .input('tut', sql.Decimal(18,2), tutar)
+                .input('tar', sql.NVarChar, islemTarihi)
+                .input('tut', sql.Decimal(18,2), odenenTl)
                 .input('tur', sql.NVarChar, tur)
                 .input('aci', sql.NVarChar, aciklama)
-                .query(`INSERT INTO [komur].[dbo].[TedarikciOdemeleri] (TedarikciID, Tarih, OdenenTutar, OdemeTuru, Aciklama) 
-                        VALUES (@tId, @tar, @tut, @tur, @aci)`);
+                .input('pb', sql.NVarChar, pb)
+                .input('kur', sql.Decimal(18, 4), kur)
+                .input('dt', sql.Decimal(18, 2), dovizTutar)
+                .query(`INSERT INTO [komur].[dbo].[TedarikciOdemeleri] (TedarikciID, Tarih, OdenenTutar, OdemeTuru, Aciklama, ParaBirimi, IslemKuru, DovizTutar) 
+                        VALUES (@tId, @tar, @tut, @tur, @aci, @pb, @kur, @dt)`);
             
             // ... (Aşağıdaki kodlar aynı kalacak) ...
 
