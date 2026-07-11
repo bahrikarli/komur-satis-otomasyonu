@@ -1518,48 +1518,55 @@ app.post('/api/musteri', async (req, res) => {
 
     try {
         const request = new sql.Request();
-        const p_unvan = unvan ? unvan.trim() : '';
-        const p_telefon = telefon ? telefon.trim() : '';
+        const p_unvan = unvan ? String(unvan).trim() : '';
+        const p_telefon = telefon ? String(telefon).trim().replace(/\D/g, '') : '';
+        const p_ad = ad_soyad ? String(ad_soyad).trim() : (p_unvan || '');
 
-        // 1. MÜKERRER KONTROLÜ (Sadece Unvan'ı kontrol ediyoruz, ID sildik)
+        if (!p_unvan) {
+            return res.status(400).json({ success: false, hata: 'Ünvan zorunlu.' });
+        }
+
+        // Mükerrer: sadece Ünvan + Dükkan içi tanıma (Adı) BERABER aynıysa
+        // Telefon ile eşleştirme yapılmaz.
         request.input('checkUnvan', sql.NVarChar, p_unvan);
-        request.input('checkTel', sql.NVarChar, p_telefon);
-
-        // Sorguda ID yerine Unvan çekiyoruz ki sütun hatası vermesin
-        const checkQuery = `
-            SELECT TOP 1 Unvan 
-            FROM [komur].[dbo].[Kimlik] 
-            WHERE Unvan = @checkUnvan AND CEPTEL = @checkTel AND @checkUnvan <> ''
-        `;
-
-        const checkResult = await request.query(checkQuery);
+        request.input('checkAd', sql.NVarChar, p_ad);
+        const checkResult = await request.query(`
+            SELECT TOP 1 Kimlik, Unvan, CEPTEL, Adı
+            FROM [komur].[dbo].[Kimlik]
+            WHERE
+                LTRIM(RTRIM(ISNULL(Unvan,''))) = @checkUnvan
+                AND LTRIM(RTRIM(ISNULL(Adı,''))) = @checkAd
+                AND @checkUnvan <> ''
+                AND @checkAd <> ''
+        `);
 
         if (checkResult.recordset.length > 0) {
-            return res.status(400).json({ 
-                success: false, 
-                hata: `Bu isim ve telefon numarasıyla zaten bir kayıt mevcut.` 
+            const m = checkResult.recordset[0];
+            return res.status(200).json({
+                success: true,
+                mevcut: true,
+                yeniId: m.Kimlik,
+                mesaj: `Bu müşteri zaten kayıtlı (Ünvan + dükkan içi aynı: ${m.Unvan || m.Adı}). Mevcut kayıt seçildi.`,
+                musteri: { Kimlik: m.Kimlik, Unvan: m.Unvan, Adı: m.Adı, CEPTEL: m.CEPTEL }
             });
         }
 
-        // 2. KAYIT İŞLEMİ (OUTPUT kısmını tamamen sildik)
-        request.input('ad', sql.NVarChar, ad_soyad ? ad_soyad.trim() : '');
-        request.input('soyad', sql.NVarChar, ''); 
-        request.input('telefon', sql.NVarChar, p_telefon);
+        request.input('ad', sql.NVarChar, p_ad);
+        request.input('soyad', sql.NVarChar, '');
+        request.input('telefon', sql.NVarChar, p_telefon || '-');
         request.input('unvan', sql.NVarChar, p_unvan);
-        request.input('adres', sql.NVarChar, adres ? adres.trim() : '');
-        request.input('ilce', sql.NVarChar, ilce ? ilce.trim() : '');
-        request.input('mahalle', sql.NVarChar, mahalle ? mahalle.trim() : '');
+        request.input('adres', sql.NVarChar, adres ? String(adres).trim() : '');
+        request.input('ilce', sql.NVarChar, ilce ? String(ilce).trim() : '');
+        request.input('mahalle', sql.NVarChar, mahalle ? String(mahalle).trim() : '');
 
-        const query = `
-            INSERT INTO [komur].[dbo].[Kimlik] (Adı, Soyadı, CEPTEL, Unvan, Adres, Ilce, Mahalle) 
+        const insertRes = await request.query(`
+            INSERT INTO [komur].[dbo].[Kimlik] (Adı, Soyadı, CEPTEL, Unvan, Adres, Ilce, Mahalle)
             VALUES (@ad, @soyad, @telefon, @unvan, @adres, @ilce, @mahalle);
             SELECT CAST(SCOPE_IDENTITY() AS INT) AS yeniId;
-        `;
-
-        const insertRes = await request.query(query);
+        `);
         const yeniId = insertRes.recordset && insertRes.recordset[0] ? insertRes.recordset[0].yeniId : null;
 
-        res.status(201).json({ success: true, mesaj: 'Müşteri başarıyla eklendi!', yeniId });
+        res.status(201).json({ success: true, mevcut: false, mesaj: 'Müşteri başarıyla eklendi!', yeniId });
 
     } catch (err) {
         console.error("Müşteri Kayıt Hatası:", err);
@@ -4147,22 +4154,128 @@ app.put('/api/apartman/:id', async (req, res) => {
     }
 });
 
-// --- Apartman sil (daireler + teslimatlar dahil) ---
+// --- Apartman sil (daireler + teslimatlar dahil; ödeme varsa engellenir) ---
 app.delete('/api/apartman/:id', async (req, res) => {
     const id = parseInt(req.params.id, 10);
     if (!id) return res.status(400).json({ hata: 'Geçersiz id' });
     try {
         await ensureApartmanTablolari();
         const pool = await sql.connect(config);
-        await pool.request().input('id', sql.Int, id).query(`
-            DELETE FROM [komur].[dbo].[ApartmanTeslimatlar]
-            WHERE DaireId IN (SELECT Id FROM [komur].[dbo].[ApartmanDaireler] WHERE ApartmanId = @id);
-            DELETE FROM [komur].[dbo].[ApartmanDaireler] WHERE ApartmanId = @id;
-            DELETE FROM [komur].[dbo].[Apartmanlar] WHERE Id = @id;
+
+        const odeme = await pool.request().input('id', sql.Int, id).query(`
+            SELECT TOP 1 Id, Blok, DaireNo,
+                   ISNULL(OdenenTl, 0) AS OdenenTl,
+                   ISNULL(AnlasilanMiktar, 0) AS AnlasilanMiktar,
+                   KalanBorcKg
+            FROM [komur].[dbo].[ApartmanDaireler]
+            WHERE ApartmanId = @id
+              AND (
+                ISNULL(OdenenTl, 0) > 0.01
+                OR (ISNULL(AnlasilanMiktar, 0) - ISNULL(KalanBorcKg, ISNULL(AnlasilanMiktar, 0))) > 0.01
+              )
         `);
+        if (odeme.recordset.length) {
+            const d = odeme.recordset[0];
+            return res.status(400).json({
+                hata: `Apartmanda ödeme var (${d.Blok || ''} ${d.DaireNo || ''}). Önce ilgili carilerde apartman ödemelerini silin.`,
+                kod: 'ODEME_VAR'
+            });
+        }
+
+        const tx = new sql.Transaction(pool);
+        await tx.begin();
+        try {
+            const makbuzlar = await tx.request().input('id', sql.Int, id).query(`
+                SELECT DISTINCT AnlasmaMakbuzNo FROM [komur].[dbo].[ApartmanDaireler]
+                WHERE ApartmanId = @id AND AnlasmaMakbuzNo IS NOT NULL
+            `);
+            for (const row of makbuzlar.recordset) {
+                await tx.request().input('mNo', sql.NVarChar, row.AnlasmaMakbuzNo)
+                    .query(`DELETE FROM [komur].[dbo].[MusteriHareket] WHERE MakbuzNo = @mNo`);
+            }
+            await tx.request().input('id', sql.Int, id).query(`
+                DELETE FROM [komur].[dbo].[ApartmanTeslimatlar]
+                WHERE DaireId IN (SELECT Id FROM [komur].[dbo].[ApartmanDaireler] WHERE ApartmanId = @id);
+                DELETE FROM [komur].[dbo].[ApartmanDaireler] WHERE ApartmanId = @id;
+                DELETE FROM [komur].[dbo].[Apartmanlar] WHERE Id = @id;
+            `);
+            await tx.commit();
+        } catch (e) {
+            await tx.rollback();
+            throw e;
+        }
         res.json({ mesaj: 'Apartman silindi' });
     } catch (err) {
         console.error('APARTMAN SIL HATASI:', err);
+        res.status(500).json({ hata: err.message });
+    }
+});
+
+// --- Blok sil (o bloktaki tüm daireler; ödeme varsa engellenir) ---
+app.delete('/api/apartman/:id/blok', async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    const blokHam = req.body?.blok != null ? String(req.body.blok) : (req.query.blok != null ? String(req.query.blok) : '');
+    const blok = blokHam.trim();
+    if (!id) return res.status(400).json({ hata: 'Geçersiz id' });
+    if (!blok || blok === 'TUMU') return res.status(400).json({ hata: 'Silinecek blok seçin' });
+    try {
+        await ensureApartmanTablolari();
+        const pool = await sql.connect(config);
+        const bloksuz = blok === '(Bloksuz)';
+
+        const odemeReq = pool.request().input('id', sql.Int, id).input('blok', sql.NVarChar, blok);
+        const odeme = await odemeReq.query(`
+            SELECT TOP 1 Id, Blok, DaireNo
+            FROM [komur].[dbo].[ApartmanDaireler]
+            WHERE ApartmanId = @id
+              AND (
+                (${bloksuz ? '1' : '0'} = 1 AND (Blok IS NULL OR LTRIM(RTRIM(Blok)) = ''))
+                OR LTRIM(RTRIM(ISNULL(Blok, ''))) = @blok
+              )
+              AND (
+                ISNULL(OdenenTl, 0) > 0.01
+                OR (ISNULL(AnlasilanMiktar, 0) - ISNULL(KalanBorcKg, ISNULL(AnlasilanMiktar, 0))) > 0.01
+              )
+        `);
+        if (odeme.recordset.length) {
+            const d = odeme.recordset[0];
+            return res.status(400).json({
+                hata: `Bu blokta ödeme var (Daire ${d.DaireNo || ''}). Önce ilgili carilerde apartman ödemelerini silin.`,
+                kod: 'ODEME_VAR'
+            });
+        }
+
+        const tx = new sql.Transaction(pool);
+        await tx.begin();
+        try {
+            const whereBlok = bloksuz
+                ? `(Blok IS NULL OR LTRIM(RTRIM(Blok)) = '')`
+                : `LTRIM(RTRIM(ISNULL(Blok, ''))) = @blok`;
+            const makbuzlar = await tx.request().input('id', sql.Int, id).input('blok', sql.NVarChar, blok).query(`
+                SELECT DISTINCT AnlasmaMakbuzNo FROM [komur].[dbo].[ApartmanDaireler]
+                WHERE ApartmanId = @id AND AnlasmaMakbuzNo IS NOT NULL AND ${whereBlok}
+            `);
+            for (const row of makbuzlar.recordset) {
+                await tx.request().input('mNo', sql.NVarChar, row.AnlasmaMakbuzNo)
+                    .query(`DELETE FROM [komur].[dbo].[MusteriHareket] WHERE MakbuzNo = @mNo`);
+            }
+            await tx.request().input('id', sql.Int, id).input('blok', sql.NVarChar, blok).query(`
+                DELETE FROM [komur].[dbo].[ApartmanTeslimatlar]
+                WHERE DaireId IN (
+                    SELECT Id FROM [komur].[dbo].[ApartmanDaireler]
+                    WHERE ApartmanId = @id AND ${whereBlok}
+                );
+                DELETE FROM [komur].[dbo].[ApartmanDaireler]
+                WHERE ApartmanId = @id AND ${whereBlok};
+            `);
+            await tx.commit();
+            res.json({ mesaj: 'Blok silindi' });
+        } catch (e) {
+            await tx.rollback();
+            throw e;
+        }
+    } catch (err) {
+        console.error('BLOK SIL HATASI:', err);
         res.status(500).json({ hata: err.message });
     }
 });
@@ -4241,11 +4354,33 @@ app.put('/api/apartman-daire/:id', async (req, res) => {
             ? parseFloat(kalanBorcKg)
             : anlasilan;
 
+        // Ödeme yapılmış müşteri kaldırılamaz / değiştirilemez
+        const once = await pool.request().input('id', sql.Int, id).query(`
+            SELECT MusteriKimlik, AnlasilanMiktar, KalanBorcKg, ISNULL(OdenenTl, 0) AS OdenenTl
+            FROM [komur].[dbo].[ApartmanDaireler] WHERE Id = @id
+        `);
+        if (!once.recordset.length) return res.status(404).json({ hata: 'Daire bulunamadı' });
+        const eski = once.recordset[0];
+        const yeniMk = musteriKimlik ? parseInt(musteriKimlik, 10) : null;
+        const eskiMk = eski.MusteriKimlik ? parseInt(eski.MusteriKimlik, 10) : null;
+        if (eskiMk && Number(eskiMk) !== Number(yeniMk || 0)) {
+            const anl = parseFloat(eski.AnlasilanMiktar) || 0;
+            const kalanKg = eski.KalanBorcKg != null ? parseFloat(eski.KalanBorcKg) : anl;
+            const odenenKg = Math.max(0, anl - kalanKg);
+            const odenenTl = parseFloat(eski.OdenenTl) || 0;
+            if (odenenTl > 0.01 || odenenKg > 0.01) {
+                return res.status(400).json({
+                    hata: 'Bu dairede ödeme var. Müşteriyi kaldırmak/değiştirmek için önce carisine gidip apartman ödemesini silin.',
+                    kod: 'ODEME_VAR'
+                });
+            }
+        }
+
         await pool.request()
             .input('id', sql.Int, id)
             .input('blok', sql.NVarChar, blok != null ? String(blok).trim() : null)
             .input('no', sql.NVarChar, daireNo != null ? String(daireNo).trim() : null)
-            .input('mk', sql.Int, musteriKimlik ? parseInt(musteriKimlik, 10) : null)
+            .input('mk', sql.Int, yeniMk)
             .input('urun', sql.Int, urunId ? parseInt(urunId, 10) : null)
             .input('anlasilan', sql.Decimal(18, 2), anlasilan)
             .input('birim', sql.NVarChar, 'Kg')
@@ -4274,6 +4409,131 @@ app.put('/api/apartman-daire/:id', async (req, res) => {
         });
     } catch (err) {
         console.error('DAIRE GUNCELLE HATASI:', err);
+        res.status(500).json({ hata: err.message });
+    }
+});
+
+// --- Sadece müşteri değiştir (yanlış daireye yanlış kişi atamasını düzelt) ---
+app.put('/api/apartman-daire/:id/musteri', async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ hata: 'Geçersiz daire' });
+    const musteriKimlik = req.body.musteriKimlik != null && req.body.musteriKimlik !== ''
+        ? parseInt(req.body.musteriKimlik, 10) : null;
+    const islemiYapan = req.body.islemiYapan || 'Sistem';
+    try {
+        await ensureApartmanTablolari();
+        const pool = await sql.connect(config);
+        const once = await pool.request().input('id', sql.Int, id).query(`
+            SELECT Id, MusteriKimlik, AnlasilanMiktar, KalanBorcKg, ISNULL(OdenenTl, 0) AS OdenenTl, Blok, DaireNo
+            FROM [komur].[dbo].[ApartmanDaireler] WHERE Id = @id
+        `);
+        if (!once.recordset.length) return res.status(404).json({ hata: 'Daire bulunamadı' });
+        const eski = once.recordset[0];
+        if (Number(eski.MusteriKimlik || 0) === Number(musteriKimlik || 0)) {
+            return res.json({ mesaj: 'Değişiklik yok', degisti: false });
+        }
+
+        // Ödeme yapılmış müşteri kaldırılamaz / değiştirilemez
+        const anlasilan = parseFloat(eski.AnlasilanMiktar) || 0;
+        const kalanKg = eski.KalanBorcKg != null ? parseFloat(eski.KalanBorcKg) : anlasilan;
+        const odenenKg = Math.max(0, anlasilan - kalanKg);
+        const odenenTl = parseFloat(eski.OdenenTl) || 0;
+        const eskiMk = eski.MusteriKimlik ? parseInt(eski.MusteriKimlik, 10) : null;
+        if (eskiMk && (odenenTl > 0.01 || odenenKg > 0.01)) {
+            return res.status(400).json({
+                hata: 'Bu dairede ödeme var. Müşteriyi kaldırmak/değiştirmek için önce carisine gidip apartman ödemesini silin.',
+                kod: 'ODEME_VAR',
+                odenenKg: Math.round(odenenKg * 100) / 100,
+                odenenTl: Math.round(odenenTl * 100) / 100,
+                musteriKimlik: eskiMk
+            });
+        }
+
+        await pool.request()
+            .input('id', sql.Int, id)
+            .input('mk', sql.Int, musteriKimlik)
+            .query(`UPDATE [komur].[dbo].[ApartmanDaireler] SET MusteriKimlik = @mk WHERE Id = @id`);
+
+        // Cari borç satırı eski müşteriden silinip yeni müşteriye yazılır
+        const borcSonuc = await daireAnlasmaBorcEsitle(pool, id, islemiYapan);
+        let musteriAd = null;
+        if (musteriKimlik) {
+            const mRes = await pool.request().input('mk', sql.Int, musteriKimlik)
+                .query(`SELECT ISNULL(Unvan, ISNULL(Adı,'')) AS Ad FROM [komur].[dbo].[Kimlik] WHERE Kimlik = @mk`);
+            musteriAd = mRes.recordset[0]?.Ad || null;
+        }
+        res.json({
+            mesaj: 'Müşteri güncellendi',
+            degisti: true,
+            daireId: id,
+            eskiMusteriKimlik: eski.MusteriKimlik,
+            musteriKimlik,
+            musteriAd,
+            cariBorc: borcSonuc.borc || 0,
+            kalanKg: borcSonuc.kalanKg
+        });
+    } catch (err) {
+        console.error('DAIRE MUSTERI DEGISTIR HATASI:', err);
+        res.status(500).json({ hata: err.message });
+    }
+});
+
+// --- İki dairenin müşterilerini takas et ---
+app.post('/api/apartman/musteri-takas', async (req, res) => {
+    const daireId1 = parseInt(req.body.daireId1, 10);
+    const daireId2 = parseInt(req.body.daireId2, 10);
+    const islemiYapan = req.body.islemiYapan || 'Sistem';
+    if (!daireId1 || !daireId2 || daireId1 === daireId2) {
+        return res.status(400).json({ hata: 'İki farklı daire seçin' });
+    }
+    try {
+        await ensureApartmanTablolari();
+        const pool = await sql.connect(config);
+        const r = await pool.request()
+            .input('a', sql.Int, daireId1)
+            .input('b', sql.Int, daireId2)
+            .query(`
+                SELECT Id, MusteriKimlik, Blok, DaireNo, ApartmanId,
+                       AnlasilanMiktar, KalanBorcKg, ISNULL(OdenenTl, 0) AS OdenenTl
+                FROM [komur].[dbo].[ApartmanDaireler]
+                WHERE Id IN (@a, @b)
+            `);
+        if (r.recordset.length !== 2) return res.status(404).json({ hata: 'Daireler bulunamadı' });
+        const d1 = r.recordset.find((x) => x.Id === daireId1);
+        const d2 = r.recordset.find((x) => x.Id === daireId2);
+        if (d1.ApartmanId !== d2.ApartmanId) {
+            return res.status(400).json({ hata: 'Takas aynı apartman içinde olmalı' });
+        }
+        const odemeVarMi = (d) => {
+            const anlasilan = parseFloat(d.AnlasilanMiktar) || 0;
+            const kalanKg = d.KalanBorcKg != null ? parseFloat(d.KalanBorcKg) : anlasilan;
+            const odenenKg = Math.max(0, anlasilan - kalanKg);
+            const odenenTl = parseFloat(d.OdenenTl) || 0;
+            return odenenTl > 0.01 || odenenKg > 0.01;
+        };
+        if (odemeVarMi(d1) || odemeVarMi(d2)) {
+            return res.status(400).json({
+                hata: 'Ödeme yapılmış daire takas edilemez. Önce ilgili caride apartman ödemesini silin.',
+                kod: 'ODEME_VAR'
+            });
+        }
+        const mk1 = d1.MusteriKimlik;
+        const mk2 = d2.MusteriKimlik;
+        await pool.request().input('id', sql.Int, daireId1).input('mk', sql.Int, mk2)
+            .query(`UPDATE [komur].[dbo].[ApartmanDaireler] SET MusteriKimlik = @mk WHERE Id = @id`);
+        await pool.request().input('id', sql.Int, daireId2).input('mk', sql.Int, mk1)
+            .query(`UPDATE [komur].[dbo].[ApartmanDaireler] SET MusteriKimlik = @mk WHERE Id = @id`);
+
+        await daireAnlasmaBorcEsitle(pool, daireId1, islemiYapan);
+        await daireAnlasmaBorcEsitle(pool, daireId2, islemiYapan);
+
+        res.json({
+            mesaj: 'Müşteriler takas edildi',
+            daire1: { id: daireId1, blok: d1.Blok, no: d1.DaireNo, musteriKimlik: mk2 },
+            daire2: { id: daireId2, blok: d2.Blok, no: d2.DaireNo, musteriKimlik: mk1 }
+        });
+    } catch (err) {
+        console.error('MUSTERI TAKAS HATASI:', err);
         res.status(500).json({ hata: err.message });
     }
 });
@@ -4419,9 +4679,23 @@ app.delete('/api/apartman-daire/:id', async (req, res) => {
     try {
         await ensureApartmanTablolari();
         const pool = await sql.connect(config);
-        const dRes = await pool.request().input('id', sql.Int, id)
-            .query(`SELECT AnlasmaMakbuzNo FROM [komur].[dbo].[ApartmanDaireler] WHERE Id = @id`);
-        const makbuz = dRes.recordset[0]?.AnlasmaMakbuzNo;
+        const dRes = await pool.request().input('id', sql.Int, id).query(`
+            SELECT AnlasmaMakbuzNo, AnlasilanMiktar, KalanBorcKg, ISNULL(OdenenTl, 0) AS OdenenTl
+            FROM [komur].[dbo].[ApartmanDaireler] WHERE Id = @id
+        `);
+        if (!dRes.recordset.length) return res.status(404).json({ hata: 'Daire bulunamadı' });
+        const eski = dRes.recordset[0];
+        const anlasilan = parseFloat(eski.AnlasilanMiktar) || 0;
+        const kalanKg = eski.KalanBorcKg != null ? parseFloat(eski.KalanBorcKg) : anlasilan;
+        const odenenKg = Math.max(0, anlasilan - kalanKg);
+        const odenenTl = parseFloat(eski.OdenenTl) || 0;
+        if (odenenTl > 0.01 || odenenKg > 0.01) {
+            return res.status(400).json({
+                hata: 'Bu dairede ödeme var. Önce carisine gidip apartman ödemesini silin.',
+                kod: 'ODEME_VAR'
+            });
+        }
+        const makbuz = eski.AnlasmaMakbuzNo;
         const tx = new sql.Transaction(pool);
         await tx.begin();
         try {

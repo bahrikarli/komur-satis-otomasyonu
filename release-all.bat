@@ -102,6 +102,7 @@ copy /y "%ROOT%dist\%EXE_NAME%.exe" "%RELEASE_DIR%\" >nul
 xcopy "%ROOT%public" "%RELEASE_DIR%\public" /E /I /Y >nul
 if exist "%ROOT%guncelle-ve-baslat.bat" copy /y "%ROOT%guncelle-ve-baslat.bat" "%RELEASE_DIR%\" >nul
 if exist "%ROOT%baslat.bat" copy /y "%ROOT%baslat.bat" "%RELEASE_DIR%\" >nul
+if exist "%ROOT%durdur.bat" copy /y "%ROOT%durdur.bat" "%RELEASE_DIR%\" >nul
 if exist "%ROOT%.env.ornek" copy /y "%ROOT%.env.ornek" "%RELEASE_DIR%\.env" >nul
 if exist "%ZIP_FILE%" del /f /q "%ZIP_FILE%"
 powershell -NoProfile -Command "Compress-Archive -Path '%RELEASE_DIR%\*' -DestinationPath '%ZIP_FILE%' -Force"

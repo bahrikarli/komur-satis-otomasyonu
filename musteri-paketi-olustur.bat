@@ -72,6 +72,7 @@ if errorlevel 1 (
 echo    OK: public\
 
 if exist "%ROOT%baslat.bat" copy /y "%ROOT%baslat.bat" "%PAKET%\" >nul
+if exist "%ROOT%durdur.bat" copy /y "%ROOT%durdur.bat" "%PAKET%\" >nul
 if exist "%ROOT%baslat.vbs" copy /y "%ROOT%baslat.vbs" "%PAKET%\" >nul
 if exist "%ROOT%ACILIS.bat" copy /y "%ROOT%ACILIS.bat" "%PAKET%\" >nul
 if exist "%ROOT%ACILIS.vbs" copy /y "%ROOT%ACILIS.vbs" "%PAKET%\" >nul
@@ -87,6 +88,9 @@ if exist "%ROOT%scripts\guvenlik-duvari-port-ac.bat" copy /y "%ROOT%scripts\guve
 echo %VER%> "%PAKET%\surum.txt"
 
 echo    OK: musteri-paketi\ hazir (surum %VER%)
+
+if /I "%~1"=="nopause" goto :paket_bitti
+if /I "%~2"=="nopause" goto :skip_prompt
 
 echo.
 set "HEDEF=C:\musteri-paketi"
@@ -106,21 +110,24 @@ if /I "!KOPYA!"=="E" (
   for %%F in ("%HEDEF%\%EXE_NAME%.exe") do echo    OK: %%F  ^(%%~zF byte, %%~tF^)
 )
 
+:skip_prompt
 if exist "%ROOT%scripts\masaustu-kisayol.ps1" (
   echo [4] Masaustu kisayolu...
   powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT%scripts\masaustu-kisayol.ps1" -HedefKlasor "%PAKET%"
 )
 
+:paket_bitti
 echo.
 echo ============================================
 echo   TAMAM
 echo ============================================
 echo   Paket: %PAKET%
 echo   Musteri: ACILIS.bat veya masaustu kisayolu
+echo   Durdur: durdur.bat
 echo   Mobil:  mobil-ac.bat
 echo.
 echo   Sadece arayuz ^(public^), EXE dokunma:  musteri-paketi-olustur.bat hizli
 echo   Yayin + paket birlikte:           musteri-paketi-olustur.bat release
 echo ============================================
-pause
+if /I not "%~1"=="nopause" if /I not "%~2"=="nopause" pause
 endlocal
