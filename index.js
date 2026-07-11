@@ -1339,10 +1339,15 @@ app.post('/api/tahsilat', async (req, res) => {
         let apartmanOdeme = null;
         if (apartmanUygula !== false) {
             try {
-                apartmanOdeme = await apartmanOdemeKgIsle(pool, parseInt(kisiId, 10), guvenliOdeme, islemiYapan);
+                apartmanOdeme = await apartmanOdemeKgIsle(pool, parseInt(kisiId, 10), guvenliOdeme, islemiYapan, req.body.odemeTuru || aciklama);
                 if (yeniHareketId && apartmanOdeme && apartmanOdeme.islenen > 0) {
-                    await pool.request().input('id', sql.Int, yeniHareketId)
-                        .query(`UPDATE [komur].[dbo].[MusteriHareket] SET birimtür = 'APT' WHERE Kimlik = @id`);
+                    const kurTxt = apartmanOdeme.kur
+                        ? `Anlık USD: ${Number(apartmanOdeme.kur).toLocaleString('tr-TR', { minimumFractionDigits: 4 })} · Ö.USD: ${Number(apartmanOdeme.odenenUsd || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })} · ${apartmanOdeme.kgDusen} kg · ${apartmanOdeme.tonFiyat || '—'} USD/ton`
+                        : `Apartman: ${apartmanOdeme.kgDusen} kg`;
+                    await pool.request()
+                        .input('id', sql.Int, yeniHareketId)
+                        .input('not', sql.NVarChar, kurTxt)
+                        .query(`UPDATE [komur].[dbo].[MusteriHareket] SET birimtür = 'APT', notlar = CASE WHEN notlar IS NULL OR notlar = '' THEN @not ELSE notlar + N' | ' + @not END WHERE Kimlik = @id`);
                 }
             } catch (aptErr) {
                 console.warn('Apartman kg ödeme işlemi:', aptErr.message);
@@ -3335,10 +3340,15 @@ app.post('/api/musteri-odeme-makbuzlu', async (req, res) => {
             let apartmanOdeme = null;
             if (apartmanUygula !== false) {
                 try {
-                    apartmanOdeme = await apartmanOdemeKgIsle(pool, musteriId, tutar, islemiYapan);
+                    apartmanOdeme = await apartmanOdemeKgIsle(pool, musteriId, tutar, islemiYapan, odemeTuru);
                     if (yeniHareketId && apartmanOdeme && apartmanOdeme.islenen > 0) {
-                        await pool.request().input('id', sql.Int, yeniHareketId)
-                            .query(`UPDATE [komur].[dbo].[MusteriHareket] SET birimtür = 'APT' WHERE Kimlik = @id`);
+                        const kurTxt = apartmanOdeme.kur
+                            ? `Anlık USD: ${Number(apartmanOdeme.kur).toLocaleString('tr-TR', { minimumFractionDigits: 4 })} · Ö.USD: ${Number(apartmanOdeme.odenenUsd || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })} · ${apartmanOdeme.kgDusen} kg · ${apartmanOdeme.tonFiyat || '—'} USD/ton`
+                            : `Apartman: ${apartmanOdeme.kgDusen} kg`;
+                        await pool.request()
+                            .input('id', sql.Int, yeniHareketId)
+                            .input('not', sql.NVarChar, kurTxt)
+                            .query(`UPDATE [komur].[dbo].[MusteriHareket] SET birimtür = 'APT', notlar = CASE WHEN notlar IS NULL OR notlar = '' THEN @not ELSE notlar + N' | ' + @not END WHERE Kimlik = @id`);
                     }
                 } catch (aptErr) {
                     console.warn('Apartman kg ödeme (makbuzlu):', aptErr.message);
@@ -3626,7 +3636,7 @@ BEGIN
         [UrunID] INT NULL,
         [AnlasilanMiktar] DECIMAL(18,2) NOT NULL CONSTRAINT DF_ApartmanDaireler_Anlasilan DEFAULT (0),
         [Birim] NVARCHAR(20) NULL,
-        [BirimFiyat] DECIMAL(18,2) NULL,
+        [BirimFiyat] DECIMAL(18,6) NULL,
         [TeslimEdilen] DECIMAL(18,2) NOT NULL CONSTRAINT DF_ApartmanDaireler_Teslim DEFAULT (0),
         [Aciklama] NVARCHAR(400) NULL,
         [OlusturmaZamani] DATETIME2(3) NOT NULL CONSTRAINT DF_ApartmanDaireler_Zaman DEFAULT (SYSUTCDATETIME())
@@ -3697,6 +3707,15 @@ AND NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[komur].
 BEGIN
     ALTER TABLE [komur].[dbo].[ApartmanDaireler] ADD [OdenenTl] DECIMAL(18,2) NOT NULL CONSTRAINT DF_AptDaire_Odenen DEFAULT (0);
 END
+-- BirimFiyat DECIMAL(18,2) idi: 0.295 USD/kg → 0.30 yuvarlanıyordu (295$/ton borç şişiyordu)
+IF EXISTS (
+    SELECT 1 FROM sys.columns
+    WHERE object_id = OBJECT_ID(N'[komur].[dbo].[ApartmanDaireler]')
+      AND name = N'BirimFiyat' AND scale < 4
+)
+BEGIN
+    ALTER TABLE [komur].[dbo].[ApartmanDaireler] ALTER COLUMN [BirimFiyat] DECIMAL(18,6) NULL;
+END
     `);
     apartmanTablolariHazir = true;
 }
@@ -3721,6 +3740,14 @@ function apartmanKgFiyatFromTon(tonFiyat) {
     const t = parseFloat(tonFiyat);
     if (!t || t <= 0) return 0;
     return t / 1000;
+}
+
+/** Kg birim fiyat: TonFiyat varsa ondan hesapla (BirimFiyat eski 2 hane yüzünden yuvarlanmış olabilir). */
+function apartmanDaireKgFiyat(d) {
+    if (!d) return 0;
+    const tonFiyat = parseFloat(d.TonFiyat) || 0;
+    if (tonFiyat > 0) return apartmanKgFiyatFromTon(tonFiyat);
+    return parseFloat(d.BirimFiyat) || 0;
 }
 
 function apartmanBorcTlHesapla(kalanKg, kgFiyat, paraBirimi, usdKur) {
@@ -3809,9 +3836,8 @@ async function daireAnlasmaBorcEsitle(pool, daireId, islemiYapan, usdKurHarici) 
 
         let anlasilanKg = parseFloat(d.AnlasilanMiktar) || 0;
         let kalanKg = d.KalanBorcKg != null ? parseFloat(d.KalanBorcKg) : anlasilanKg;
-        let kgFiyat = parseFloat(d.BirimFiyat) || 0;
         const tonFiyat = parseFloat(d.TonFiyat) || 0;
-        if (!kgFiyat && tonFiyat > 0) kgFiyat = apartmanKgFiyatFromTon(tonFiyat);
+        let kgFiyat = apartmanDaireKgFiyat(d);
 
         const birimHam = String(d.Birim || '').toLowerCase();
         if (birimHam === 'adet' && !d.TonFiyat) {
@@ -3820,7 +3846,7 @@ async function daireAnlasmaBorcEsitle(pool, daireId, islemiYapan, usdKurHarici) 
                 anlasilanKg = Math.round(anlasilanKg * adetKg * 100) / 100;
                 if (d.KalanBorcKg == null) kalanKg = anlasilanKg;
                 else kalanKg = Math.round(kalanKg * adetKg * 100) / 100;
-                if (kgFiyat > 0) kgFiyat = Math.round((kgFiyat / adetKg) * 10000) / 10000;
+                if (kgFiyat > 0) kgFiyat = Math.round((kgFiyat / adetKg) * 1000000) / 1000000;
             }
         }
 
@@ -3892,7 +3918,8 @@ async function daireAnlasmaBorcEsitle(pool, daireId, islemiYapan, usdKurHarici) 
             `);
 
         await tx.request().input('id', sql.Int, daireId).input('mNo', sql.NVarChar, makbuzNo)
-            .query(`UPDATE [komur].[dbo].[ApartmanDaireler] SET AnlasmaMakbuzNo = @mNo WHERE Id = @id`);
+            .input('fiyat', sql.Decimal(18, 6), kgFiyat)
+            .query(`UPDATE [komur].[dbo].[ApartmanDaireler] SET AnlasmaMakbuzNo = @mNo, BirimFiyat = @fiyat WHERE Id = @id`);
 
         await tx.commit();
         return { ok: true, borc: tutar, makbuzNo, kalanKg, paraBirimi, usdKur };
@@ -3903,10 +3930,45 @@ async function daireAnlasmaBorcEsitle(pool, daireId, islemiYapan, usdKurHarici) 
     }
 }
 
-/** Ödeme alındığında apartman kg borcundan düş (USD anlaşmada güncel kur) */
-async function apartmanOdemeKgIsle(pool, musteriId, odemeTl, islemiYapan) {
+/** Ayarlar tablosundan değer oku */
+async function aptAyarDeger(pool, anahtar) {
+    try {
+        const r = await pool.request().input('a', sql.NVarChar, anahtar)
+            .query(`SELECT TOP 1 Deger FROM [komur].[dbo].[Ayarlar] WHERE Anahtar = @a`);
+        return r.recordset[0]?.Deger != null ? String(r.recordset[0].Deger).trim() : '';
+    } catch (_) {
+        return '';
+    }
+}
+
+/** Ödeme türü → ayar anahtarı (eski: NAKİT/KKARTI/VADE DOLAR) */
+function aptOdemeTurAyarAnahtari(odemeTuru) {
+    const t = String(odemeTuru || 'Nakit').toLocaleLowerCase('tr-TR');
+    if (t.includes('kredi') || t.includes('kart')) return 'AptUsdTonKart';
+    if (t.includes('vade')) return 'AptUsdTonVade';
+    return 'AptUsdTonNakit'; // Nakit + Havale/EFT
+}
+
+/**
+ * Ödeme türüne göre efektif USD/ton.
+ * Ayar doluysa onu kullan (eski programdaki günlük NAKİT/KK/VADE DOLAR);
+ * boşsa dairenin anlaşma TonFiyat'ı.
+ */
+async function aptOdemeEfektifTonFiyat(pool, odemeTuru, anlasmaTonFiyat) {
+    const anahtar = aptOdemeTurAyarAnahtari(odemeTuru);
+    const ham = await aptAyarDeger(pool, anahtar);
+    const ayarTon = parseFloat(String(ham).replace(',', '.'));
+    if (Number.isFinite(ayarTon) && ayarTon > 0) return ayarTon;
+    const anl = parseFloat(anlasmaTonFiyat) || 0;
+    return anl > 0 ? anl : 0;
+}
+
+/** Ödeme alındığında apartman kg borcundan düş (USD: anlık kur + türe göre ton fiyatı) */
+async function apartmanOdemeKgIsle(pool, musteriId, odemeTl, islemiYapan, odemeTuru) {
     const tutar = parseFloat(odemeTl) || 0;
-    if (tutar <= 0 || !musteriId) return { islenen: 0, kgDusen: 0, detay: [] };
+    if (tutar <= 0 || !musteriId) {
+        return { islenen: 0, kgDusen: 0, detay: [], kur: null, odenenUsd: 0, tonFiyat: null, odemeTuru: odemeTuru || null };
+    }
 
     await ensureApartmanTablolari();
     const daireler = await pool.request().input('mk', sql.Int, parseInt(musteriId, 10)).query(`
@@ -3922,6 +3984,8 @@ async function apartmanOdemeKgIsle(pool, musteriId, odemeTl, islemiYapan) {
     let toplamKg = 0;
     const detay = [];
     let usdKur = null;
+    let kullanilanTonFiyat = null;
+    let toplamOdenenUsd = 0;
 
     for (const d of daireler.recordset || []) {
         if (kalanOdeme <= 0.001) break;
@@ -3931,24 +3995,53 @@ async function apartmanOdemeKgIsle(pool, musteriId, odemeTl, islemiYapan) {
         if (!Number.isFinite(borcKg) || borcKg <= 0) continue;
 
         const paraBirimi = String(d.ParaBirimi || 'TRY').toUpperCase();
-        const tonFiyat = parseFloat(d.TonFiyat) || 0;
-        let kgFiyat = parseFloat(d.BirimFiyat) || 0;
-        if (!kgFiyat && tonFiyat > 0) kgFiyat = apartmanKgFiyatFromTon(tonFiyat);
-        if (kgFiyat <= 0) continue;
+        // Anlaşma tonu (borç değerlemesi); ödeme kg'si için türe göre fiyat
+        const anlasmaTon = parseFloat(d.TonFiyat) || ((parseFloat(d.BirimFiyat) || 0) * 1000);
+        let kgFiyat;
+        let odemeTon = anlasmaTon;
 
         if (paraBirimi === 'USD') {
-            if (usdKur == null) usdKur = await tcmbUsdSatisKuruGetir();
+            if (usdKur == null) {
+                usdKur = await tcmbUsdSatisKuruGetir() || parseFloat(d.AnlasmaKuru) || null;
+            }
             if (!usdKur || usdKur <= 0) continue;
+            odemeTon = await aptOdemeEfektifTonFiyat(pool, odemeTuru, anlasmaTon);
+            if (odemeTon <= 0) continue;
+            kgFiyat = apartmanKgFiyatFromTon(odemeTon);
+            if (kullanilanTonFiyat == null) kullanilanTonFiyat = odemeTon;
+        } else {
+            kgFiyat = apartmanDaireKgFiyat(d);
         }
+        if (kgFiyat <= 0) continue;
 
         const kgBirimTl = paraBirimi === 'USD' ? kgFiyat * usdKur : kgFiyat;
         if (kgBirimTl <= 0) continue;
 
-        const odenebilirKg = Math.min(borcKg, kalanOdeme / kgBirimTl);
-        if (odenebilirKg <= 0.0001) continue;
+        const kalanTlTam = Math.round(borcKg * kgBirimTl * 100) / 100;
+        let odenebilirKg;
+        let harcananTl;
+        let yeniKalan;
+        if (kalanOdeme >= kalanTlTam - 0.5) {
+            odenebilirKg = borcKg;
+            harcananTl = Math.min(kalanOdeme, Math.max(kalanTlTam, 0));
+            yeniKalan = 0;
+        } else {
+            odenebilirKg = Math.min(borcKg, kalanOdeme / kgBirimTl);
+            if (odenebilirKg <= 0.0001) continue;
+            harcananTl = Math.round(odenebilirKg * kgBirimTl * 100) / 100;
+            yeniKalan = Math.max(0, Math.round((borcKg - odenebilirKg) * 100) / 100);
+            if (yeniKalan > 0 && yeniKalan * kgBirimTl < 1) {
+                harcananTl = Math.min(kalanOdeme, Math.round((harcananTl + yeniKalan * kgBirimTl) * 100) / 100);
+                odenebilirKg = borcKg;
+                yeniKalan = 0;
+            }
+        }
+        if (harcananTl <= 0) continue;
 
-        const yeniKalan = Math.max(0, borcKg - odenebilirKg);
-        const harcananTl = Math.round(odenebilirKg * kgBirimTl * 100) / 100;
+        const odenenUsd = paraBirimi === 'USD' && usdKur
+            ? Math.round((harcananTl / usdKur) * 10000) / 10000
+            : 0;
+        toplamOdenenUsd += odenenUsd;
 
         await pool.request()
             .input('id', sql.Int, d.Id)
@@ -3956,6 +4049,7 @@ async function apartmanOdemeKgIsle(pool, musteriId, odemeTl, islemiYapan) {
             .input('tl', sql.Decimal(18, 2), harcananTl)
             .query(`UPDATE [komur].[dbo].[ApartmanDaireler] SET KalanBorcKg = @kg, OdenenTl = ISNULL(OdenenTl,0) + @tl WHERE Id = @id`);
 
+        // Cari borç satırı anlaşma fiyatı + güncel kur ile güncellenir
         await daireAnlasmaBorcEsitle(pool, d.Id, islemiYapan || 'Sistem', usdKur);
 
         kalanOdeme -= harcananTl;
@@ -3966,11 +4060,22 @@ async function apartmanOdemeKgIsle(pool, musteriId, odemeTl, islemiYapan) {
             daireNo: d.DaireNo,
             kgDusen: Math.round(odenebilirKg * 100) / 100,
             kalanKg: Math.round(yeniKalan * 100) / 100,
-            harcananTl
+            harcananTl,
+            kur: paraBirimi === 'USD' ? usdKur : null,
+            tonFiyat: paraBirimi === 'USD' ? odemeTon : null,
+            odenenUsd
         });
     }
 
-    return { islenen: tutar - kalanOdeme, kgDusen: Math.round(toplamKg * 100) / 100, detay };
+    return {
+        islenen: Math.round((tutar - kalanOdeme) * 100) / 100,
+        kgDusen: Math.round(toplamKg * 100) / 100,
+        detay,
+        kur: usdKur,
+        odenenUsd: Math.round(toplamOdenenUsd * 10000) / 10000,
+        tonFiyat: kullanilanTonFiyat,
+        odemeTuru: odemeTuru || 'Nakit'
+    };
 }
 
 /** Apartmana özgü ödeme silindiğinde kg borcunu geri yükle (OdenenTl kadar) */
@@ -4003,9 +4108,7 @@ async function apartmanOdemeKgGeriAl(pool, musteriId, odemeTl, islemiYapan) {
         let borcKg = d.KalanBorcKg != null ? parseFloat(d.KalanBorcKg) : 0;
 
         const paraBirimi = String(d.ParaBirimi || 'TRY').toUpperCase();
-        const tonFiyat = parseFloat(d.TonFiyat) || 0;
-        let kgFiyat = parseFloat(d.BirimFiyat) || 0;
-        if (!kgFiyat && tonFiyat > 0) kgFiyat = apartmanKgFiyatFromTon(tonFiyat);
+        let kgFiyat = apartmanDaireKgFiyat(d);
         if (kgFiyat <= 0) continue;
 
         if (paraBirimi === 'USD') {
@@ -5049,6 +5152,57 @@ app.post('/api/musteri/:id/apartman-borc-esitle', async (req, res) => {
     }
 });
 
+// --- Apartman ödeme önizleme (anlık kur + türe göre ton + tahmini kg) ---
+app.get('/api/musteri/:id/apartman-odeme-onizleme', async (req, res) => {
+    const musteriId = parseInt(req.params.id, 10);
+    const tutar = parseFloat(String(req.query.tutar || '0').replace(',', '.')) || 0;
+    const odemeTuru = req.query.odemeTuru || 'Nakit';
+    if (!musteriId) return res.status(400).json({ hata: 'Geçersiz müşteri' });
+    try {
+        await ensureApartmanTablolari();
+        const pool = await sql.connect(config);
+        const kur = await tcmbUsdSatisKuruGetir();
+        const daireler = await pool.request().input('mk', sql.Int, musteriId).query(`
+            SELECT TOP 1 TonFiyat, BirimFiyat, ParaBirimi, KalanBorcKg, AnlasilanMiktar
+            FROM [komur].[dbo].[ApartmanDaireler]
+            WHERE MusteriKimlik = @mk AND UrunID IS NOT NULL
+              AND AnlasilanMiktar > 0
+              AND ISNULL(KalanBorcKg, AnlasilanMiktar) > 0.001
+              AND UPPER(ISNULL(ParaBirimi,'TRY')) = 'USD'
+            ORDER BY Id ASC
+        `);
+        const d = daireler.recordset[0];
+        if (!d) {
+            return res.json({
+                varMi: false,
+                kur,
+                mesaj: 'USD apartman borcu yok'
+            });
+        }
+        const anlasmaTon = parseFloat(d.TonFiyat) || ((parseFloat(d.BirimFiyat) || 0) * 1000);
+        const tonFiyat = await aptOdemeEfektifTonFiyat(pool, odemeTuru, anlasmaTon);
+        const kgFiyat = apartmanKgFiyatFromTon(tonFiyat);
+        const kgBirimTl = kur && kgFiyat ? kgFiyat * kur : 0;
+        const tahminiKg = tutar > 0 && kgBirimTl > 0 ? Math.round((tutar / kgBirimTl) * 100) / 100 : 0;
+        const odenenUsd = tutar > 0 && kur ? Math.round((tutar / kur) * 10000) / 10000 : 0;
+        const ayarAnahtar = aptOdemeTurAyarAnahtari(odemeTuru);
+        const ayarHam = await aptAyarDeger(pool, ayarAnahtar);
+        res.json({
+            varMi: true,
+            kur,
+            odemeTuru,
+            anlasmaTon,
+            tonFiyat,
+            tonKaynak: (parseFloat(String(ayarHam).replace(',', '.')) > 0) ? 'ayar' : 'anlasma',
+            odenenUsd,
+            tahminiKg,
+            kgBirimTl: kgBirimTl ? Math.round(kgBirimTl * 10000) / 10000 : 0
+        });
+    } catch (err) {
+        res.status(500).json({ hata: err.message });
+    }
+});
+
 // --- Müşteri borç özeti: apartman vs genel ayrımı ---
 app.get('/api/musteri/:id/borc-ozet', async (req, res) => {
     const musteriId = parseInt(req.params.id, 10);
@@ -5077,9 +5231,7 @@ app.get('/api/musteri/:id/borc-ozet', async (req, res) => {
             let kalanKg = d.KalanBorcKg != null ? parseFloat(d.KalanBorcKg) : anlasilanKg;
             if (!Number.isFinite(kalanKg) || kalanKg < 0) kalanKg = 0;
             const para = String(d.ParaBirimi || 'TRY').toUpperCase();
-            const tonFiyat = parseFloat(d.TonFiyat) || 0;
-            let kgFiyat = parseFloat(d.BirimFiyat) || 0;
-            if (!kgFiyat && tonFiyat > 0) kgFiyat = apartmanKgFiyatFromTon(tonFiyat);
+            const kgFiyat = apartmanDaireKgFiyat(d);
             if (para === 'USD' && usdKur == null) usdKur = await tcmbUsdSatisKuruGetir();
             apartmanBorc += apartmanBorcTlHesapla(kalanKg, kgFiyat, para, para === 'USD' ? usdKur : null);
             apartmanKalanKg += kalanKg;

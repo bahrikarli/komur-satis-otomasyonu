@@ -1387,18 +1387,59 @@ function odemeAlModalAc() {
     if(tarihKutusu) tarihKutusu.value = bugununTarihiFormati();
 
     // Borç tipini belirle: apartman + genel varsa sor, tek tipse otomatik
-    odemeKapsamHazirla(aktifMusteriId);
+    odemeKapsamHazirla(aktifMusteriId).then(() => {
+        if (typeof tahsilatApartmanOnizleme === 'function') tahsilatApartmanOnizleme();
+    });
 
     guvenliModalAc('tahsilatModal');
 }
+
+window.tahsilatApartmanOnizleme = async function() {
+    const kutu = document.getElementById('tahsilatAptOnizlemeKutu');
+    const govde = document.getElementById('tahsilatAptOnizleme');
+    if (!kutu || !govde) return;
+    const kapsamSel = document.getElementById('tahsilatKapsam');
+    const kutuAcik = document.getElementById('tahsilatKapsamKutu') && !document.getElementById('tahsilatKapsamKutu').classList.contains('d-none');
+    const kapsam = kutuAcik && kapsamSel ? kapsamSel.value : (window.tahsilatKapsam || 'apartman');
+    if (kapsam === 'genel' || !aktifMusteriId) {
+        kutu.classList.add('d-none');
+        return;
+    }
+    kutu.classList.remove('d-none');
+    const tutarHam = (document.getElementById('tahsilatTutar')?.value || '').replace(/\./g, '').replace(',', '.');
+    const tutar = parseFloat(tutarHam) || 0;
+    const odemeTuru = document.getElementById('tahsilatAciklama')?.value || 'Nakit';
+    govde.innerHTML = '<span class="text-muted">Hesaplanıyor…</span>';
+    try {
+        const res = await fetch(`/api/musteri/${aktifMusteriId}/apartman-odeme-onizleme?tutar=${encodeURIComponent(tutar)}&odemeTuru=${encodeURIComponent(odemeTuru)}&_t=${Date.now()}`);
+        const o = await res.json();
+        if (!res.ok || !o.varMi) {
+            govde.innerHTML = `<span class="text-muted">${o.mesaj || 'USD apartman borcu yok / kur alınamadı'}</span>`;
+            return;
+        }
+        const kur = Number(o.kur || 0);
+        const fmt = (n, d = 2) => Number(n || 0).toLocaleString('tr-TR', { minimumFractionDigits: d, maximumFractionDigits: d });
+        const kaynak = o.tonKaynak === 'ayar' ? 'ayar (tür fiyatı)' : 'anlaşma fiyatı';
+        govde.innerHTML = `
+            <div class="fw-bold text-dark mb-1"><i class="fas fa-dollar-sign text-success me-1"></i>Apartman ödeme (eski mantık)</div>
+            <div>Anlık USD: <b>${fmt(kur, 4)}</b></div>
+            <div>${odemeTuru} ton: <b>${fmt(o.tonFiyat, 2)} USD/ton</b> <span class="text-muted">(${kaynak})</span></div>
+            ${tutar > 0 ? `<div>Ö.USD: <b>${fmt(o.odenenUsd, 2)}</b> · Tahmini kg: <b class="text-success">${fmt(o.tahminiKg, 2)}</b></div>` : '<div class="text-muted">Tutar girince kg önizlemesi çıkar</div>'}
+        `;
+    } catch (e) {
+        govde.innerHTML = '<span class="text-danger">Önizleme alınamadı</span>';
+    }
+};
 
 // Ödeme hedefini (apartman/genel) borç durumuna göre ayarla
 async function odemeKapsamHazirla(musteriId) {
     const kutu = document.getElementById('tahsilatKapsamKutu');
     const sel = document.getElementById('tahsilatKapsam');
     const bilgi = document.getElementById('tahsilatKapsamBilgi');
+    const onizlemeKutu = document.getElementById('tahsilatAptOnizlemeKutu');
     window.tahsilatKapsam = 'genel';
     if (kutu) kutu.classList.add('d-none');
+    if (onizlemeKutu) onizlemeKutu.classList.add('d-none');
     try {
         const res = await fetch(`/api/musteri/${musteriId}/borc-ozet?_t=` + Date.now());
         const o = await res.json();
@@ -1407,16 +1448,13 @@ async function odemeKapsamHazirla(musteriId) {
         const gn = parseFloat(o.genelBorc) || 0;
         const paraFmt = (n) => (n || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 }) + ' ₺';
         if (ap > 0 && gn > 0) {
-            // İki tip borç var → kullanıcı seçsin
             window.tahsilatKapsam = 'apartman';
             if (sel) sel.value = 'apartman';
             if (kutu) kutu.classList.remove('d-none');
             if (bilgi) bilgi.innerHTML = `🏢 Apartman: <b>${paraFmt(ap)}</b>${o.apartmanKalanKg ? ' (' + o.apartmanKalanKg + ' kg)' : ''} · 📋 Genel: <b>${paraFmt(gn)}</b>`;
         } else if (ap > 0) {
-            // Sadece apartman borcu → otomatik apartman şartları
             window.tahsilatKapsam = 'apartman';
         } else {
-            // Sadece genel (veya borç yok) → normal
             window.tahsilatKapsam = 'genel';
         }
     } catch (e) {
@@ -1599,6 +1637,13 @@ async function tahsilatiKaydet() {
             } else {
                 // Otomatik yazdırma kapalıysa personeli mesajda gösterelim
                 alert(`✅ ${tutar} ₺ ödeme kaydedildi.\nİşlemi Yapan: ${aktifPersonel}\nMakbuz No: ${data.makbuzNo}`);
+            }
+            if (data.apartmanKg && data.apartmanKg.islenen > 0) {
+                const a = data.apartmanKg;
+                const kur = a.kur ? Number(a.kur).toLocaleString('tr-TR', { minimumFractionDigits: 4 }) : '—';
+                const usd = a.odenenUsd != null ? Number(a.odenenUsd).toLocaleString('tr-TR', { minimumFractionDigits: 2 }) : '—';
+                const ton = a.tonFiyat != null ? Number(a.tonFiyat).toLocaleString('tr-TR', { maximumFractionDigits: 2 }) : '—';
+                alert(`Apartman kg düşümü\nAnlık USD: ${kur}\nÖ.USD: ${usd}\nKg: ${a.kgDusen}\nTür ton: ${ton} USD/ton`);
             }
             
             const tel = document.getElementById('detayTelefon')?.innerText || "";
@@ -7535,6 +7580,14 @@ window.tanimlamalarModalAc = async function() {
         if(document.getElementById('ayarModulToptanci')) document.getElementById('ayarModulToptanci').checked = ok('ModulToptanci');
         if(document.getElementById('ayarModulSevkiyat')) document.getElementById('ayarModulSevkiyat').checked = ok('ModulSevkiyat');
 
+        const aptDeger = (anahtar) => {
+            const a = ayarlar.find((x) => x.Anahtar === anahtar);
+            return a && a.Deger != null ? a.Deger : '';
+        };
+        if (document.getElementById('ayarAptUsdTonNakit')) document.getElementById('ayarAptUsdTonNakit').value = aptDeger('AptUsdTonNakit');
+        if (document.getElementById('ayarAptUsdTonKart')) document.getElementById('ayarAptUsdTonKart').value = aptDeger('AptUsdTonKart');
+        if (document.getElementById('ayarAptUsdTonVade')) document.getElementById('ayarAptUsdTonVade').value = aptDeger('AptUsdTonVade');
+
     } catch(e) { 
         document.getElementById('ayarMakbuzBaslangic').value = "";
     }
@@ -7550,6 +7603,9 @@ window.ayarlariKaydet = async function() {
     const mGider = document.getElementById('ayarModulGider')?.checked ? 'true' : 'false';
     const mToptanci = document.getElementById('ayarModulToptanci')?.checked ? 'true' : 'false';
     const mSevkiyat = document.getElementById('ayarModulSevkiyat')?.checked ? 'true' : 'false';
+    const aptNakit = (document.getElementById('ayarAptUsdTonNakit')?.value || '').trim().replace(',', '.');
+    const aptKart = (document.getElementById('ayarAptUsdTonKart')?.value || '').trim().replace(',', '.');
+    const aptVade = (document.getElementById('ayarAptUsdTonVade')?.value || '').trim().replace(',', '.');
     
     if(!basNo || basNo <= 0) { alert("Lütfen geçerli bir başlangıç numarası girin."); return; }
 
@@ -7563,7 +7619,10 @@ window.ayarlariKaydet = async function() {
             fetch('/api/ayar-guncelle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ anahtar: 'MakbuzOtomatikYazdir', deger: otoMakbuz }) }),
             fetch('/api/ayar-guncelle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ anahtar: 'ModulGider', deger: mGider }) }),
             fetch('/api/ayar-guncelle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ anahtar: 'ModulToptanci', deger: mToptanci }) }),
-            fetch('/api/ayar-guncelle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ anahtar: 'ModulSevkiyat', deger: mSevkiyat }) })
+            fetch('/api/ayar-guncelle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ anahtar: 'ModulSevkiyat', deger: mSevkiyat }) }),
+            fetch('/api/ayar-guncelle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ anahtar: 'AptUsdTonNakit', deger: aptNakit }) }),
+            fetch('/api/ayar-guncelle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ anahtar: 'AptUsdTonKart', deger: aptKart }) }),
+            fetch('/api/ayar-guncelle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ anahtar: 'AptUsdTonVade', deger: aptVade }) })
         ]);
 
         localStorage.setItem('ayarOtoMakbuz', otoMakbuz); 
@@ -8878,10 +8937,9 @@ function aptGeriDonDinleyicileriKur() {
         if (!el || el.dataset.aptGeriBagli) return;
         el.dataset.aptGeriBagli = '1';
         el.addEventListener('hidden.bs.modal', () => {
-            if (window._aptGeriDonAtla) {
-                window._aptGeriDonAtla = false;
-                return;
-            }
+            // Bayrağı burada tüketme: peş peşe birden fazla modal kapanırken
+            // (cariye geçişte detay+liste) hepsinin geri dönüşü atlaması gerekir.
+            if (window._aptGeriDonAtla) return;
             const y = window.apartmanModalYigin || [];
             if (!y.length) return;
             const son = y[y.length - 1];
@@ -8894,10 +8952,7 @@ function aptGeriDonDinleyicileriKur() {
     if (detayEl && !detayEl.dataset.aptGeriBagli) {
         detayEl.dataset.aptGeriBagli = '1';
         detayEl.addEventListener('hidden.bs.modal', () => {
-            if (window._aptGeriDonAtla) {
-                window._aptGeriDonAtla = false;
-                return;
-            }
+            if (window._aptGeriDonAtla) return;
             if ((window.apartmanModalYigin || []).length) {
                 aptModalGeriDon();
             }
@@ -9048,24 +9103,34 @@ function apartmanKartlariCiz(liste) {
         const yuzde = daire > 0 ? Math.round((tamam / daire) * 100) : 0;
         const konum = [a.Mahalle, a.Ilce].filter(Boolean).join(' / ');
         return `<div class="col-md-6">
-            <div class="card border-0 shadow-sm h-100" role="button" onclick="apartmanDetayAc(${a.Id})">
-                <div class="card-body py-2">
-                    <div class="d-flex justify-content-between align-items-start">
-                        <div>
-                            <h6 class="fw-bold mb-0"><i class="fas fa-building text-warning me-1"></i>${aptKacis(a.Ad)}</h6>
-                            <small class="text-muted">${aptKacis(konum) || '—'}</small>
+            <div class="card border shadow-sm h-100 apt-kart" role="button" tabindex="0"
+                 onclick="apartmanDetayAc(${a.Id})"
+                 onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();apartmanDetayAc(${a.Id})}"
+                 style="cursor:pointer; transition: box-shadow .15s, border-color .15s;">
+                <div class="card-body py-2 d-flex align-items-center gap-2">
+                    <div class="flex-grow-1 min-w-0">
+                        <div class="d-flex justify-content-between align-items-start gap-2">
+                            <div class="min-w-0">
+                                <h6 class="fw-bold mb-0 text-truncate"><i class="fas fa-building text-warning me-1"></i>${aptKacis(a.Ad)}</h6>
+                                <small class="text-muted">${aptKacis(konum) || '—'}</small>
+                            </div>
+                            <span class="badge bg-light text-dark border flex-shrink-0">${daire} daire</span>
                         </div>
-                        <span class="badge bg-light text-dark border">${daire} daire</span>
+                        <div class="progress mt-2" style="height:6px">
+                            <div class="progress-bar bg-success" style="width:${yuzde}%"></div>
+                        </div>
+                        <div class="d-flex flex-wrap gap-2 mt-1 small">
+                            <span class="text-success">✓ ${tamam}</span>
+                            <span class="text-warning">◐ ${kismi}</span>
+                            <span class="text-danger">○ ${bekleyen}</span>
+                            <span class="ms-auto text-muted">Teslim: ${aptSayi(a.ToplamTeslim)}/${aptSayi(a.ToplamAnlasilan)}</span>
+                        </div>
                     </div>
-                    <div class="progress mt-2" style="height:6px">
-                        <div class="progress-bar bg-success" style="width:${yuzde}%"></div>
-                    </div>
-                    <div class="d-flex gap-2 mt-1 small">
-                        <span class="text-success">✓ ${tamam}</span>
-                        <span class="text-warning">◐ ${kismi}</span>
-                        <span class="text-danger">○ ${bekleyen}</span>
-                        <span class="ms-auto text-muted">Teslim: ${aptSayi(a.ToplamTeslim)}/${aptSayi(a.ToplamAnlasilan)}</span>
-                    </div>
+                    <button type="button" class="btn btn-warning fw-bold px-3 flex-shrink-0"
+                            onclick="event.stopPropagation(); apartmanDetayAc(${a.Id})"
+                            title="Apartmanı aç">
+                        Aç <i class="fas fa-chevron-right ms-1"></i>
+                    </button>
                 </div>
             </div>
         </div>`;
@@ -9403,18 +9468,33 @@ window.apartmandanCariAc = function(musteriId, musteriAd) {
     if (detayEl) detayEl.setAttribute('data-gelis-yeri', 'apartman');
     const geriBtn = document.getElementById('musteriDetayGeriBtn');
     if (geriBtn) geriBtn.innerHTML = '<i class="fas fa-arrow-left me-1"></i> Apartmana Dön';
-    // Apartman detayı kapanırken "geri dön" tetiklemesin
+
+    // Detay + apartman listesi ikisini de kapat; liste z-index 1090 ile carinin üstüne biniyordu
     window._aptGeriDonAtla = true;
-    if (typeof modalZorlaKapat === 'function') modalZorlaKapat('apartmanDetayModal');
+    if (typeof modalZorlaKapat === 'function') {
+        modalZorlaKapat('apartmanDetayModal');
+        modalZorlaKapat('apartmanlarModal');
+    } else {
+        ['apartmanDetayModal', 'apartmanlarModal'].forEach((id) => {
+            const el = document.getElementById(id);
+            const inst = el && bootstrap.Modal.getInstance(el);
+            if (inst) inst.hide();
+        });
+    }
     setTimeout(() => {
         window._aptGeriDonAtla = false;
         if (typeof window.musteriDetayGoster === 'function') {
             window.musteriDetayGoster(musteriId, musteriAd || '', '');
         }
-        // musteriDetayGoster sonrası gelis bilgisini koru
-        if (detayEl) detayEl.setAttribute('data-gelis-yeri', 'apartman');
+        if (detayEl) {
+            detayEl.setAttribute('data-gelis-yeri', 'apartman');
+            detayEl.style.setProperty('z-index', '1100', 'important');
+        }
         if (geriBtn) geriBtn.innerHTML = '<i class="fas fa-arrow-left me-1"></i> Apartmana Dön';
-    }, 280);
+        document.querySelectorAll('.modal-backdrop').forEach((b) => {
+            b.style.setProperty('z-index', '1095', 'important');
+        });
+    }, 320);
 };
 
 // Blok bazlı teslimat paneli: anlaşılan / teslim / kalan tonaj + teslimat butonu
