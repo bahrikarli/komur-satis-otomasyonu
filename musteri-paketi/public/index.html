@@ -632,10 +632,10 @@
                             <li><button type="button" class="dropdown-item" onclick="musteriCariEkstreRaporuYazdir()"><i class="fas fa-file-invoice text-primary me-2"></i>Cari ekstre (yazdır)</button></li>
                         </ul>
                     </div>
-                    <button class="btn btn-sm btn-outline-light rounded-pill px-3 me-2" onclick="detaydanListeyeDon()">
+                    <button class="btn btn-sm btn-outline-light rounded-pill px-3 me-2" id="musteriDetayGeriBtn" onclick="detaydanListeyeDon()">
                         <i class="fas fa-arrow-left me-1"></i> Listeye Dön
                     </button>
-                    <button type="button" class="btn-close btn-close-white shadow-none" data-bs-dismiss="modal"></button>
+                    <button type="button" class="btn-close btn-close-white shadow-none" onclick="detaydanListeyeDon()" aria-label="Kapat"></button>
                 </div>
             </div>
 
@@ -916,20 +916,34 @@
                         <h6 class="text-muted mb-1 small fw-semibold">İşlem Yapılan Müşteri</h6>
                         <div class="fw-bold text-dark-custom fs-5" id="tahsilatMusteriAd">Yükleniyor...</div>
                     </div>
+                    <div class="mb-3 d-none" id="tahsilatKapsamKutu">
+                        <label class="form-label fw-bold text-primary"><i class="fas fa-code-branch me-1"></i>Ödeme Hangi Borca?</label>
+                        <select class="form-select border-primary" id="tahsilatKapsam" onchange="tahsilatApartmanOnizleme()">
+                            <option value="apartman">🏢 Apartman borcu</option>
+                            <option value="genel">📋 Genel borç</option>
+                        </select>
+                        <div class="form-text" id="tahsilatKapsamBilgi"></div>
+                    </div>
+                    <div class="mb-3 d-none" id="tahsilatAptOnizlemeKutu">
+                        <div class="border rounded-3 p-2 bg-light small" id="tahsilatAptOnizleme">
+                            <div class="text-muted">Apartman ödeme önizlemesi…</div>
+                        </div>
+                    </div>
                     <div class="mb-3">
                         <label class="form-label fw-bold" for="odemeTarihi">İşlem Tarihi</label>
                         <input type="date" id="odemeTarihi" class="form-control border-success shadow-sm">
                     </div>
                     <div class="mb-3">
                         <label class="form-label fw-bold" for="tahsilatTutar">Alınan Tutar (₺)</label>
-                        <input type="text" inputmode="decimal" autocomplete="off" class="form-control form-control-lg text-success fw-bold" id="tahsilatTutar" placeholder="Örn: 5000 veya 1500,50" required>
+                        <input type="text" inputmode="decimal" autocomplete="off" class="form-control form-control-lg text-success fw-bold" id="tahsilatTutar" placeholder="Örn: 5000 veya 1500,50" required oninput="tahsilatApartmanOnizleme()">
                     </div>
                     <div class="mb-3">
                         <label class="form-label fw-bold text-success" for="tahsilatAciklama">Ödeme Türü <span class="text-danger">*</span></label>
-                        <select class="form-select border-success" id="tahsilatAciklama">
+                        <select class="form-select border-success" id="tahsilatAciklama" onchange="tahsilatApartmanOnizleme()">
                             <option value="Nakit">Nakit</option>
                             <option value="Havale/EFT">Havale/EFT</option>
                             <option value="Kredi Kartı">Kredi Kartı</option>
+                            <option value="Vade">Vade</option>
                         </select>
                     </div>
                     <div class="mb-0">
@@ -2705,6 +2719,32 @@
                         </div>
                     </div>
 
+                    <div class="col-12">
+                        <div class="card border-0 shadow-sm" style="border-radius: 15px;">
+                            <div class="card-body p-4">
+                                <h6 class="fw-bold text-dark mb-2 pb-2 border-bottom">
+                                    <i class="fas fa-building text-warning me-2"></i>Apartman Ödeme — Tür Bazlı USD/ton
+                                    <span class="text-muted fw-normal small">(eski: Nakit / KK / Vade Dolar)</span>
+                                </h6>
+                                <p class="small text-muted mb-3 mb-md-2">Boş bırakılırsa dairenin anlaşma ton fiyatı kullanılır. Doluysa ödeme türüne göre kg hesabı bu fiyattan yapılır.</p>
+                                <div class="row g-2">
+                                    <div class="col-md-4">
+                                        <label class="form-label small fw-bold text-success mb-1">NAKİT DOLAR (USD/ton)</label>
+                                        <input type="text" inputmode="decimal" id="ayarAptUsdTonNakit" class="form-control" placeholder="Örn: 295 (boş = anlaşma)">
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label small fw-bold text-primary mb-1">KKARTI DOLAR (USD/ton)</label>
+                                        <input type="text" inputmode="decimal" id="ayarAptUsdTonKart" class="form-control" placeholder="Örn: 310">
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label small fw-bold text-secondary mb-1">VADE DOLAR (USD/ton)</label>
+                                        <input type="text" inputmode="decimal" id="ayarAptUsdTonVade" class="form-control" placeholder="Örn: 290">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                 </div>
             </div>
 
@@ -2946,6 +2986,10 @@
 
 
 <!-- ================= APARTMAN MODÜLÜ ================= -->
+<style>
+.apt-kart:hover { border-color: #ffc107 !important; box-shadow: 0 0.35rem 0.85rem rgba(0,0,0,.12) !important; }
+.apt-kart:focus { outline: 2px solid #ffc107; outline-offset: 2px; }
+</style>
 <div class="modal fade" id="apartmanlarModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-scrollable">
         <div class="modal-content border-0 shadow-lg">
@@ -3011,28 +3055,152 @@
     <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
         <div class="modal-content border-0 shadow-lg" style="max-height:90vh">
             <div class="modal-header bg-warning text-dark py-2">
-                <h5 class="modal-title fw-bold fs-6"><i class="fas fa-building me-2"></i> <span id="apartmanDetayAd">Apartman</span></h5>
-                <div class="ms-auto d-flex gap-2">
-                    <button class="btn btn-sm btn-outline-dark" onclick="daireOlusturModalAc()"><i class="fas fa-th me-1"></i> Daire Oluştur</button>
-                    <button class="btn btn-sm btn-outline-dark" onclick="topluAnlasmaModalAc()"><i class="fas fa-handshake me-1"></i> Toplu Anlaşma</button>
+                <h5 class="modal-title fw-bold fs-6 mb-0"><i class="fas fa-building me-2"></i> <span id="apartmanDetayAd">Apartman</span></h5>
+                <div class="ms-auto d-flex align-items-center gap-2 flex-wrap justify-content-end">
+                    <div class="dropdown">
+                        <button type="button" class="btn btn-sm btn-dark rounded-pill px-3 dropdown-toggle" id="apartmanDetayMenuBtn" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-bars me-1"></i> Menü
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end shadow border-0" aria-labelledby="apartmanDetayMenuBtn">
+                            <li>
+                                <button type="button" class="dropdown-item" onclick="daireOlusturModalAc()">
+                                    <i class="fas fa-th text-secondary me-2"></i>Daire Oluştur
+                                </button>
+                            </li>
+                            <li>
+                                <button type="button" class="dropdown-item" onclick="topluAnlasmaModalAc()">
+                                    <i class="fas fa-handshake text-info me-2"></i>Toplu Anlaşma
+                                </button>
+                            </li>
+                            <li>
+                                <button type="button" class="dropdown-item" onclick="apartmanEkleModalAc(true)">
+                                    <i class="fas fa-edit text-primary me-2"></i>Apartman Düzenle
+                                </button>
+                            </li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li>
+                                <button type="button" class="dropdown-item" onclick="apartmanRaporYazdir('blok')">
+                                    <i class="fas fa-print text-success me-2"></i>Blok Raporu
+                                </button>
+                            </li>
+                            <li>
+                                <button type="button" class="dropdown-item" onclick="apartmanRaporYazdir('tumu')">
+                                    <i class="fas fa-print text-primary me-2"></i>Tüm Apartman Raporu
+                                </button>
+                            </li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li>
+                                <button type="button" class="dropdown-item text-danger" onclick="apartmanSil()">
+                                    <i class="fas fa-trash me-2"></i>Apartman Sil
+                                </button>
+                            </li>
+                        </ul>
+                    </div>
                     <button type="button" class="btn btn-sm btn-light fw-bold d-none" id="apartmanGeriCariBtn" onclick="apartmanDetayKapat()"><i class="fas fa-arrow-left me-1"></i> Cariye Dön</button>
                     <button type="button" class="btn-close" onclick="apartmanDetayKapat()"></button>
                 </div>
             </div>
             <div class="modal-body">
                 <div id="apartmanDetayOzet" class="row g-2 mb-3"></div>
+                <ul class="nav nav-tabs nav-fill mb-2" id="aptBlokSekmeler"></ul>
+                <div id="aptBlokTeslimatPanel" class="mb-3"></div>
+                <div class="mb-2">
+                    <div class="input-group" style="max-width:360px">
+                        <span class="input-group-text bg-warning bg-opacity-25 border-warning fw-bold"><i class="fas fa-search me-1"></i> Ara</span>
+                        <input type="search" id="aptMusteriAra" class="form-control border-warning fw-semibold" placeholder="Ad soyad yazın…" autocomplete="off" oninput="apartmanDetayAra()">
+                    </div>
+                </div>
                 <div class="table-responsive">
                     <table class="table table-sm table-hover align-middle">
                         <thead class="table-light">
                             <tr>
-                                <th>Blok</th><th>Daire</th><th>Müşteri</th><th>Ürün</th>
-                                <th class="text-end">Anlaşılan</th><th class="text-end">Teslim</th><th class="text-end">Kalan</th>
-                                <th class="text-center">Durum</th><th class="text-center">İşlem</th>
+                                <th>Blok</th><th>Daire</th><th>Tip</th><th>Müşteri</th><th>Ürün</th>
+                                <th class="text-end">Anlaş. kg</th>
+                                <th class="text-end text-success" title="Ödemesi yapılan kg (güncel kurdan)">Ödenen kg</th>
+                                <th class="text-end" title="Ödenmemiş borç (kg karşılığı)">Borç kg</th>
+                                <th class="text-center">Durum</th>
                             </tr>
                         </thead>
                         <tbody id="daireListesiGovdesi"></tbody>
                     </table>
                 </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="musteriDuzeltModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content border-0 shadow-lg" style="max-height:92vh">
+            <div class="modal-header bg-primary text-white py-2">
+                <h5 class="modal-title fw-bold fs-6"><i class="fas fa-user-edit me-2"></i> Müşteri Düzelt — <span id="mdApartmanAd">Apartman</span></h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-info border-0 py-2 small mb-3">
+                    Yanlış daireye yanlış müşteri atandıysa buradan düzeltin.
+                    <b>Kaydet</b> ile müşteri değişir; cari borç da yeni müşteriye taşınır.
+                    İki daireyi işaretleyip <b>Takas</b> ile müşterileri birbirleriyle değiştirebilirsiniz.
+                </div>
+                <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+                    <ul class="nav nav-pills flex-grow-1 mb-0" id="mdBlokSekmeler"></ul>
+                    <input type="text" id="mdAra" class="form-control form-control-sm" style="max-width:220px" placeholder="Daire / müşteri ara…" oninput="musteriDuzeltCiz()">
+                    <button type="button" class="btn btn-sm btn-warning fw-bold" id="mdTakasBtn" onclick="musteriDuzeltTakas()" disabled>
+                        <i class="fas fa-exchange-alt me-1"></i> Takas (<span id="mdSeciliSayi">0</span>)
+                    </button>
+                </div>
+                <div class="table-responsive" style="max-height:55vh; overflow:auto;">
+                    <table class="table table-sm table-hover align-middle mb-0">
+                        <thead class="table-light sticky-top">
+                            <tr>
+                                <th style="width:40px" class="text-center">Takas</th>
+                                <th style="width:70px">Blok</th>
+                                <th style="width:70px">Daire</th>
+                                <th style="width:70px">Tip</th>
+                                <th>Mevcut müşteri</th>
+                                <th style="min-width:280px">Yeni müşteri</th>
+                                <th style="width:90px" class="text-center">İşlem</th>
+                            </tr>
+                        </thead>
+                        <tbody id="mdListeGovdesi"></tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer bg-light py-2">
+                <span class="me-auto small text-muted" id="mdDurum"></span>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Kapat</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="aptYeniMusteriModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg">
+            <div class="modal-header bg-success text-white py-2">
+                <h5 class="modal-title fs-6"><i class="fas fa-user-plus me-2"></i> Yeni Müşteri</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-2">
+                    <label class="form-label fw-bold">Resmi Ünvan (Makbuz) <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" id="aptYmUnvan" placeholder="Örn: BAHRİ KARLI" oninput="this.value=this.value.toLocaleUpperCase('tr-TR')">
+                </div>
+                <div class="mb-2">
+                    <label class="form-label fw-bold">Dükkan İçi Tanıma</label>
+                    <input type="text" class="form-control" id="aptYmAd" placeholder="Örn: toki a blok 5">
+                </div>
+                <div class="mb-2">
+                    <label class="form-label fw-bold">Telefon <span class="text-danger">*</span></label>
+                    <input type="tel" class="form-control" id="aptYmTel" placeholder="5xx xxx xx xx" maxlength="10"
+                        oninput="this.value=this.value.replace(/[^0-9]/g,''); if(this.value.startsWith('0')) this.value=this.value.substring(1);">
+                    <div class="form-text">Başında 0 olmadan 10 hane</div>
+                </div>
+                <div class="alert alert-light border small mb-0" id="aptYmAdresBilgi">Adres: apartman mahallesine kaydedilecek.</div>
+            </div>
+            <div class="modal-footer bg-light py-2">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
+                <button type="button" class="btn btn-success fw-bold" onclick="aptYeniMusteriKaydet()"><i class="fas fa-check me-1"></i> Kaydet ve Seç</button>
             </div>
         </div>
     </div>
@@ -3065,38 +3233,69 @@
 </div>
 
 <div class="modal fade" id="daireDuzenleModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content border-0 shadow-lg">
-            <div class="modal-header bg-primary text-white">
-                <h5 class="modal-title"><i class="fas fa-home me-2"></i> Daire / Anlaşma</h5>
+            <div class="modal-header bg-primary text-white py-2">
+                <h5 class="modal-title fs-6"><i class="fas fa-user-edit me-2"></i> Daire Bilgisi</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
                 <input type="hidden" id="daireDuzenleId">
-                <div class="row g-2">
-                    <div class="col-4"><label class="form-label">Blok</label><input type="text" class="form-control" id="dDuzBlok"></div>
-                    <div class="col-8"><label class="form-label">Daire No</label><input type="text" class="form-control" id="dDuzNo"></div>
+                <input type="hidden" id="dDuzBlok">
+                <input type="hidden" id="dDuzNo">
+                <!-- Gizli: anlaşma alanları kaydetmede bozulmasın diye saklanır -->
+                <input type="hidden" id="dDuzUrun">
+                <input type="hidden" id="dDuzAnlasilan">
+                <input type="hidden" id="dDuzPara">
+                <input type="hidden" id="dDuzTonFiyat">
+                <input type="hidden" id="dDuzKalanBorcKg">
+
+                <div class="alert alert-light border py-2 mb-3 small">
+                    <div class="fw-bold" id="dDuzApartmanAd">—</div>
+                    <div class="text-muted" id="dDuzKonumOzet">—</div>
                 </div>
-                <div class="mb-2 mt-2 position-relative">
+
+                <div class="mb-3 position-relative">
                     <label class="form-label fw-bold">Müşteri</label>
                     <input type="hidden" id="dDuzMusteriId">
                     <input type="text" class="form-control" id="dDuzMusteriArama" placeholder="İsim yazıp aratın veya yeni ekleyin..." autocomplete="off">
-                    <div id="dDuzMusteriOneriler" class="list-group position-absolute w-100 shadow" style="z-index:2000; max-height:240px; overflow:auto; display:none;"></div>
-                    <div id="dDuzMusteriIpucu" class="form-text">Yazınca mevcut müşteriler aranır; bulunamazsa "Yeni müşteri ekle" çıkar. Yeni müşterinin adresi apartmanın il/ilçe/mahallesi olur.</div>
+                    <div id="dDuzMusteriOneriler" class="list-group position-absolute w-100 shadow" style="z-index:2000; max-height:220px; overflow:auto; display:none;"></div>
+                    <div id="dDuzMusteriIpucu" class="form-text">İsim yazıp listeden seçin veya yeni müşteri ekleyin.</div>
                 </div>
-                <hr>
-                <div class="row g-2">
-                    <div class="col-md-6"><label class="form-label">Ürün</label><select class="form-select" id="dDuzUrun"><option value="">— Ürün —</option></select></div>
-                    <div class="col-md-3"><label class="form-label">Anlaşılan</label><input type="number" step="0.01" class="form-control" id="dDuzAnlasilan" value="0"></div>
-                    <div class="col-md-3"><label class="form-label">Birim</label><input type="text" class="form-control" id="dDuzBirim" placeholder="Ton"></div>
+
+                <div class="row g-2 mb-3">
+                    <div class="col-5">
+                        <label class="form-label">Daire Tipi</label>
+                        <select class="form-select" id="dDuzTip">
+                            <option value="">—</option>
+                            <option>1+1</option><option>2+1</option><option>3+1</option>
+                            <option>4+1</option><option>5+1</option><option>Dubleks</option><option>Stüdyo</option>
+                        </select>
+                    </div>
+                    <div class="col-7">
+                        <label class="form-label">Not</label>
+                        <input type="text" class="form-control" id="dDuzAciklama" placeholder="Ek not">
+                    </div>
                 </div>
-                <div class="mb-2 mt-2">
-                    <label class="form-label">Birim Fiyat (₺)</label>
-                    <input type="number" step="0.01" class="form-control" id="dDuzFiyat" placeholder="Ton/adet fiyatı">
+
+                <div class="border rounded-3 p-3 bg-light">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <div class="fw-bold small text-muted text-uppercase">Anlaşma (salt okunur)</div>
+                        <button type="button" class="btn btn-sm btn-outline-info" onclick="daireDuzenledenTopluAnlasmaya()">
+                            <i class="fas fa-handshake me-1"></i> Toplu Anlaşma
+                        </button>
+                    </div>
+                    <div class="row g-2 small" id="dDuzAnlasmaOzet">
+                        <div class="col-6"><span class="text-muted">Ürün</span><div class="fw-semibold" id="dDuzUrunGoster">—</div></div>
+                        <div class="col-6"><span class="text-muted">Anlaşılan</span><div class="fw-semibold" id="dDuzAnlasilanGoster">—</div></div>
+                        <div class="col-6"><span class="text-muted">Ton fiyat</span><div class="fw-semibold" id="dDuzFiyatGoster">—</div></div>
+                        <div class="col-6"><span class="text-muted">Kalan borç</span><div class="fw-semibold text-danger" id="dDuzBorcGoster">—</div></div>
+                    </div>
+                    <div class="form-text mt-2 mb-0">Ürün / fiyat / kg değişikliği için <b>Toplu Anlaşma</b> kullanın.</div>
                 </div>
             </div>
-            <div class="modal-footer bg-light">
-                <button type="button" class="btn btn-outline-danger me-auto" onclick="daireSil()"><i class="fas fa-trash-alt"></i></button>
+            <div class="modal-footer bg-light py-2">
+                <button type="button" class="btn btn-outline-danger me-auto" onclick="daireMusteriKaldir()" title="Müşteriyi kaldır"><i class="fas fa-user-slash"></i></button>
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
                 <button type="button" class="btn btn-primary px-4 fw-bold" onclick="daireKaydet()"><i class="fas fa-save me-1"></i> Kaydet</button>
             </div>
@@ -3129,32 +3328,96 @@
     </div>
 </div>
 
-<div class="modal fade" id="topluAnlasmaModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog">
+<div class="modal fade" id="blokTeslimatModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
         <div class="modal-content border-0 shadow-lg">
-            <div class="modal-header bg-info text-dark">
-                <h5 class="modal-title"><i class="fas fa-handshake me-2"></i> Toplu Anlaşma Uygula</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title"><i class="fas fa-truck-ramp-box me-2"></i> Blok Teslimatı Gir</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-                <p class="text-muted small">Tüm dairelere aynı ürün/miktar/fiyatı tek seferde uygular.</p>
-                <div class="row g-2">
-                    <div class="col-md-6"><label class="form-label">Ürün</label><select class="form-select" id="taUrun"><option value="">— Ürün —</option></select></div>
-                    <div class="col-md-3"><label class="form-label">Miktar</label><input type="number" step="0.01" class="form-control" id="taMiktar"></div>
-                    <div class="col-md-3"><label class="form-label">Birim</label><input type="text" class="form-control" id="taBirim" placeholder="Ton"></div>
-                </div>
-                <div class="mb-2 mt-2">
-                    <label class="form-label">Birim Fiyat (₺)</label>
-                    <input type="number" step="0.01" class="form-control" id="taFiyat">
-                </div>
-                <div class="form-check mt-2">
-                    <input class="form-check-input" type="checkbox" id="taSadeceBos">
-                    <label class="form-check-label" for="taSadeceBos">Sadece anlaşması boş olan dairelere uygula</label>
+                <input type="hidden" id="btBlok">
+                <input type="hidden" id="btApartmanId">
+                <div class="row g-3">
+                    <div class="col-md-6 border-end">
+                        <div id="btBilgi" class="alert alert-light border small mb-3"></div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Teslim Edilen Miktar</label>
+                            <div class="input-group">
+                                <input type="number" step="0.01" min="0" class="form-control form-control-lg fw-bold" id="btMiktar" placeholder="Örn: 5" oninput="btBirimGuncelle()">
+                                <select class="form-select" id="btBirim" style="max-width:110px" onchange="btBirimGuncelle()">
+                                    <option value="ton">ton</option>
+                                    <option value="kg">kg</option>
+                                </select>
+                            </div>
+                            <div class="form-text" id="btKgKarsilik"></div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Tarih</label>
+                            <input type="date" id="btTarih" class="form-control">
+                        </div>
+                        <button type="button" class="btn btn-success fw-bold w-100" onclick="blokTeslimatKaydet()"><i class="fas fa-check me-1"></i> Teslimatı Kaydet</button>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span class="fw-bold"><i class="fas fa-list me-1 text-success"></i> İndirilen Teslimatlar</span>
+                            <span class="badge bg-secondary" id="btGecmisToplam">0 kg</span>
+                        </div>
+                        <div id="btGecmisListe" style="max-height:340px; overflow-y:auto;">
+                            <div class="text-muted small text-center py-4">Yükleniyor…</div>
+                        </div>
+                    </div>
                 </div>
             </div>
             <div class="modal-footer bg-light">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Kapat</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="topluAnlasmaModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content border-0 shadow-lg">
+            <div class="modal-header bg-info text-dark">
+                <h5 class="modal-title"><i class="fas fa-handshake me-2"></i> Blok Bazlı Toplu Anlaşma</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted small mb-2">Blok için <strong>toplam ton</strong> girin; sistem dairelere <strong>kg</strong> olarak böler. Ton fiyatı TL veya USD olabilir.</p>
+                <ul class="nav nav-pills nav-fill mb-3 flex-wrap" id="taBlokSekmeler"></ul>
+                <input type="hidden" id="taAktifBlok">
+                <div id="taKilitKutu" class="alert alert-warning border-0 py-2 mb-3 d-none d-flex flex-wrap gap-2 justify-content-between align-items-center">
+                    <span class="small mb-0"><i class="fas fa-lock me-1"></i> Bu blokta mevcut anlaşma var — alanlar kilitli.</span>
+                    <button type="button" class="btn btn-sm btn-warning fw-bold" onclick="taKilidiAc()"><i class="fas fa-unlock me-1"></i> Kilidi Aç</button>
+                </div>
+                <div id="taYeniBilgi" class="alert alert-light border py-2 mb-3 small d-none">
+                    <i class="fas fa-info-circle me-1 text-info"></i> Bu blokta henüz anlaşma yok — yeni şartları girin.
+                </div>
+                <fieldset id="taFormAlanlari">
+                    <div class="row g-2">
+                        <div class="col-md-5"><label class="form-label fw-bold">Ürün</label><select class="form-select" id="taUrun"><option value="">— Ürün —</option></select></div>
+                        <div class="col-md-3"><label class="form-label fw-bold">Toplam Ton</label><input type="number" step="0.001" class="form-control" id="taToplamTon" placeholder="Örn: 40"></div>
+                        <div class="col-md-2"><label class="form-label">Para</label><select class="form-select" id="taPara"><option value="TRY">₺ TL</option><option value="USD">$ USD</option></select></div>
+                        <div class="col-md-2"><label class="form-label fw-bold">Ton Fiyat</label><input type="number" step="0.0001" class="form-control" id="taTonFiyat"></div>
+                    </div>
+                    <div class="row g-2 mt-2">
+                        <div class="col-md-4"><label class="form-label">Daire Tipi (opsiyonel)</label><select class="form-select" id="taDaireTipi">
+                            <option value="">— Hepsi —</option><option>1+1</option><option>2+1</option><option>3+1</option><option>4+1</option><option>5+1</option><option>Dubleks</option>
+                        </select></div>
+                        <div class="col-md-4"><label class="form-label">Kg / daire (tahmini)</label><input type="text" class="form-control bg-light" id="taKgDaire" readonly></div>
+                        <div class="col-md-4"><label class="form-label">Kg fiyat (tahmini)</label><input type="text" class="form-control bg-light" id="taKgFiyat" readonly></div>
+                    </div>
+                    <div class="form-check mt-3">
+                        <input class="form-check-input" type="checkbox" id="taSadeceBos" checked>
+                        <label class="form-check-label" for="taSadeceBos">Sadece anlaşması boş dairelere uygula</label>
+                    </div>
+                </fieldset>
+                <div id="taBlokOzet" class="small text-muted mt-2"></div>
+            </div>
+            <div class="modal-footer bg-light">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
-                <button type="button" class="btn btn-info px-4 fw-bold text-dark" onclick="topluAnlasmaUygula()"><i class="fas fa-check me-1"></i> Uygula</button>
+                <button type="button" class="btn btn-info px-4 fw-bold text-dark" id="taUygulaBtn" onclick="blokAnlasmaUygula()"><i class="fas fa-check me-1"></i> Bu Bloğa Uygula</button>
             </div>
         </div>
     </div>
@@ -3162,6 +3425,6 @@
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script src="adres-sozlugu.js?v=1.0.77"></script>
-    <script src="script.js?v=1.0.89"></script>
+    <script src="script.js?v=1.1.21"></script>
 </body>
 </html>

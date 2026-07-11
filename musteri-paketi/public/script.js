@@ -941,8 +941,14 @@ window.musteriDetayGoster = async function(musteriId, adSoyad, ceptel) {
         if (listeModal) listeModal.hide();
     }
 
-    // 2. Detay Penceresini Açıyoruz
+    // Apartman dışından açıldıysa geri butonunu varsayılana çek
     const detayModalEl = document.getElementById('musteriDetayModal');
+    if (detayModalEl && detayModalEl.getAttribute('data-gelis-yeri') !== 'apartman') {
+        const geriBtn = document.getElementById('musteriDetayGeriBtn');
+        if (geriBtn) geriBtn.innerHTML = '<i class="fas fa-arrow-left me-1"></i> Listeye Dön';
+    }
+
+    // 2. Detay Penceresini Açıyoruz
     let detayModal = bootstrap.Modal.getInstance(detayModalEl);
     if (!detayModal) detayModal = new bootstrap.Modal(detayModalEl);
     detayModal.show();
@@ -1059,7 +1065,7 @@ const baslikGuncelle = (unvan) => {
     if (telElementi) telElementi.innerText = temizTel;
 
     if (typeof window.musteriApartmanBilgisiYukle === 'function') {
-        window.musteriApartmanBilgisiYukle(musteriId);
+        await window.musteriApartmanBilgisiYukle(musteriId);
     }
 
     try {
@@ -1164,7 +1170,8 @@ const baslikGuncelle = (unvan) => {
                 temizAciklama += `<div class="mt-1"><span class="badge bg-light text-secondary border px-2 py-1"><i class="fas fa-user-check me-1 text-info opacity-75"></i> ${yapanPersonel.toUpperCase()}</span></div>`;
             }
 
-            // Garantili Teslimat Okuma Sistemi
+            // Garantili Teslimat / Apartman ödeme okuma
+            const aptAnlasmaSatiri = String(islem.notlar || '').includes('Apartman anlaşması');
             let teslimDurumu = islem.TeslimDurumu;
             if (!teslimDurumu || teslimDurumu === 'null' || teslimDurumu === '') {
                 teslimDurumu = 'Teslim Edildi';
@@ -1183,9 +1190,16 @@ const baslikGuncelle = (unvan) => {
 
             let teslimEdilen = miktar - kalanTeslimat;
             if (teslimEdilen < 0) teslimEdilen = 0;
+            // Apartman: ondalık yuvarlama (0.029999... gibi saçma gösterim olmasın)
+            if (aptAnlasmaSatiri) {
+                kalanTeslimat = Math.round(kalanTeslimat * 100) / 100;
+                teslimEdilen = Math.round(teslimEdilen * 100) / 100;
+            }
 
-            if (kalanTeslimat === 0) {
+            if (kalanTeslimat === 0 && !aptAnlasmaSatiri) {
                 teslimDurumu = 'Teslim Edildi';
+                teslimEdilen = miktar;
+            } else if (kalanTeslimat === 0 && aptAnlasmaSatiri) {
                 teslimEdilen = miktar;
             }
 
@@ -1194,17 +1208,22 @@ const baslikGuncelle = (unvan) => {
             let gosterilecekBirim = birim;
 
             if (borc > 0 && miktar > 0) {
-                // Kalan > 0 ise Teslimat bilgisini (T ve K) göster
-                if (kalanTeslimat > 0) {
+                const aptFmt = (n) => (Math.round(n * 100) / 100).toLocaleString('tr-TR', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+                const oLabel = aptAnlasmaSatiri ? 'Ö' : 'T';
+                const kLabel = aptAnlasmaSatiri ? 'B' : 'K';
+                const oTitle = aptAnlasmaSatiri ? 'Ödenen kg' : 'Teslim edilen';
+                const kTitle = aptAnlasmaSatiri ? 'Kalan borç kg' : 'Kalan teslimat';
+                // Kalan > 0 ise ilerleme bilgisini göster (apartmanda ödeme, normalde teslimat)
+                if (kalanTeslimat > 0 || (aptAnlasmaSatiri && teslimEdilen > 0)) {
                     miktarHucresi = `
                         <div class="fw-bold fs-6">${miktar}</div>
                         <div style="font-size: 0.75rem; line-height: 1.2;" class="mt-1 text-nowrap">
-                            <span class="text-success fw-bold"><i class="fas fa-check-circle"></i> T: ${teslimEdilen}</span> / 
-                            <span class="text-danger fw-bold"><i class="fas fa-clock"></i> K: ${kalanTeslimat}</span>
+                            <span class="text-success fw-bold" title="${oTitle}"><i class="fas fa-check-circle"></i> ${oLabel}: ${aptFmt(teslimEdilen)}</span> / 
+                            <span class="text-danger fw-bold" title="${kTitle}"><i class="fas fa-clock"></i> ${kLabel}: ${aptFmt(kalanTeslimat)}</span>
                         </div>
                     `;
                 } else {
-                    // Kalan = 0 ise teslimat detayını HİÇ GÖSTERME
+                    // Kalan = 0 ise detayı gösterme
                     miktarHucresi = `<div class="fw-bold fs-6">${miktar}</div>`;
                 }
             } 
@@ -1345,7 +1364,20 @@ function odemeAlModalAc() {
         alert("Lütfen önce bir müşteri seçin.");
         return;
     }
-    document.getElementById('tahsilatMusteriAd').innerText = aktifMusteriAd;
+    // Müşteri adını güvenli çöz: ünvan > resmi ad > aktif ad > başlık metni
+    let gosterAd = (typeof aktifMusteriUnvan !== 'undefined' && aktifMusteriUnvan && aktifMusteriUnvan !== 'null') ? aktifMusteriUnvan : '';
+    if (!gosterAd && typeof aktifMusteriAdiResmi !== 'undefined' && aktifMusteriAdiResmi) gosterAd = aktifMusteriAdiResmi;
+    if (!gosterAd && aktifMusteriAd && aktifMusteriAd !== '-') gosterAd = aktifMusteriAd;
+    if (!gosterAd) {
+        const bul = (typeof tumMusteriler !== 'undefined' ? tumMusteriler : []).find((m) => String(m.Kimlik) === String(aktifMusteriId));
+        if (bul) gosterAd = bul.Unvan || bul.Adı || bul.AdSoyad || '';
+    }
+    if (!gosterAd) {
+        const h = document.getElementById('detayAdSoyad');
+        if (h) { const t = h.innerText.replace(/Düzenle/g, '').trim(); if (t) gosterAd = t.split('\n')[0].trim(); }
+    }
+    if (gosterAd && (!aktifMusteriAd || aktifMusteriAd === '-')) aktifMusteriAd = gosterAd;
+    document.getElementById('tahsilatMusteriAd').innerText = gosterAd || ('#' + aktifMusteriId);
     document.getElementById('tahsilatTutar').value = "";
     const tahsilatOdemeTuru = document.getElementById('tahsilatAciklama');
     if (tahsilatOdemeTuru) tahsilatOdemeTuru.value = 'Nakit';
@@ -1354,7 +1386,80 @@ function odemeAlModalAc() {
     const tarihKutusu = document.getElementById('odemeTarihi');
     if(tarihKutusu) tarihKutusu.value = bugununTarihiFormati();
 
+    // Borç tipini belirle: apartman + genel varsa sor, tek tipse otomatik
+    odemeKapsamHazirla(aktifMusteriId).then(() => {
+        if (typeof tahsilatApartmanOnizleme === 'function') tahsilatApartmanOnizleme();
+    });
+
     guvenliModalAc('tahsilatModal');
+}
+
+window.tahsilatApartmanOnizleme = async function() {
+    const kutu = document.getElementById('tahsilatAptOnizlemeKutu');
+    const govde = document.getElementById('tahsilatAptOnizleme');
+    if (!kutu || !govde) return;
+    const kapsamSel = document.getElementById('tahsilatKapsam');
+    const kutuAcik = document.getElementById('tahsilatKapsamKutu') && !document.getElementById('tahsilatKapsamKutu').classList.contains('d-none');
+    const kapsam = kutuAcik && kapsamSel ? kapsamSel.value : (window.tahsilatKapsam || 'apartman');
+    if (kapsam === 'genel' || !aktifMusteriId) {
+        kutu.classList.add('d-none');
+        return;
+    }
+    kutu.classList.remove('d-none');
+    const tutarHam = (document.getElementById('tahsilatTutar')?.value || '').replace(/\./g, '').replace(',', '.');
+    const tutar = parseFloat(tutarHam) || 0;
+    const odemeTuru = document.getElementById('tahsilatAciklama')?.value || 'Nakit';
+    govde.innerHTML = '<span class="text-muted">Hesaplanıyor…</span>';
+    try {
+        const res = await fetch(`/api/musteri/${aktifMusteriId}/apartman-odeme-onizleme?tutar=${encodeURIComponent(tutar)}&odemeTuru=${encodeURIComponent(odemeTuru)}&_t=${Date.now()}`);
+        const o = await res.json();
+        if (!res.ok || !o.varMi) {
+            govde.innerHTML = `<span class="text-muted">${o.mesaj || 'USD apartman borcu yok / kur alınamadı'}</span>`;
+            return;
+        }
+        const kur = Number(o.kur || 0);
+        const fmt = (n, d = 2) => Number(n || 0).toLocaleString('tr-TR', { minimumFractionDigits: d, maximumFractionDigits: d });
+        const kaynak = o.tonKaynak === 'ayar' ? 'ayar (tür fiyatı)' : 'anlaşma fiyatı';
+        govde.innerHTML = `
+            <div class="fw-bold text-dark mb-1"><i class="fas fa-dollar-sign text-success me-1"></i>Apartman ödeme (eski mantık)</div>
+            <div>Anlık USD: <b>${fmt(kur, 4)}</b></div>
+            <div>${odemeTuru} ton: <b>${fmt(o.tonFiyat, 2)} USD/ton</b> <span class="text-muted">(${kaynak})</span></div>
+            ${tutar > 0 ? `<div>Ö.USD: <b>${fmt(o.odenenUsd, 2)}</b> · Tahmini kg: <b class="text-success">${fmt(o.tahminiKg, 2)}</b></div>` : '<div class="text-muted">Tutar girince kg önizlemesi çıkar</div>'}
+        `;
+    } catch (e) {
+        govde.innerHTML = '<span class="text-danger">Önizleme alınamadı</span>';
+    }
+};
+
+// Ödeme hedefini (apartman/genel) borç durumuna göre ayarla
+async function odemeKapsamHazirla(musteriId) {
+    const kutu = document.getElementById('tahsilatKapsamKutu');
+    const sel = document.getElementById('tahsilatKapsam');
+    const bilgi = document.getElementById('tahsilatKapsamBilgi');
+    const onizlemeKutu = document.getElementById('tahsilatAptOnizlemeKutu');
+    window.tahsilatKapsam = 'genel';
+    if (kutu) kutu.classList.add('d-none');
+    if (onizlemeKutu) onizlemeKutu.classList.add('d-none');
+    try {
+        const res = await fetch(`/api/musteri/${musteriId}/borc-ozet?_t=` + Date.now());
+        const o = await res.json();
+        if (!res.ok) return;
+        const ap = parseFloat(o.apartmanBorc) || 0;
+        const gn = parseFloat(o.genelBorc) || 0;
+        const paraFmt = (n) => (n || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 }) + ' ₺';
+        if (ap > 0 && gn > 0) {
+            window.tahsilatKapsam = 'apartman';
+            if (sel) sel.value = 'apartman';
+            if (kutu) kutu.classList.remove('d-none');
+            if (bilgi) bilgi.innerHTML = `🏢 Apartman: <b>${paraFmt(ap)}</b>${o.apartmanKalanKg ? ' (' + o.apartmanKalanKg + ' kg)' : ''} · 📋 Genel: <b>${paraFmt(gn)}</b>`;
+        } else if (ap > 0) {
+            window.tahsilatKapsam = 'apartman';
+        } else {
+            window.tahsilatKapsam = 'genel';
+        }
+    } catch (e) {
+        console.warn('borç özet alınamadı', e);
+    }
 }
 
 // Tahsilat modalı kapanınca (X, İptal, ESC, dışarı tıklama) müşteri detayı tekrar açılsın;
@@ -1493,6 +1598,11 @@ async function tahsilatiKaydet() {
     const yeniKalanMuhur = suankiBakiye - parseFloat(tutar);
 
     // 5. SUNUCUYA GÖNDERİM
+    // Ödeme hedefi: apartman seçiliyse kg mantığı çalışsın, genel ise apartmana dokunma
+    const kapsamSel = document.getElementById('tahsilatKapsam');
+    const kutuAcik = document.getElementById('tahsilatKapsamKutu') && !document.getElementById('tahsilatKapsamKutu').classList.contains('d-none');
+    const secilenKapsam = kutuAcik && kapsamSel ? kapsamSel.value : (window.tahsilatKapsam || 'apartman');
+    const apartmanaUygula = secilenKapsam !== 'genel';
     try {
         const response = await fetch('/api/musteri-odeme-makbuzlu', {
             method: 'POST',
@@ -1505,7 +1615,8 @@ async function tahsilatiKaydet() {
                 notlar: ozelNot,
                 tarih: islemTarihiSql,
                 islemiYapan: aktifPersonel, // 🚨 BURASI GÜVENCE ALTINDA
-                islemBakiyesi: yeniKalanMuhur 
+                islemBakiyesi: yeniKalanMuhur,
+                apartmanUygula: apartmanaUygula
             })
         });
 
@@ -1526,6 +1637,13 @@ async function tahsilatiKaydet() {
             } else {
                 // Otomatik yazdırma kapalıysa personeli mesajda gösterelim
                 alert(`✅ ${tutar} ₺ ödeme kaydedildi.\nİşlemi Yapan: ${aktifPersonel}\nMakbuz No: ${data.makbuzNo}`);
+            }
+            if (data.apartmanKg && data.apartmanKg.islenen > 0) {
+                const a = data.apartmanKg;
+                const kur = a.kur ? Number(a.kur).toLocaleString('tr-TR', { minimumFractionDigits: 4 }) : '—';
+                const usd = a.odenenUsd != null ? Number(a.odenenUsd).toLocaleString('tr-TR', { minimumFractionDigits: 2 }) : '—';
+                const ton = a.tonFiyat != null ? Number(a.tonFiyat).toLocaleString('tr-TR', { maximumFractionDigits: 2 }) : '—';
+                alert(`Apartman kg düşümü\nAnlık USD: ${kur}\nÖ.USD: ${usd}\nKg: ${a.kgDusen}\nTür ton: ${ton} USD/ton`);
             }
             
             const tel = document.getElementById('detayTelefon')?.innerText || "";
@@ -1820,7 +1938,8 @@ window.satisiTamamla = async function() {
                             aciklama: "Satış Tahsilatı (" + odemeTuru + ")" + (notlar ? " - " + notlar : ""),
                             notlar: "",
                             islemiYapan: aktifPersonel, // 🚨 TAHSİLAT İÇİN DE MÜHÜRLENDİ
-                            islemBakiyesi: islemBakiyesi
+                            islemBakiyesi: islemBakiyesi,
+                            apartmanUygula: false
                         })
                     });
                     const tData = await resTahsilat.json();
@@ -2342,7 +2461,8 @@ window.satisVeTahsilatiBitir = async function() {
                     aciklama: `Satış Tahsilatı (${odemeYontemi})`, 
                     notlar: notlar,
                     tarih: islemTarihiSql, // <-- DOĞRU SAAT TAHSİLATA DA GİDİYOR
-                    islemiYapan: aktifPersonel // <-- İMZA
+                    islemiYapan: aktifPersonel, // <-- İMZA
+                    apartmanUygula: false
                 })
             });
         }
@@ -2858,7 +2978,7 @@ async function bekleyenTeslimatModaliniAc() {
 window.bekleyenTeslimatlariYukle = async function() {
     try {
         const response = await fetch('/api/bekleyen-teslimatlar');
-        const veriler = await response.json();
+        let veriler = await response.json();
         window.sonSevkiyatVerileri = veriler;
         const tabloGovdesi = document.getElementById('bekleyenTeslimatlarGovdesi');
         
@@ -2872,6 +2992,59 @@ window.bekleyenTeslimatlariYukle = async function() {
             tabloGovdesi.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-5"><i class="fas fa-check-circle fs-1 text-success mb-3 d-block"></i> Bekleyen teslimat yok, tüm kömürler kapılara yıkılmış!</td></tr>';
             return;
         }
+
+        // 🏢 APARTMAN BLOK SATIRLARI: backend'den hazır gelir (tüm daireler dahil, blok bazında)
+        // Kalan = teslim edilecek kalan kömür (Anlaşılan − Teslim), borç DEĞİL.
+        const normalVeriler = [];
+        const blokVeriler = [];
+        veriler.forEach((v) => {
+            if (v.IsApartmanBlok == 1) blokVeriler.push(v);
+            else normalVeriler.push(v);
+        });
+
+        blokVeriler.forEach((g) => {
+            const anlasilanKg = parseFloat(g.ToplamAnlasilan) || 0;
+            const teslimKg = parseFloat(g.ToplamTeslim) || 0;
+            const kalanTeslimKg = Math.max(0, anlasilanKg - teslimKg);
+            if (kalanTeslimKg <= 0.01) return;
+            const blokAdi = (g.ApartmanBlok || '').trim();
+            const mahalleGoster = g.ApartmanMahalle && g.ApartmanMahalle.trim() !== ''
+                ? mahalleGorunumStr(g.ApartmanMahalle)
+                : '<span class="text-danger small"><i class="fas fa-exclamation-triangle"></i> Mahalle yok</span>';
+            const blokEtiket = (blokAdi && blokAdi !== '(Bloksuz)') ? `${aptKacis(blokAdi)} Blok` : 'Blok yok';
+            let urun = g.UrunAdi || '-';
+            if (urun.includes('(')) urun = urun.split('(')[0].trim();
+            const tonGoster = (Math.round((kalanTeslimKg / 1000) * 100) / 100).toLocaleString('tr-TR', { maximumFractionDigits: 2 });
+            const inenTon = (Math.round((teslimKg / 1000) * 100) / 100).toLocaleString('tr-TR', { maximumFractionDigits: 2 });
+            const anlasTon = (Math.round((anlasilanKg / 1000) * 100) / 100).toLocaleString('tr-TR', { maximumFractionDigits: 2 });
+            tabloGovdesi.innerHTML += `
+    <tr class="sevkiyat-row border-bottom align-middle" style="background: #eef6ff; cursor:pointer;"
+        title="Apartman teslimatı: Apartmanlar modülünden blok bazında girilir"
+        onclick="apartmanDetayAc(${g.ApartmanId})">
+        <td class="ps-4 py-2" style="width: 25%;">
+            <span class="fw-bold text-dark text-uppercase"><i class="fas fa-building text-primary me-2"></i>${aptKacis(g.ApartmanAd || 'Apartman')}</span>
+            <div class="small text-muted mt-1">${blokEtiket} · ${g.DaireSayisi} daire</div>
+        </td>
+        <td class="py-2" style="width: 15%;">
+            <span class="fw-bold text-info" style="font-size: 0.9rem;"><i class="fas fa-map-marker-alt me-1"></i> ${mahalleGoster}</span>
+        </td>
+        <td class="py-2" style="width: 15%;">
+            <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25">${aptKacis(blokEtiket)}</span>
+        </td>
+        <td class="py-2" style="width: 20%;">
+            <span class="fw-bold text-primary">${aptKacis(urun)}</span>
+        </td>
+        <td class="text-center py-2" style="width: 10%;">
+            <span class="badge rounded-pill bg-primary bg-opacity-75 px-2 py-1 shadow-sm" title="Anlaşılan ${anlasTon} ton, inen ${inenTon} ton">${tonGoster} <small class="fw-normal">ton</small></span>
+        </td>
+        <td class="py-2" style="width: 15%;">
+            <span class="text-muted small"><i class="fas fa-info-circle me-1"></i>${anlasTon}t anlaş. · ${inenTon}t inen</span>
+        </td>
+    </tr>
+`;
+        });
+
+        veriler = normalVeriler;
 
         veriler.forEach(islem => {
             let dinamikBirim = islem.birimtür || islem.BirimTur || islem.BirimTür || islem.birimtur || islem.BİRİMTÜR || null;
@@ -2976,6 +3149,11 @@ window.bekleyenTeslimatlariYukle = async function() {
     </tr>
 `;
         });
+
+        // Sayaç: normal teslimatlar + teslimatı kalan apartman blokları
+        const kalanBlokSayisi = blokVeriler.filter((g) => ((parseFloat(g.ToplamAnlasilan) || 0) - (parseFloat(g.ToplamTeslim) || 0)) > 0.01).length;
+        const sayacEl = document.getElementById('toplamSevkiyatSayisi');
+        if (sayacEl) sayacEl.innerText = (normalVeriler.length + kalanBlokSayisi);
     } catch (error) {
         console.error("Teslimatlar yüklenemedi:", error);
     }
@@ -5085,21 +5263,51 @@ window.vadeDetayaGit = function(id, ad, tel) {
     setTimeout(() => { musteriDetayGoster(id, ad, tel); }, 350);
 };
 
-// 4. "Listeye Dön" Butonu Motoru (Okuyucu)
+// 4. "Listeye Dön" / geldiği yere dön
 window.detaydanListeyeDon = function() {
-    const gelisYeri = document.getElementById('musteriDetayModal').getAttribute('data-gelis-yeri');
-    modalZorlaKapat('musteriDetayModal'); // Detayı kapat
-    
+    if (window._cariGeriDonIsleniyor) return;
+    window._cariGeriDonIsleniyor = true;
+    const detayEl = document.getElementById('musteriDetayModal');
+    const gelisYeri = detayEl ? detayEl.getAttribute('data-gelis-yeri') : null;
+    const aptId = window.cariGeriApartmanId || (gelisYeri === 'apartman' ? window.aktifApartman?.Id : null);
+    const aptBlok = window.cariGeriAptBlok || window.aktifAptBlok || 'TUMU';
+
+    if (typeof modalZorlaKapat === 'function') modalZorlaKapat('musteriDetayModal');
+    else {
+        const inst = detayEl && bootstrap.Modal.getInstance(detayEl);
+        if (inst) inst.hide();
+    }
+
     setTimeout(() => {
-        if (gelisYeri === 'borclu') {
-            borcluMusterileriGetir(); // Borçlulara götür
-        } 
-        else if (gelisYeri === 'vade') {
-            vadesiGelenleriGetir(); // Vadeye götür
-        } 
-        else {
-            guvenliModalAc('musterilerModal'); // Ana listeye götür
-            if (typeof cariListesiniYukle === 'function') cariListesiniYukle();
+        try {
+            if (gelisYeri === 'borclu') {
+                borcluMusterileriGetir();
+            } else if (gelisYeri === 'vade') {
+                vadesiGelenleriGetir();
+            } else if (gelisYeri === 'apartman') {
+                window.cariGeriApartmanId = null;
+                window.cariGeriAptBlok = null;
+                if (detayEl) detayEl.removeAttribute('data-gelis-yeri');
+                const geriBtn = document.getElementById('musteriDetayGeriBtn');
+                if (geriBtn) geriBtn.innerHTML = '<i class="fas fa-arrow-left me-1"></i> Listeye Dön';
+                if (aptId && typeof apartmanDetayAc === 'function') {
+                    window._aptGeriDonuyor = true;
+                    window._aptGeriDonAtla = true;
+                    apartmanDetayAc(aptId).then(() => {
+                        if (aptBlok) {
+                            window.aktifAptBlok = aptBlok;
+                            if (typeof apartmanDetayCiz === 'function') apartmanDetayCiz();
+                        }
+                        setTimeout(() => { window._aptGeriDonAtla = false; }, 400);
+                    }).catch(() => { window._aptGeriDonAtla = false; });
+                }
+            } else {
+                if (detayEl) detayEl.removeAttribute('data-gelis-yeri');
+                guvenliModalAc('musterilerModal');
+                if (typeof cariListesiniYukle === 'function') cariListesiniYukle();
+            }
+        } finally {
+            window._cariGeriDonIsleniyor = false;
         }
     }, 350);
 };
@@ -7372,6 +7580,14 @@ window.tanimlamalarModalAc = async function() {
         if(document.getElementById('ayarModulToptanci')) document.getElementById('ayarModulToptanci').checked = ok('ModulToptanci');
         if(document.getElementById('ayarModulSevkiyat')) document.getElementById('ayarModulSevkiyat').checked = ok('ModulSevkiyat');
 
+        const aptDeger = (anahtar) => {
+            const a = ayarlar.find((x) => x.Anahtar === anahtar);
+            return a && a.Deger != null ? a.Deger : '';
+        };
+        if (document.getElementById('ayarAptUsdTonNakit')) document.getElementById('ayarAptUsdTonNakit').value = aptDeger('AptUsdTonNakit');
+        if (document.getElementById('ayarAptUsdTonKart')) document.getElementById('ayarAptUsdTonKart').value = aptDeger('AptUsdTonKart');
+        if (document.getElementById('ayarAptUsdTonVade')) document.getElementById('ayarAptUsdTonVade').value = aptDeger('AptUsdTonVade');
+
     } catch(e) { 
         document.getElementById('ayarMakbuzBaslangic').value = "";
     }
@@ -7387,6 +7603,9 @@ window.ayarlariKaydet = async function() {
     const mGider = document.getElementById('ayarModulGider')?.checked ? 'true' : 'false';
     const mToptanci = document.getElementById('ayarModulToptanci')?.checked ? 'true' : 'false';
     const mSevkiyat = document.getElementById('ayarModulSevkiyat')?.checked ? 'true' : 'false';
+    const aptNakit = (document.getElementById('ayarAptUsdTonNakit')?.value || '').trim().replace(',', '.');
+    const aptKart = (document.getElementById('ayarAptUsdTonKart')?.value || '').trim().replace(',', '.');
+    const aptVade = (document.getElementById('ayarAptUsdTonVade')?.value || '').trim().replace(',', '.');
     
     if(!basNo || basNo <= 0) { alert("Lütfen geçerli bir başlangıç numarası girin."); return; }
 
@@ -7400,7 +7619,10 @@ window.ayarlariKaydet = async function() {
             fetch('/api/ayar-guncelle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ anahtar: 'MakbuzOtomatikYazdir', deger: otoMakbuz }) }),
             fetch('/api/ayar-guncelle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ anahtar: 'ModulGider', deger: mGider }) }),
             fetch('/api/ayar-guncelle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ anahtar: 'ModulToptanci', deger: mToptanci }) }),
-            fetch('/api/ayar-guncelle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ anahtar: 'ModulSevkiyat', deger: mSevkiyat }) })
+            fetch('/api/ayar-guncelle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ anahtar: 'ModulSevkiyat', deger: mSevkiyat }) }),
+            fetch('/api/ayar-guncelle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ anahtar: 'AptUsdTonNakit', deger: aptNakit }) }),
+            fetch('/api/ayar-guncelle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ anahtar: 'AptUsdTonKart', deger: aptKart }) }),
+            fetch('/api/ayar-guncelle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ anahtar: 'AptUsdTonVade', deger: aptVade }) })
         ]);
 
         localStorage.setItem('ayarOtoMakbuz', otoMakbuz); 
@@ -7904,28 +8126,75 @@ window.mahalleRaporuYazdir = async function() {
 
 // --- YENİ RAPORLAMA MERKEZİ KODLARI ---
 
+// Bir sevkiyat satırını (normal veya apartman blok) rapor için tek biçime indirger
+window.raporSatirNormalize = function(islem) {
+    // 🏢 Apartman blok satırı
+    if (islem && islem.IsApartmanBlok) {
+        const anlas = parseFloat(islem.ToplamAnlasilan) || 0;
+        const teslim = parseFloat(islem.ToplamTeslim) || 0;
+        const kalanKg = Math.max(0, Math.round((anlas - teslim) * 100) / 100);
+        const hamMah = (islem.ApartmanMahalle && islem.ApartmanMahalle !== 'null' && String(islem.ApartmanMahalle).trim() !== '')
+            ? String(islem.ApartmanMahalle).trim() : '';
+        return {
+            apartman: true,
+            mahalleHam: hamMah,
+            unvan: `${islem.ApartmanAd || ''} · ${islem.ApartmanBlok || ''} Blok`.trim(),
+            urun: (islem.UrunAdi && islem.UrunAdi !== 'null') ? islem.UrunAdi : 'Kömür',
+            miktar: kalanKg,
+            birim: 'kg',
+            tel: 'Apartman',
+            adres: [islem.ApartmanIlce, hamMah].filter((x) => x && x !== 'null').join(' / ') || '-',
+            notlar: `${islem.DaireSayisi || 0} daire`
+        };
+    }
+    // Normal müşteri hareketi satırı
+    const hamMah = (islem.Mahalle && islem.Mahalle !== 'null' && islem.Mahalle.trim() !== '')
+        ? islem.Mahalle.trim() : '';
+    let tamAciklama = islem.AÇIKLAMA || '';
+    let urunAdiTemiz = tamAciklama;
+    if (tamAciklama.includes(' x ')) urunAdiTemiz = tamAciklama.split(' x ')[1].split(' (')[0];
+    else if (tamAciklama.includes(' (')) urunAdiTemiz = tamAciklama.split(' (')[0];
+    let dinamikBirim = islem.birimtür || islem.BirimTur || islem.BirimTür || islem.birimtur || islem.BİRİMTÜR || null;
+    if (!dinamikBirim && tamAciklama.includes(' (')) { let match = tamAciklama.match(/\(([^)]+)\)/); if (match) dinamikBirim = match[1]; }
+    if (!dinamikBirim || dinamikBirim === 'Birim' || dinamikBirim === '-') {
+        const l = urunAdiTemiz.toLowerCase();
+        dinamikBirim = (l.includes('un') || l.includes('yem') || l.includes('çuval') || l.includes('torba')) ? 'Çuval' : 'Adet';
+    }
+    let ad = (islem.Adı && islem.Adı !== 'null') ? islem.Adı : '';
+    let soyad = (islem.Soyadı && islem.Soyadı !== 'null') ? islem.Soyadı : '';
+    let unvan = (islem.Unvan && islem.Unvan !== 'null' && islem.Unvan.trim() !== '') ? islem.Unvan : `${ad} ${soyad}`.trim();
+    let tel = (islem.CEPTEL && islem.CEPTEL !== 'null' && islem.CEPTEL !== '-' && islem.CEPTEL !== '+') ? islem.CEPTEL : 'Yok';
+    let adres = (islem.Adres && islem.Adres !== 'null' && islem.Adres.trim() !== '') ? islem.Adres : '-';
+    return {
+        apartman: false,
+        mahalleHam: hamMah,
+        unvan,
+        urun: urunAdiTemiz,
+        miktar: parseInt(islem.KalanTeslimat || islem.ADET || 0),
+        birim: dinamikBirim,
+        tel,
+        adres,
+        notlar: islem.notlar ? islem.notlar : ''
+    };
+};
+
 // 1. Modalı Aç ve Verileri Hazırla
 window.raporMerkeziAc = async function() {
     try {
-        let veriler = window.sonSevkiyatVerileri;
-        if (!veriler || veriler.length === 0) {
-            const response = await fetch('/api/bekleyen-teslimatlar?_t=' + new Date().getTime());
-            veriler = await response.json();
-            window.sonSevkiyatVerileri = veriler;
-        }
+        const response = await fetch('/api/bekleyen-teslimatlar?_t=' + new Date().getTime());
+        let veriler = await response.json();
+        window.sonSevkiyatVerileri = veriler;
 
         if (!veriler || veriler.length === 0) {
             alert("Raporlanacak bekleyen sevkiyat yok!");
             return;
         }
 
-        // Mahalleleri çıkar ve Select'i doldur
+        // Mahalleleri çıkar ve Select'i doldur (apartmanlar dahil)
         const mahalleler = new Set();
         veriler.forEach(i => {
-            const ham = (i.Mahalle && i.Mahalle !== 'null' && i.Mahalle.trim() !== '')
-                ? i.Mahalle.trim()
-                : '';
-            const m = ham ? mahalleGorunumStr(ham) : mahalleRaporEksikEtiketi();
+            const n = raporSatirNormalize(i);
+            const m = n.mahalleHam ? mahalleGorunumStr(n.mahalleHam) : mahalleRaporEksikEtiketi();
             mahalleler.add(m);
         });
 
@@ -7965,50 +8234,28 @@ window.raporOnizlemeGuncelle = function() {
     let gosterilenSayi = 0;
 
     veriler.forEach(islem => {
-        const ham = (islem.Mahalle && islem.Mahalle !== 'null' && islem.Mahalle.trim() !== '')
-            ? islem.Mahalle.trim()
-            : '';
-        const m = ham ? mahalleGorunumStr(ham) : mahalleRaporEksikEtiketi();
+        const n = raporSatirNormalize(islem);
+        const m = n.mahalleHam ? mahalleGorunumStr(n.mahalleHam) : mahalleRaporEksikEtiketi();
         if (seciliMahalle !== 'TUMU' && m !== seciliMahalle) return;
 
         gosterilenSayi++;
 
-        // Ürün Adı Temizliği
-        let tamAciklama = islem.AÇIKLAMA || "";
-        let urunAdiTemiz = tamAciklama;
-        if (tamAciklama.includes(' x ')) urunAdiTemiz = tamAciklama.split(' x ')[1].split(' (')[0];
-        else if (tamAciklama.includes(' (')) urunAdiTemiz = tamAciklama.split(' (')[0];
-
-        // Birim Bulma
-        let dinamikBirim = islem.birimtür || islem.BirimTur || islem.BirimTür || islem.birimtur || islem.BİRİMTÜR || null;
-        if (!dinamikBirim && tamAciklama.includes(' (')) {
-            let match = tamAciklama.match(/\(([^)]+)\)/);
-            if (match) dinamikBirim = match[1];
-        }
-        if (!dinamikBirim || dinamikBirim === "Birim" || dinamikBirim === "-") {
-            dinamikBirim = (urunAdiTemiz.toLowerCase().includes('un') || urunAdiTemiz.toLowerCase().includes('yem') || urunAdiTemiz.toLowerCase().includes('çuval') || urunAdiTemiz.toLowerCase().includes('torba')) ? 'Çuval' : 'Adet';
-        }
-
-        let miktar = parseInt(islem.KalanTeslimat || islem.ADET || 0);
-
-        // 🚨 1. SOL TARAF İÇİN: Ürün adına göre topla
-        let urunAnahtari = urunAdiTemiz.toUpperCase();
+        // 🚨 1. SOL TARAF İÇİN: Ürün adına göre topla (birim ayrı ayrı toplanır)
+        let urunAnahtari = (n.urun || '').toUpperCase() + ' • ' + n.birim;
         if (!urunToplamlari[urunAnahtari]) {
-            urunToplamlari[urunAnahtari] = { miktar: 0, birim: dinamikBirim };
+            urunToplamlari[urunAnahtari] = { ad: (n.urun || '').toUpperCase(), miktar: 0, birim: n.birim };
         }
-        urunToplamlari[urunAnahtari].miktar += miktar;
+        urunToplamlari[urunAnahtari].miktar += n.miktar;
 
         // 🚨 2. SAĞ TARAF İÇİN: Detay satırını oluştur
-        let ad = (islem.Adı && islem.Adı !== "null") ? islem.Adı : "";
-        let soyad = (islem.Soyadı && islem.Soyadı !== "null") ? islem.Soyadı : "";
-        let unvan = (islem.Unvan && islem.Unvan !== 'null' && islem.Unvan.trim() !== "") ? islem.Unvan : `${ad} ${soyad}`.trim();
-
+        const satirStil = n.apartman ? ' style="background:#eef7ff;"' : '';
+        const rozet = n.apartman ? ' <span class="badge bg-info text-dark" style="font-size:0.6rem;">APT</span>' : '';
         detayHtml += `
-            <tr>
-                <td class="fw-bold text-dark" style="font-size: 0.9rem;">${unvan.toUpperCase()}</td>
-                <td class="text-primary" style="font-size: 0.85rem;">${urunAdiTemiz}</td>
+            <tr${satirStil}>
+                <td class="fw-bold text-dark" style="font-size: 0.9rem;">${n.unvan.toUpperCase()}${rozet}</td>
+                <td class="text-primary" style="font-size: 0.85rem;">${n.urun}</td>
                 <td class="text-center fw-bold text-danger" style="font-size: 0.9rem;">
-                    ${miktar} <span style="font-size: 0.75rem; font-weight: normal; color: #666;">${dinamikBirim}</span>
+                    ${n.miktar} <span style="font-size: 0.75rem; font-weight: normal; color: #666;">${n.birim}</span>
                 </td>
             </tr>
         `;
@@ -8033,10 +8280,10 @@ window.raporOnizlemeGuncelle = function() {
     }
 
     // Sol taraftaki Ürün Toplamlarını Listele
-    for (const [urun, data] of Object.entries(urunToplamlari)) {
+    for (const data of Object.values(urunToplamlari)) {
         ozetAlani.innerHTML += `
             <div class="d-flex justify-content-between align-items-center border-bottom border-warning border-opacity-50 pb-2 mb-1">
-                <span class="fw-bold" style="font-size: 0.85rem;">${urun}</span>
+                <span class="fw-bold" style="font-size: 0.85rem;">${data.ad}</span>
                 <span class="badge bg-warning text-dark fs-6 px-2 py-1 shadow-sm">${data.miktar} ${data.birim}</span>
             </div>
         `;
@@ -8050,10 +8297,8 @@ window.seciliRaporuYazdir = function() {
 
     const gruplar = {};
     veriler.forEach(islem => {
-        const ham = (islem.Mahalle && islem.Mahalle !== 'null' && islem.Mahalle.trim() !== '')
-            ? islem.Mahalle.trim()
-            : '';
-        const mahalle = ham ? mahalleGorunumStr(ham) : mahalleRaporEksikEtiketi();
+        const n = raporSatirNormalize(islem);
+        const mahalle = n.mahalleHam ? mahalleGorunumStr(n.mahalleHam) : mahalleRaporEksikEtiketi();
 
         if (seciliMahalle !== 'TUMU' && mahalle !== seciliMahalle) return;
 
@@ -8061,22 +8306,11 @@ window.seciliRaporuYazdir = function() {
         if (!gruplar[mahalle]) { gruplar[mahalle] = { islemler: [], urunToplamlari: {} }; }
         gruplar[mahalle].islemler.push(islem);
 
-        let tamAciklama = islem.AÇIKLAMA || "";
-        let urunAdiTemiz = tamAciklama;
-        if (tamAciklama.includes(' x ')) urunAdiTemiz = tamAciklama.split(' x ')[1].split(' (')[0];
-        else if (tamAciklama.includes(' (')) urunAdiTemiz = tamAciklama.split(' (')[0];
-
-        let dinamikBirim = islem.birimtür || islem.BirimTur || islem.BirimTür || islem.birimtur || islem.BİRİMTÜR || null;
-        if (!dinamikBirim && tamAciklama.includes(' (')) { let match = tamAciklama.match(/\(([^)]+)\)/); if (match) dinamikBirim = match[1]; }
-        if (!dinamikBirim || dinamikBirim === "Birim" || dinamikBirim === "-") { dinamikBirim = (urunAdiTemiz.toLowerCase().includes('un') || urunAdiTemiz.toLowerCase().includes('yem') || urunAdiTemiz.toLowerCase().includes('çuval') || urunAdiTemiz.toLowerCase().includes('torba')) ? 'Çuval' : 'Adet'; }
-
-        let miktar = parseInt(islem.KalanTeslimat || islem.ADET || 0);
-        let urunAnahtari = urunAdiTemiz.toUpperCase();
-
+        let urunAnahtari = (n.urun || '').toUpperCase() + ' • ' + n.birim;
         if (!gruplar[mahalle].urunToplamlari[urunAnahtari]) {
-            gruplar[mahalle].urunToplamlari[urunAnahtari] = { miktar: 0, birim: dinamikBirim };
+            gruplar[mahalle].urunToplamlari[urunAnahtari] = { ad: (n.urun || '').toUpperCase(), miktar: 0, birim: n.birim };
         }
-        gruplar[mahalle].urunToplamlari[urunAnahtari].miktar += miktar;
+        gruplar[mahalle].urunToplamlari[urunAnahtari].miktar += n.miktar;
     });
 
     // Yazdırma Ekranı HTML'i
@@ -8113,8 +8347,8 @@ window.seciliRaporuYazdir = function() {
         
         // 🚨 YENİ: Kağıttaki detaylı ürün özeti kutusu
         html += `<div class="ozet-alani"><span class="ozet-baslik"><i class="fas fa-truck-loading"></i> YÜKLENECEK ÜRÜNLER:</span>`;
-        for (const [urun, data] of Object.entries(gruplar[mahalle].urunToplamlari)) {
-            html += `<span class="ozet-badge">${urun}: ${data.miktar} ${data.birim}</span>`;
+        for (const data of Object.values(gruplar[mahalle].urunToplamlari)) {
+            html += `<span class="ozet-badge">${data.ad}: ${data.miktar} ${data.birim}</span>`;
         }
         html += `</div>`;
 
@@ -8133,33 +8367,17 @@ window.seciliRaporuYazdir = function() {
         `;
 
         gruplar[mahalle].islemler.forEach(islem => {
-            let ad = (islem.Adı && islem.Adı !== "null") ? islem.Adı : "";
-            let soyad = (islem.Soyadı && islem.Soyadı !== "null") ? islem.Soyadı : "";
-            let unvan = (islem.Unvan && islem.Unvan !== 'null' && islem.Unvan.trim() !== "") ? islem.Unvan : `${ad} ${soyad}`.trim();
-            let tel = (islem.CEPTEL && islem.CEPTEL !== "null" && islem.CEPTEL !== "-" && islem.CEPTEL !== "+") ? islem.CEPTEL : "Yok";
-            let adres = (islem.Adres && islem.Adres !== "null" && islem.Adres.trim() !== "") ? islem.Adres : "-";
-            let notlar = islem.notlar ? islem.notlar : "";
-            
-            let tamAciklama = islem.AÇIKLAMA || "";
-            let urunAdiTemiz = tamAciklama;
-            if (tamAciklama.includes(' x ')) urunAdiTemiz = tamAciklama.split(' x ')[1].split(' (')[0];
-            else if (tamAciklama.includes(' (')) urunAdiTemiz = tamAciklama.split(' (')[0];
-
-            let dinamikBirim = islem.birimtür || islem.BirimTur || islem.BirimTür || islem.birimtur || islem.BİRİMTÜR || null;
-            if (!dinamikBirim && tamAciklama.includes(' (')) { let match = tamAciklama.match(/\(([^)]+)\)/); if (match) dinamikBirim = match[1]; }
-            if (!dinamikBirim || dinamikBirim === "Birim" || dinamikBirim === "-") { dinamikBirim = (urunAdiTemiz.toLowerCase().includes('un') || urunAdiTemiz.toLowerCase().includes('çuval')) ? 'Çuval' : 'Adet'; }
-
-            let miktar = islem.KalanTeslimat || islem.ADET || 0;
-
+            const n = raporSatirNormalize(islem);
+            const rozet = n.apartman ? ' [APARTMAN]' : '';
             html += `
                 <tr>
-                    <td><strong>${unvan.toUpperCase()}</strong></td>
-                    <td>${tel}</td>
-                    <td>${urunAdiTemiz}</td>
-                    <td class="text-center kalan">${miktar} <span style="font-size:10px; color:#555;">${dinamikBirim}</span></td>
+                    <td><strong>${n.unvan.toUpperCase()}${rozet}</strong></td>
+                    <td>${n.tel}</td>
+                    <td>${n.urun}</td>
+                    <td class="text-center kalan">${n.miktar} <span style="font-size:10px; color:#555;">${n.birim}</span></td>
                     <td>
-                        <div>${adres}</div>
-                        ${notlar ? `<div class="not-kutu"><b>Not:</b> ${notlar}</div>` : ''}
+                        <div>${n.adres}</div>
+                        ${n.notlar ? `<div class="not-kutu"><b>Not:</b> ${n.notlar}</div>` : ''}
                     </td>
                 </tr>
             `;
@@ -8598,7 +8816,7 @@ window.desktopGuncellemeKontrolEt = async function() {
 // 🏢 APARTMAN (TOPLU SATIŞ) MODÜLÜ - MASAÜSTÜ
 // =========================================================
 if (window.sistemdekiTumModallar) {
-    ['apartmanlarModal', 'apartmanEkleModal', 'apartmanDetayModal', 'daireOlusturModal', 'daireDuzenleModal', 'daireTeslimatModal', 'topluAnlasmaModal']
+    ['apartmanlarModal', 'apartmanEkleModal', 'apartmanDetayModal', 'daireOlusturModal', 'daireDuzenleModal', 'daireTeslimatModal', 'topluAnlasmaModal', 'blokTeslimatModal', 'musteriDuzeltModal']
         .forEach((id) => { if (!window.sistemdekiTumModallar.includes(id)) window.sistemdekiTumModallar.push(id); });
 }
 
@@ -8606,8 +8824,146 @@ window.aptCache = [];
 window.aktifApartman = null;
 window.aktifApartmanDaireler = [];
 window.apartmanGeriDonusMusteri = null;
+window.apartmanModalYigin = [];
+window._aptGeriDonuyor = false;
+window._aptGeriDonAtla = false;
+window.mdAktifBlok = 'TUMU';
+window.mdSeciliDaireler = new Set();
+const APT_COCUK_MODALLAR = ['apartmanEkleModal', 'daireOlusturModal', 'daireDuzenleModal', 'daireTeslimatModal', 'topluAnlasmaModal', 'blokTeslimatModal', 'musteriDuzeltModal'];
 let aptMusteriCache = [];
 let aptUrunCache = [];
+
+function aptAcikModalIdleri() {
+    return [...document.querySelectorAll('.modal.show')].map((m) => m.id).filter(Boolean);
+}
+
+function aptYiginPush(id) {
+    if (!id) return;
+    if (!window.apartmanModalYigin) window.apartmanModalYigin = [];
+    const y = window.apartmanModalYigin;
+    if (y[y.length - 1] !== id) y.push(id);
+}
+
+function aptYiginKaynakEkle(hedefId) {
+    if (window._aptGeriDonuyor) {
+        window._aptGeriDonuyor = false;
+        return;
+    }
+    const aciklar = aptAcikModalIdleri().filter((id) => id !== hedefId);
+    // Öncelik: cari / liste / sevkiyat / rapor / detay
+    if (window.apartmanGeriDonusMusteri || aciklar.includes('musteriDetayModal')) {
+        aptYiginPush('musteriDetayModal');
+        return;
+    }
+    const oncelik = ['apartmanlarModal', 'sevkiyatListesiModal', 'raporMerkeziModal', 'apartmanDetayModal'];
+    for (const id of oncelik) {
+        if (aciklar.includes(id)) {
+            aptYiginPush(id);
+            return;
+        }
+    }
+    // Açık başka bir modal varsa onu da hatırla
+    if (aciklar.length) aptYiginPush(aciklar[0]);
+}
+
+/** Çocuk modal açarken üst modalın kapanması "geri dön" tetiklemesin */
+function aptCocukModalAc(hedefId) {
+    aptYiginKaynakEkle(hedefId);
+    // guvenliModalAc üstteki detay/listeyi kapatınca hidden.bs.modal ateşlenir;
+    // bunu "kullanıcı kapattı" sanıp geri dönüş yapmamak için bayrak koy.
+    window._aptGeriDonAtla = true;
+    guvenliModalAc(hedefId);
+    // Bayrak, hidden handler tarafından tüketilir; tüketilmezse kısa süre sonra temizle
+    setTimeout(() => { window._aptGeriDonAtla = false; }, 500);
+}
+
+function aptDetayaDon() {
+    if (!window.aktifApartman?.Id) return;
+    window._aptGeriDonuyor = true;
+    // Detaya dönerken de üst modal (liste vs.) kapanmasın diye değil — detayı açıyoruz;
+    // kaynak ekleme _aptGeriDonuyor ile atlanıyor.
+    window._aptGeriDonAtla = true;
+    apartmanDetayAc(window.aktifApartman.Id);
+    setTimeout(() => { window._aptGeriDonAtla = false; }, 500);
+}
+
+window.aptModalGeriDon = function(kapananId) {
+    if (kapananId) {
+        window._aptGeriDonAtla = true;
+        if (typeof modalZorlaKapat === 'function') modalZorlaKapat(kapananId);
+        else {
+            const el = document.getElementById(kapananId);
+            const inst = el && bootstrap.Modal.getInstance(el);
+            if (inst) inst.hide();
+        }
+    }
+    const hedef = (window.apartmanModalYigin || []).pop();
+    if (!hedef) return;
+    setTimeout(() => {
+        if (hedef === 'musteriDetayModal') {
+            const g = window.apartmanGeriDonusMusteri;
+            window.apartmanGeriDonusMusteri = null;
+            if (g && g.id && typeof window.musteriDetayGoster === 'function') {
+                window.musteriDetayGoster(g.id, g.ad, g.tel);
+            }
+            return;
+        }
+        if (hedef === 'apartmanDetayModal') {
+            aptDetayaDon();
+            return;
+        }
+        if (hedef === 'apartmanlarModal') {
+            window._aptGeriDonuyor = true;
+            apartmanlariYukle();
+            return;
+        }
+        if (hedef === 'sevkiyatListesiModal') {
+            if (typeof guvenliModalAc === 'function') guvenliModalAc('sevkiyatListesiModal');
+            return;
+        }
+        if (hedef === 'raporMerkeziModal') {
+            if (typeof raporMerkeziAc === 'function') raporMerkeziAc();
+            else if (typeof guvenliModalAc === 'function') guvenliModalAc('raporMerkeziModal');
+            return;
+        }
+        if (typeof guvenliModalAc === 'function') guvenliModalAc(hedef);
+    }, 280);
+};
+
+// İptal / X / ESC ile kapanan çocuk modallarda geldiği yere dön
+function aptGeriDonDinleyicileriKur() {
+    APT_COCUK_MODALLAR.forEach((id) => {
+        const el = document.getElementById(id);
+        if (!el || el.dataset.aptGeriBagli) return;
+        el.dataset.aptGeriBagli = '1';
+        el.addEventListener('hidden.bs.modal', () => {
+            // Bayrağı burada tüketme: peş peşe birden fazla modal kapanırken
+            // (cariye geçişte detay+liste) hepsinin geri dönüşü atlaması gerekir.
+            if (window._aptGeriDonAtla) return;
+            const y = window.apartmanModalYigin || [];
+            if (!y.length) return;
+            const son = y[y.length - 1];
+            if (son === 'apartmanDetayModal' || son === 'apartmanlarModal' || son === 'musteriDetayModal' || son === 'sevkiyatListesiModal' || son === 'raporMerkeziModal') {
+                aptModalGeriDon();
+            }
+        });
+    });
+    const detayEl = document.getElementById('apartmanDetayModal');
+    if (detayEl && !detayEl.dataset.aptGeriBagli) {
+        detayEl.dataset.aptGeriBagli = '1';
+        detayEl.addEventListener('hidden.bs.modal', () => {
+            if (window._aptGeriDonAtla) return;
+            if ((window.apartmanModalYigin || []).length) {
+                aptModalGeriDon();
+            }
+        });
+    }
+}
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', aptGeriDonDinleyicileriKur);
+} else {
+    aptGeriDonDinleyicileriKur();
+}
 
 function aptKacis(s) {
     if (s == null) return '';
@@ -8620,6 +8976,83 @@ function aptPara(n) {
 
 function aptSayi(n) {
     return (parseFloat(n) || 0).toLocaleString('tr-TR', { maximumFractionDigits: 2 });
+}
+
+window.aktifAptBlok = 'TUMU';
+
+function aptBlokListesi(daireler) {
+    const set = new Set();
+    (daireler || []).forEach((d) => set.add((d.Blok && String(d.Blok).trim()) || '(Bloksuz)'));
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'tr'));
+}
+
+function aptBlokFiltreliDaireler(daireler, blok) {
+    if (!blok || blok === 'TUMU') return daireler || [];
+    return (daireler || []).filter((d) => {
+        const b = (d.Blok && String(d.Blok).trim()) || '(Bloksuz)';
+        return b === blok;
+    });
+}
+
+function aptTonFiyatKgGoster(tonFiyat, para) {
+    const t = parseFloat(tonFiyat) || 0;
+    if (!t) return '—';
+    const kg = t / 1000;
+    const pb = para === 'USD' ? 'USD' : '₺';
+    return `${aptSayi(kg)} ${pb}/kg`;
+}
+
+function aptBlokSekmeleriCiz(containerId, bloklar, aktif, onClickFn) {
+    const el = document.getElementById(containerId);
+    if (!el) return;
+    const tum = ['TUMU', ...bloklar.filter((b) => b !== '(Bloksuz)')];
+    if (bloklar.includes('(Bloksuz)')) tum.push('(Bloksuz)');
+    el.innerHTML = tum.map((b) => {
+        const lbl = b === 'TUMU' ? 'Tümü' : b;
+        const cls = b === aktif ? 'active' : '';
+        return `<li class="nav-item"><button type="button" class="nav-link ${cls}" onclick="${onClickFn}('${aptKacis(b).replace(/'/g, "\\'")}')">${aptKacis(lbl)}</button></li>`;
+    }).join('');
+}
+
+function daireBlokNoSecenekleriYukle(seciliBlok, seciliNo) {
+    const daireler = window.aktifApartmanDaireler || [];
+    const bloklar = aptBlokListesi(daireler);
+    const blokSel = document.getElementById('dDuzBlokSec');
+    const noSel = document.getElementById('dDuzNoSec');
+    if (!blokSel || !noSel) return;
+    blokSel.innerHTML = bloklar.map((b) => `<option value="${aptKacis(b)}">${aptKacis(b === '(Bloksuz)' ? '— Bloksuz —' : b)}</option>`).join('');
+    const aktifBlok = seciliBlok || bloklar[0] || '';
+    blokSel.value = aktifBlok;
+    const noList = daireler.filter((d) => ((d.Blok && String(d.Blok).trim()) || '(Bloksuz)') === aktifBlok);
+    noSel.innerHTML = noList.map((d) => `<option value="${aptKacis(d.DaireNo || '')}">${aptKacis(d.DaireNo || '?')}${d.DaireTipi ? ' · ' + aptKacis(d.DaireTipi) : ''}</option>`).join('');
+    if (seciliNo) noSel.value = seciliNo;
+}
+
+function daireDuzenleKgFiyatGuncelle() {
+    const ton = parseFloat(document.getElementById('dDuzTonFiyat')?.value) || 0;
+    const para = document.getElementById('dDuzPara')?.value || 'TRY';
+    const el = document.getElementById('dDuzKgFiyat');
+    if (!el) return;
+    if (!ton) { el.value = ''; return; }
+    const kg = ton / 1000;
+    el.value = `${kg.toFixed(4)} ${para === 'USD' ? 'USD' : '₺'}/kg`;
+}
+
+function topluAnlasmaTahminGuncelle() {
+    const blok = document.getElementById('taAktifBlok')?.value;
+    const ton = parseFloat(document.getElementById('taToplamTon')?.value) || 0;
+    const tonF = parseFloat(document.getElementById('taTonFiyat')?.value) || 0;
+    const para = document.getElementById('taPara')?.value || 'TRY';
+    const daireler = aptBlokFiltreliDaireler(window.aktifApartmanDaireler, blok);
+    const adet = daireler.length || 0;
+    const kgD = adet && ton ? (ton * 1000) / adet : 0;
+    const kgF = tonF ? tonF / 1000 : 0;
+    const kgEl = document.getElementById('taKgDaire');
+    const fEl = document.getElementById('taKgFiyat');
+    const oz = document.getElementById('taBlokOzet');
+    if (kgEl) kgEl.value = adet ? `${aptSayi(kgD)} kg × ${adet} daire` : '—';
+    if (fEl) fEl.value = tonF ? `${kgF.toFixed(4)} ${para}/kg` : '—';
+    if (oz) oz.textContent = adet ? `${blok || '—'} bloğunda ${adet} daire · toplam ${aptSayi(ton * 1000)} kg` : 'Bu blokta daire yok';
 }
 
 async function aptListeleriYukle() {
@@ -8636,7 +9069,12 @@ async function aptListeleriYukle() {
 }
 
 window.apartmanlariYukle = async function() {
-    window.apartmanGeriDonusMusteri = null;
+    if (!window._aptGeriDonuyor) {
+        window.apartmanGeriDonusMusteri = null;
+        window.apartmanModalYigin = [];
+    } else {
+        window._aptGeriDonuyor = false;
+    }
     guvenliModalAc('apartmanlarModal');
     const kutu = document.getElementById('apartmanKartListesi');
     kutu.innerHTML = '<div class="text-center text-muted py-4">Yükleniyor…</div>';
@@ -8665,24 +9103,34 @@ function apartmanKartlariCiz(liste) {
         const yuzde = daire > 0 ? Math.round((tamam / daire) * 100) : 0;
         const konum = [a.Mahalle, a.Ilce].filter(Boolean).join(' / ');
         return `<div class="col-md-6">
-            <div class="card border-0 shadow-sm h-100" role="button" onclick="apartmanDetayAc(${a.Id})">
-                <div class="card-body py-2">
-                    <div class="d-flex justify-content-between align-items-start">
-                        <div>
-                            <h6 class="fw-bold mb-0"><i class="fas fa-building text-warning me-1"></i>${aptKacis(a.Ad)}</h6>
-                            <small class="text-muted">${aptKacis(konum) || '—'}</small>
+            <div class="card border shadow-sm h-100 apt-kart" role="button" tabindex="0"
+                 onclick="apartmanDetayAc(${a.Id})"
+                 onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();apartmanDetayAc(${a.Id})}"
+                 style="cursor:pointer; transition: box-shadow .15s, border-color .15s;">
+                <div class="card-body py-2 d-flex align-items-center gap-2">
+                    <div class="flex-grow-1 min-w-0">
+                        <div class="d-flex justify-content-between align-items-start gap-2">
+                            <div class="min-w-0">
+                                <h6 class="fw-bold mb-0 text-truncate"><i class="fas fa-building text-warning me-1"></i>${aptKacis(a.Ad)}</h6>
+                                <small class="text-muted">${aptKacis(konum) || '—'}</small>
+                            </div>
+                            <span class="badge bg-light text-dark border flex-shrink-0">${daire} daire</span>
                         </div>
-                        <span class="badge bg-light text-dark border">${daire} daire</span>
+                        <div class="progress mt-2" style="height:6px">
+                            <div class="progress-bar bg-success" style="width:${yuzde}%"></div>
+                        </div>
+                        <div class="d-flex flex-wrap gap-2 mt-1 small">
+                            <span class="text-success">✓ ${tamam}</span>
+                            <span class="text-warning">◐ ${kismi}</span>
+                            <span class="text-danger">○ ${bekleyen}</span>
+                            <span class="ms-auto text-muted">Teslim: ${aptSayi(a.ToplamTeslim)}/${aptSayi(a.ToplamAnlasilan)}</span>
+                        </div>
                     </div>
-                    <div class="progress mt-2" style="height:6px">
-                        <div class="progress-bar bg-success" style="width:${yuzde}%"></div>
-                    </div>
-                    <div class="d-flex gap-2 mt-1 small">
-                        <span class="text-success">✓ ${tamam}</span>
-                        <span class="text-warning">◐ ${kismi}</span>
-                        <span class="text-danger">○ ${bekleyen}</span>
-                        <span class="ms-auto text-muted">Teslim: ${aptSayi(a.ToplamTeslim)}/${aptSayi(a.ToplamAnlasilan)}</span>
-                    </div>
+                    <button type="button" class="btn btn-warning fw-bold px-3 flex-shrink-0"
+                            onclick="event.stopPropagation(); apartmanDetayAc(${a.Id})"
+                            title="Apartmanı aç">
+                        Aç <i class="fas fa-chevron-right ms-1"></i>
+                    </button>
                 </div>
             </div>
         </div>`;
@@ -8710,7 +9158,7 @@ window.apartmanEkleModalAc = function(duzenle) {
     if (typeof window.konyaAdresiniFormaYukle === 'function') {
         window.konyaAdresiniFormaYukle('apartmanEkle', a.Ilce || '', a.Mahalle || '');
     }
-    guvenliModalAc('apartmanEkleModal');
+    aptCocukModalAc('apartmanEkleModal');
 };
 
 window.apartmanKaydet = async function() {
@@ -8737,22 +9185,56 @@ window.apartmanKaydet = async function() {
         const data = await res.json();
         if (!res.ok) throw new Error(data.hata || 'Kayıt başarısız');
         const yeniId = data.id || id;
-        await apartmanlariYukle();
-        if (yeniId) apartmanDetayAc(Number(yeniId));
+        window._aptGeriDonAtla = true;
+        modalZorlaKapat('apartmanEkleModal');
+        // Stack'teki kaynağı (liste/detay) tüketmeden yeni detaya geç
+        (window.apartmanModalYigin || []).pop();
+        if (yeniId) {
+            // Liste üzerinden geldiyse detaya dönünce listeye geri çıkabilsin
+            aptYiginPush('apartmanlarModal');
+            window._aptGeriDonuyor = true;
+            apartmanDetayAc(Number(yeniId));
+        } else {
+            window._aptGeriDonuyor = true;
+            apartmanlariYukle();
+        }
     } catch (e) { alert('Hata: ' + e.message); }
 };
 
 window.apartmanDetayAc = async function(id) {
+    aptYiginKaynakEkle('apartmanDetayModal');
     await aptListeleriYukle();
     try {
+        await fetch(`/api/apartman/${id}/borc-esitle`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
         const res = await fetch(`/api/apartman/${id}?_t=` + Date.now());
         const data = await res.json();
         if (!res.ok) throw new Error(data.hata || 'Detay alınamadı');
         window.aktifApartman = data.apartman;
         window.aktifApartmanDaireler = data.daireler || [];
+        window.aktifAptBlok = 'TUMU';
+        const araInp = document.getElementById('aptMusteriAra');
+        if (araInp) araInp.value = '';
         document.getElementById('apartmanDetayAd').textContent = data.apartman.Ad || 'Apartman';
         const geriBtn = document.getElementById('apartmanGeriCariBtn');
-        if (geriBtn) geriBtn.classList.toggle('d-none', !window.apartmanGeriDonusMusteri);
+        const yigin = window.apartmanModalYigin || [];
+        const son = yigin[yigin.length - 1];
+        if (geriBtn) {
+            if (son === 'musteriDetayModal' || window.apartmanGeriDonusMusteri) {
+                geriBtn.classList.remove('d-none');
+                geriBtn.innerHTML = '<i class="fas fa-arrow-left me-1"></i> Cariye Dön';
+            } else if (son === 'sevkiyatListesiModal') {
+                geriBtn.classList.remove('d-none');
+                geriBtn.innerHTML = '<i class="fas fa-arrow-left me-1"></i> Sevkiyata Dön';
+            } else if (son === 'apartmanlarModal') {
+                geriBtn.classList.remove('d-none');
+                geriBtn.innerHTML = '<i class="fas fa-arrow-left me-1"></i> Listeye Dön';
+            } else if (son) {
+                geriBtn.classList.remove('d-none');
+                geriBtn.innerHTML = '<i class="fas fa-arrow-left me-1"></i> Geri';
+            } else {
+                geriBtn.classList.add('d-none');
+            }
+        }
         apartmanDetayCiz();
         guvenliModalAc('apartmanDetayModal');
     } catch (e) { alert('Hata: ' + e.message); }
@@ -8768,73 +9250,369 @@ window.apartmanDetayAcMusteriden = function(aptId) {
     apartmanDetayAc(aptId);
 };
 
-// Apartman detayını kapat: cariden gelindiyse müşteri kartına dön
+// Apartman detayını kapat: geldiği yere dön (cari / liste / sevkiyat)
 window.apartmanDetayKapat = function() {
-    const geri = window.apartmanGeriDonusMusteri;
-    window.apartmanGeriDonusMusteri = null;
-    if (geri && geri.id && typeof window.musteriDetayGoster === 'function') {
-        window.musteriDetayGoster(geri.id, geri.ad, geri.tel);
-        return;
-    }
-    if (typeof modalZorlaKapat === 'function') modalZorlaKapat('apartmanDetayModal');
-    else {
-        const el = document.getElementById('apartmanDetayModal');
-        const inst = el && bootstrap.Modal.getInstance(el);
-        if (inst) inst.hide();
-    }
+    aptModalGeriDon('apartmanDetayModal');
 };
 
 function apartmanDetayCiz() {
     const daireler = window.aktifApartmanDaireler;
+    let filtreli = aptBlokFiltreliDaireler(daireler, window.aktifAptBlok);
+    const araQ = (document.getElementById('aptMusteriAra')?.value || '').toLocaleLowerCase('tr-TR').trim();
+    if (araQ) {
+        filtreli = filtreli.filter((d) => {
+            const ad = (d.MusteriAd || '').toLocaleLowerCase('tr-TR');
+            const no = String(d.DaireNo || '').toLocaleLowerCase('tr-TR');
+            const tip = (d.DaireTipi || '').toLocaleLowerCase('tr-TR');
+            return ad.includes(araQ) || no.includes(araQ) || tip.includes(araQ);
+        });
+    }
     const toplamAnlasilan = daireler.reduce((t, d) => t + (parseFloat(d.AnlasilanMiktar) || 0), 0);
     const toplamTeslim = daireler.reduce((t, d) => t + (parseFloat(d.TeslimEdilen) || 0), 0);
+    const toplamBorcKg = daireler.reduce((t, d) => {
+        const a = parseFloat(d.AnlasilanMiktar) || 0;
+        return t + (d.KalanBorcKg != null ? parseFloat(d.KalanBorcKg) : a);
+    }, 0);
+    const toplamOdenenKg = Math.max(0, toplamAnlasilan - toplamBorcKg);
     const dolu = daireler.filter((d) => d.MusteriKimlik).length;
-    const tamam = daireler.filter((d) => d.AnlasilanMiktar > 0 && d.TeslimEdilen >= d.AnlasilanMiktar).length;
 
     document.getElementById('apartmanDetayOzet').innerHTML = `
         <div class="col-6 col-md-3"><div class="card bg-light border-0"><div class="card-body py-2 text-center"><div class="small text-muted">Daire</div><div class="fw-bold fs-5">${daireler.length}</div></div></div></div>
         <div class="col-6 col-md-3"><div class="card bg-light border-0"><div class="card-body py-2 text-center"><div class="small text-muted">Müşteri Bağlı</div><div class="fw-bold fs-5">${dolu}</div></div></div></div>
-        <div class="col-6 col-md-3"><div class="card bg-light border-0"><div class="card-body py-2 text-center"><div class="small text-muted">Tamamlanan</div><div class="fw-bold fs-5 text-success">${tamam}</div></div></div></div>
-        <div class="col-6 col-md-3"><div class="card bg-light border-0"><div class="card-body py-2 text-center"><div class="small text-muted">Teslim / Anlaşılan</div><div class="fw-bold fs-6">${aptSayi(toplamTeslim)} / ${aptSayi(toplamAnlasilan)}</div></div></div></div>
+        <div class="col-6 col-md-3"><div class="card bg-light border-0"><div class="card-body py-2 text-center"><div class="small text-muted">Teslim / Anlaş. kg</div><div class="fw-bold fs-6">${aptSayi(toplamTeslim)} / ${aptSayi(toplamAnlasilan)}</div></div></div></div>
+        <div class="col-6 col-md-3"><div class="card bg-light border-0"><div class="card-body py-2 text-center"><div class="small text-muted">Ödenen / Borç kg</div><div class="fw-bold fs-6"><span class="text-success">${aptSayi(toplamOdenenKg)}</span> / <span class="text-danger">${aptSayi(toplamBorcKg)}</span></div></div></div></div>
     `;
 
+    aptBlokSekmeleriCiz('aptBlokSekmeler', aptBlokListesi(daireler), window.aktifAptBlok, 'aptBlokSec');
+    // Teslimat paneli aramadan etkilenmesin — blok filtresi yeterli
+    aptBlokTeslimatPaneliCiz(aptBlokFiltreliDaireler(daireler, window.aktifAptBlok));
+
     const tbody = document.getElementById('daireListesiGovdesi');
-    if (!daireler.length) {
-        tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-4">Henüz daire yok. "Daire Oluştur" ile ekleyin.</td></tr>';
+    if (!filtreli.length) {
+        tbody.innerHTML = `<tr><td colspan="9" class="text-center text-muted py-4">${araQ ? 'Arama sonucu yok.' : 'Bu blokta daire yok.'}</td></tr>`;
         return;
     }
-    tbody.innerHTML = daireler.map((d) => {
+    tbody.innerHTML = filtreli.map((d) => {
         const anlasilan = parseFloat(d.AnlasilanMiktar) || 0;
-        const teslim = parseFloat(d.TeslimEdilen) || 0;
-        const kalan = anlasilan - teslim;
+        const borcKg = d.KalanBorcKg != null ? parseFloat(d.KalanBorcKg) : anlasilan;
+        const odenenKg = Math.max(0, Math.round((anlasilan - borcKg) * 100) / 100);
         let durum, durumCls;
-        if (anlasilan > 0 && teslim >= anlasilan) { durum = 'Tamam'; durumCls = 'bg-success'; }
-        else if (teslim > 0) { durum = 'Kısmi'; durumCls = 'bg-warning text-dark'; }
+        if (anlasilan > 0 && borcKg <= 0.01) { durum = 'Ödendi'; durumCls = 'bg-success'; }
+        else if (odenenKg > 0) { durum = 'Kısmi ödeme'; durumCls = 'bg-warning text-dark'; }
         else if (anlasilan > 0) { durum = 'Bekliyor'; durumCls = 'bg-danger'; }
         else { durum = 'Anlaşma yok'; durumCls = 'bg-secondary'; }
-        const teslimBtn = (d.MusteriKimlik && d.UrunID && anlasilan > 0)
-            ? `<button class="btn btn-sm btn-outline-success" onclick="event.stopPropagation();daireTeslimatAc(${d.Id})" title="Teslim et"><i class="fas fa-truck-ramp-box"></i></button>`
-            : '';
+        const fiyatNot = d.TonFiyat ? `${aptSayi(d.TonFiyat)} ${d.ParaBirimi || 'TRY'}/ton` : '';
+        const musteriHucre = d.MusteriKimlik
+            ? `<a href="javascript:void(0)" class="fw-bold text-primary text-decoration-none" title="Cariye git"
+                 onclick="event.stopPropagation(); apartmandanCariAc(${d.MusteriKimlik}, '${aptKacis(d.MusteriAd || '').replace(/'/g, "\\'")}')">${aptKacis(d.MusteriAd)}</a>`
+            : '<span class="text-danger small">— boş —</span>';
         return `<tr role="button" onclick="daireDuzenleAc(${d.Id})">
             <td>${aptKacis(d.Blok || '-')}</td>
             <td class="fw-bold">${aptKacis(d.DaireNo || '-')}</td>
-            <td>${d.MusteriAd ? aptKacis(d.MusteriAd) : '<span class="text-danger small">— boş —</span>'}</td>
-            <td class="small">${d.UrunAdi ? aptKacis(d.UrunAdi) : '-'}</td>
-            <td class="text-end">${anlasilan ? aptSayi(anlasilan) + ' ' + aptKacis(d.Birim || '') : '-'}</td>
-            <td class="text-end text-success">${teslim ? aptSayi(teslim) : '-'}</td>
-            <td class="text-end fw-bold ${kalan > 0 ? 'text-danger' : 'text-success'}">${anlasilan ? aptSayi(kalan) : '-'}</td>
+            <td class="small">${aptKacis(d.DaireTipi || '—')}</td>
+            <td>${musteriHucre}</td>
+            <td class="small">${d.UrunAdi ? aptKacis(d.UrunAdi) : '-'}${fiyatNot ? '<br><span class="text-muted">' + aptKacis(fiyatNot) + '</span>' : ''}</td>
+            <td class="text-end">${anlasilan ? aptSayi(anlasilan) : '-'}</td>
+            <td class="text-end text-success">${odenenKg > 0 ? aptSayi(odenenKg) : '-'}</td>
+            <td class="text-end ${borcKg > 0 ? 'text-danger fw-bold' : 'text-success'}">${anlasilan ? aptSayi(borcKg) : '-'}</td>
             <td class="text-center"><span class="badge ${durumCls}">${durum}</span></td>
-            <td class="text-center text-nowrap">${teslimBtn}</td>
         </tr>`;
     }).join('');
 }
+
+window.apartmanDetayAra = function() {
+    apartmanDetayCiz();
+};
+
+function aptDaireDurumMetin(d) {
+    const anlasilan = parseFloat(d.AnlasilanMiktar) || 0;
+    const borcKg = d.KalanBorcKg != null ? parseFloat(d.KalanBorcKg) : anlasilan;
+    const odenenKg = Math.max(0, anlasilan - borcKg);
+    if (anlasilan > 0 && borcKg <= 0.01) return 'Ödendi';
+    if (odenenKg > 0) return 'Kısmi ödeme';
+    if (anlasilan > 0) return 'Bekliyor';
+    return 'Anlaşma yok';
+}
+
+window.apartmanRaporYazdir = function(kapsam) {
+    const apt = window.aktifApartman;
+    if (!apt) return;
+    const tum = window.aktifApartmanDaireler || [];
+    let liste;
+    let baslikEk;
+    if (kapsam === 'blok') {
+        const blok = window.aktifAptBlok;
+        if (!blok || blok === 'TUMU') {
+            alert('Blok raporu için önce bir blok sekmesi seçin.\nTüm apartman için Menü → Tüm Apartman Raporu kullanın.');
+            return;
+        }
+        liste = aptBlokFiltreliDaireler(tum, blok);
+        baslikEk = `${blok} Blok`;
+    } else {
+        liste = tum.slice();
+        baslikEk = 'Tüm Bloklar';
+    }
+    if (!liste.length) {
+        alert('Yazdırılacak daire yok.');
+        return;
+    }
+
+    // Bloklara göre grupla
+    const grupMap = new Map();
+    liste.forEach((d) => {
+        const b = (d.Blok && String(d.Blok).trim()) || '(Bloksuz)';
+        if (!grupMap.has(b)) grupMap.set(b, []);
+        grupMap.get(b).push(d);
+    });
+    const bloklar = Array.from(grupMap.keys()).sort((a, b) => a.localeCompare(b, 'tr'));
+
+    let toplamAnlas = 0, toplamOdenen = 0, toplamBorc = 0, dolu = 0;
+    liste.forEach((d) => {
+        const a = parseFloat(d.AnlasilanMiktar) || 0;
+        const borc = d.KalanBorcKg != null ? parseFloat(d.KalanBorcKg) : a;
+        toplamAnlas += a;
+        toplamBorc += borc;
+        toplamOdenen += Math.max(0, a - borc);
+        if (d.MusteriKimlik) dolu += 1;
+    });
+
+    const konum = [apt.Mahalle, apt.Ilce].filter(Boolean).join(' / ');
+    const tarih = `${new Date().toLocaleDateString('tr-TR')} ${new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}`;
+
+    let govde = '';
+    bloklar.forEach((blokAd) => {
+        const rows = grupMap.get(blokAd);
+        let bAnlas = 0, bOdenen = 0, bBorc = 0;
+        const satirlar = rows.map((d) => {
+            const anlasilan = parseFloat(d.AnlasilanMiktar) || 0;
+            const borcKg = d.KalanBorcKg != null ? parseFloat(d.KalanBorcKg) : anlasilan;
+            const odenenKg = Math.max(0, Math.round((anlasilan - borcKg) * 100) / 100);
+            bAnlas += anlasilan;
+            bBorc += borcKg;
+            bOdenen += odenenKg;
+            const fiyat = d.TonFiyat ? `${aptSayi(d.TonFiyat)} ${d.ParaBirimi || 'TRY'}/ton` : '';
+            return `<tr>
+                <td>${aptKacis(d.DaireNo || '-')}</td>
+                <td>${aptKacis(d.DaireTipi || '—')}</td>
+                <td>${aptKacis(d.MusteriAd || '— boş —')}</td>
+                <td>${aptKacis(d.UrunAdi || '—')}${fiyat ? '<br><span class="kucuk">' + aptKacis(fiyat) + '</span>' : ''}</td>
+                <td class="c">${anlasilan ? aptSayi(anlasilan) : '—'}</td>
+                <td class="c od">${odenenKg > 0 ? aptSayi(odenenKg) : '—'}</td>
+                <td class="c bc">${anlasilan ? aptSayi(borcKg) : '—'}</td>
+                <td>${aptKacis(aptDaireDurumMetin(d))}</td>
+            </tr>`;
+        }).join('');
+        govde += `
+        <div class="blok-grup">
+            <div class="blok-baslik">${aptKacis(blokAd === '(Bloksuz)' ? 'Bloksuz' : blokAd + ' Blok')}
+                <span class="blok-ozet">${rows.length} daire · Anlaş. ${aptSayi(bAnlas)} · Ödenen ${aptSayi(bOdenen)} · Borç ${aptSayi(bBorc)} kg</span>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Daire</th><th>Tip</th><th>Müşteri</th><th>Ürün</th>
+                        <th class="c">Anlaş. kg</th><th class="c">Ödenen</th><th class="c">Borç</th><th>Durum</th>
+                    </tr>
+                </thead>
+                <tbody>${satirlar}</tbody>
+            </table>
+        </div>`;
+    });
+
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${aptKacis(apt.Ad || 'Apartman')} — Rapor</title>
+<style>
+body{font-family:'Segoe UI',Arial,sans-serif;padding:16px;color:#111;margin:0;font-size:12px}
+h1{font-size:18px;margin:0 0 4px;text-align:center;text-transform:uppercase}
+.alt{text-align:center;color:#555;margin-bottom:12px;font-size:11px}
+.ozet{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin-bottom:14px;padding:8px;border:1px dashed #999;background:#fafafa}
+.ozet span{font-weight:600}
+.blok-grup{margin-bottom:18px;page-break-inside:avoid}
+.blok-baslik{background:#eee;padding:6px 10px;border-left:4px solid #e67e22;font-weight:700;margin-bottom:4px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.blok-ozet{font-weight:500;font-size:11px;color:#444}
+table{width:100%;border-collapse:collapse}
+th,td{border:1px solid #bbb;padding:4px 6px;vertical-align:top}
+th{background:#f2f2f2;font-size:11px}
+.c{text-align:right;white-space:nowrap}
+.od{color:#1a7f37}.bc{color:#c0392b;font-weight:600}
+.kucuk{font-size:10px;color:#666}
+@media print{body{padding:0}.blok-baslik{background:#eee!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+</style></head><body>
+<h1>${aptKacis(apt.Ad || 'Apartman')} — ${aptKacis(baslikEk)}</h1>
+<div class="alt">${aptKacis(konum) || '—'} · Çıktı: ${tarih}</div>
+<div class="ozet">
+    <span>Daire: ${liste.length}</span>
+    <span>Müşteri: ${dolu}</span>
+    <span>Anlaşılan: ${aptSayi(toplamAnlas)} kg</span>
+    <span>Ödenen: ${aptSayi(toplamOdenen)} kg</span>
+    <span>Borç: ${aptSayi(toplamBorc)} kg</span>
+</div>
+${govde}
+</body></html>`;
+
+    if (typeof ekstreYazdirIframe === 'function') ekstreYazdirIframe(html);
+    else {
+        const w = window.open('', '_blank');
+        if (!w) { alert('Pop-up engellendi'); return; }
+        w.document.write(html);
+        w.document.close();
+        setTimeout(() => w.print(), 400);
+    }
+};
+
+// Apartman listesinden müşteri adına tıklayınca cariye git; kapatınca apartmana dön
+window.apartmandanCariAc = function(musteriId, musteriAd) {
+    if (!musteriId) return;
+    window.cariGeriApartmanId = window.aktifApartman?.Id || null;
+    window.cariGeriAptBlok = window.aktifAptBlok || 'TUMU';
+    const detayEl = document.getElementById('musteriDetayModal');
+    if (detayEl) detayEl.setAttribute('data-gelis-yeri', 'apartman');
+    const geriBtn = document.getElementById('musteriDetayGeriBtn');
+    if (geriBtn) geriBtn.innerHTML = '<i class="fas fa-arrow-left me-1"></i> Apartmana Dön';
+
+    // Detay + apartman listesi ikisini de kapat; liste z-index 1090 ile carinin üstüne biniyordu
+    window._aptGeriDonAtla = true;
+    if (typeof modalZorlaKapat === 'function') {
+        modalZorlaKapat('apartmanDetayModal');
+        modalZorlaKapat('apartmanlarModal');
+    } else {
+        ['apartmanDetayModal', 'apartmanlarModal'].forEach((id) => {
+            const el = document.getElementById(id);
+            const inst = el && bootstrap.Modal.getInstance(el);
+            if (inst) inst.hide();
+        });
+    }
+    setTimeout(() => {
+        window._aptGeriDonAtla = false;
+        if (typeof window.musteriDetayGoster === 'function') {
+            window.musteriDetayGoster(musteriId, musteriAd || '', '');
+        }
+        if (detayEl) {
+            detayEl.setAttribute('data-gelis-yeri', 'apartman');
+            detayEl.style.setProperty('z-index', '1100', 'important');
+        }
+        if (geriBtn) geriBtn.innerHTML = '<i class="fas fa-arrow-left me-1"></i> Apartmana Dön';
+        document.querySelectorAll('.modal-backdrop').forEach((b) => {
+            b.style.setProperty('z-index', '1095', 'important');
+        });
+    }, 320);
+};
+
+// Blok bazlı teslimat paneli: anlaşılan / teslim / kalan tonaj + teslimat butonu
+function aptBlokTeslimatPaneliCiz(filtreli) {
+    const panel = document.getElementById('aptBlokTeslimatPanel');
+    if (!panel) return;
+    const blok = window.aktifAptBlok;
+    const blokSilBtn = (blok && blok !== 'TUMU')
+        ? `<button class="btn btn-outline-danger btn-sm" onclick="blokSil()"><i class="fas fa-trash me-1"></i> Blok Sil</button>`
+        : '';
+    const anlasmali = (filtreli || []).filter((d) => d.UrunID && (parseFloat(d.AnlasilanMiktar) || 0) > 0);
+    if (!anlasmali.length) {
+        panel.innerHTML = blokSilBtn
+            ? `<div class="d-flex justify-content-end mb-1">${blokSilBtn}</div>`
+            : '';
+        return;
+    }
+    const toplamAnlasKg = anlasmali.reduce((t, d) => t + (parseFloat(d.AnlasilanMiktar) || 0), 0);
+    const toplamTeslimKg = anlasmali.reduce((t, d) => t + (parseFloat(d.TeslimEdilen) || 0), 0);
+    const kalanKg = Math.max(0, toplamAnlasKg - toplamTeslimKg);
+    const blokAd = (!blok || blok === 'TUMU') ? 'Tüm bloklar' : (blok + ' Blok');
+    const yuzde = toplamAnlasKg > 0 ? Math.min(100, Math.round((toplamTeslimKg / toplamAnlasKg) * 100)) : 0;
+    const teslimBtn = (blok && blok !== 'TUMU')
+        ? `<button class="btn btn-success btn-sm fw-bold" onclick="blokTeslimatAc('${aptKacis(blok).replace(/'/g, "\\'")}')"><i class="fas fa-truck-ramp-box me-1"></i> Teslimat Gir</button>`
+        : `<span class="text-muted small">Teslimat girmek için bir blok sekmesi seçin</span>`;
+    panel.innerHTML = `
+        <div class="card border-success border-opacity-25 bg-light">
+            <div class="card-body py-2">
+                <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+                    <div>
+                        <span class="fw-bold text-dark"><i class="fas fa-truck text-success me-1"></i> ${aptKacis(blokAd)} Teslimat Durumu</span>
+                        <div class="small mt-1">
+                            Anlaşılan: <b>${aptSayi(toplamAnlasKg / 1000)} ton</b> ·
+                            <span class="text-success">İnen: <b>${aptSayi(toplamTeslimKg / 1000)} ton</b></span> ·
+                            <span class="text-danger">Kalan: <b>${aptSayi(kalanKg / 1000)} ton</b></span>
+                        </div>
+                    </div>
+                    <div class="d-flex flex-wrap gap-2 align-items-center">
+                        ${teslimBtn}
+                        ${blokSilBtn}
+                    </div>
+                </div>
+                <div class="progress mt-2" style="height:8px;">
+                    <div class="progress-bar bg-success" role="progressbar" style="width:${yuzde}%"></div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+window.aptBlokSec = function(blok) {
+    window.aktifAptBlok = blok;
+    apartmanDetayCiz();
+};
+
+window.apartmanSil = async function() {
+    const apt = window.aktifApartman;
+    if (!apt?.Id) return;
+    const daireler = window.aktifApartmanDaireler || [];
+    const odemeli = daireler.find((d) => aptDaireOdemeVarMi(d));
+    if (odemeli) {
+        alert(`Apartmanda ödeme var (Blok ${odemeli.Blok || ''} Daire ${odemeli.DaireNo || ''}).\n\nÖnce ilgili carilerde apartman ödemelerini silin; sonra apartmanı silebilirsiniz.`);
+        return;
+    }
+    if (!confirm(`"${apt.Ad || 'Apartman'}" silinsin mi?\n\nTüm daireler, anlaşmalar ve teslimatlar silinir. Bu işlem geri alınamaz.`)) return;
+    try {
+        const res = await fetch(`/api/apartman/${apt.Id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.hata || 'Silinemedi');
+        window._aptGeriDonAtla = true;
+        modalZorlaKapat('apartmanDetayModal');
+        window.aktifApartman = null;
+        window.aktifApartmanDaireler = [];
+        (window.apartmanModalYigin || []).length = 0;
+        if (typeof apartmanlariYukle === 'function') apartmanlariYukle();
+        else guvenliModalAc('apartmanlarModal');
+    } catch (e) { alert('Hata: ' + e.message); }
+};
+
+window.blokSil = async function() {
+    const apt = window.aktifApartman;
+    const blok = window.aktifAptBlok;
+    if (!apt?.Id) return;
+    if (!blok || blok === 'TUMU') {
+        alert('Önce silinecek blok sekmesini seçin.');
+        return;
+    }
+    const daireler = aptBlokFiltreliDaireler(window.aktifApartmanDaireler, blok);
+    if (!daireler.length) {
+        alert('Bu blokta daire yok.');
+        return;
+    }
+    const odemeli = daireler.find((d) => aptDaireOdemeVarMi(d));
+    if (odemeli) {
+        alert(`Bu blokta ödeme var (Daire ${odemeli.DaireNo || ''}).\n\nÖnce ilgili carilerde apartman ödemelerini silin; sonra bloğu silebilirsiniz.`);
+        return;
+    }
+    if (!confirm(`"${blok}" bloğu silinsin mi?\n\n${daireler.length} daire (anlaşmalar ve teslimatlar dahil) silinir.`)) return;
+    try {
+        const res = await fetch(`/api/apartman/${apt.Id}/blok`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ blok })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.hata || 'Silinemedi');
+        window.aktifAptBlok = 'TUMU';
+        if (typeof aptDetayaDon === 'function') await aptDetayaDon();
+        else if (typeof apartmanDetayAc === 'function') await apartmanDetayAc(apt.Id);
+    } catch (e) { alert('Hata: ' + e.message); }
+};
 
 window.daireOlusturModalAc = function() {
     if (!window.aktifApartman) return;
     document.getElementById('daireBlok').value = '';
     document.getElementById('daireBaslangic').value = 1;
     document.getElementById('daireBitis').value = 10;
-    guvenliModalAc('daireOlusturModal');
+    aptCocukModalAc('daireOlusturModal');
 };
 
 window.daireOlustur = async function() {
@@ -8852,8 +9630,10 @@ window.daireOlustur = async function() {
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.hata || 'Oluşturulamadı');
+        window._aptGeriDonAtla = true;
         modalZorlaKapat('daireOlusturModal');
-        apartmanDetayAc(window.aktifApartman.Id);
+        (window.apartmanModalYigin || []).pop();
+        aptDetayaDon();
     } catch (e) { alert('Hata: ' + e.message); }
 };
 
@@ -8879,23 +9659,77 @@ window.daireDuzenleAc = async function(daireId) {
     const d = window.aktifApartmanDaireler.find((x) => x.Id === daireId);
     if (!d) return;
     document.getElementById('daireDuzenleId').value = d.Id;
+    document.getElementById('dDuzApartmanAd').textContent = window.aktifApartman?.Ad || '—';
+    const blokVal = (d.Blok && String(d.Blok).trim()) || '';
+    const tipEtiket = d.DaireTipi ? ` · ${d.DaireTipi}` : '';
+    document.getElementById('dDuzKonumOzet').textContent =
+        `${blokVal ? blokVal + ' Blok · ' : ''}Daire ${d.DaireNo || '?'}${tipEtiket}`;
     document.getElementById('dDuzBlok').value = d.Blok || '';
     document.getElementById('dDuzNo').value = d.DaireNo || '';
+    document.getElementById('dDuzTip').value = d.DaireTipi || '';
     document.getElementById('dDuzMusteriId').value = d.MusteriKimlik || '';
     const dMusInp = document.getElementById('dDuzMusteriArama');
     dMusInp.value = d.MusteriAd || '';
     dMusInp.classList.remove('is-valid');
     document.getElementById('dDuzMusteriOneriler').style.display = 'none';
-    const dIpucu = document.getElementById('dDuzMusteriIpucu');
-    if (dIpucu) dIpucu.innerHTML = 'Yazınca mevcut müşteriler aranır; bulunamazsa "Yeni müşteri ekle" çıkar. Yeni müşterinin adresi apartmanın il/ilçe/mahallesi olur.';
-    document.getElementById('dDuzUrun').innerHTML = aptUrunSecenekleri(d.UrunID);
-    document.getElementById('dDuzAnlasilan').value = d.AnlasilanMiktar || 0;
-    document.getElementById('dDuzBirim').value = d.Birim || '';
-    document.getElementById('dDuzFiyat').value = d.BirimFiyat != null ? d.BirimFiyat : '';
-    guvenliModalAc('daireDuzenleModal');
+    daireMusteriAlaniAyarla(!!d.MusteriKimlik);
+
+    // Anlaşma: salt okunur (gizli alanlarda sakla, kaydetmede bozulmasın)
+    const tonF = d.TonFiyat != null ? d.TonFiyat : (d.BirimFiyat ? parseFloat(d.BirimFiyat) * 1000 : null);
+    const anlasilan = parseFloat(d.AnlasilanMiktar) || 0;
+    const borcKg = d.KalanBorcKg != null ? parseFloat(d.KalanBorcKg) : anlasilan;
+    const para = d.ParaBirimi || 'TRY';
+    document.getElementById('dDuzUrun').value = d.UrunID || '';
+    document.getElementById('dDuzAnlasilan').value = anlasilan;
+    document.getElementById('dDuzPara').value = para;
+    document.getElementById('dDuzTonFiyat').value = tonF != null ? tonF : '';
+    document.getElementById('dDuzKalanBorcKg').value = borcKg;
+    document.getElementById('dDuzAciklama').value = d.Aciklama || '';
+
+    document.getElementById('dDuzUrunGoster').textContent = d.UrunAdi || '— anlaşma yok —';
+    document.getElementById('dDuzAnlasilanGoster').textContent = anlasilan ? `${aptSayi(anlasilan)} kg` : '—';
+    document.getElementById('dDuzFiyatGoster').textContent = tonF
+        ? `${aptSayi(tonF)} ${para}/ton`
+        : '—';
+    document.getElementById('dDuzBorcGoster').textContent = anlasilan ? `${aptSayi(borcKg)} kg` : '—';
+
+    aptCocukModalAc('daireDuzenleModal');
 };
 
+window.daireDuzenledenTopluAnlasmaya = function() {
+    const blok = document.getElementById('dDuzBlok').value.trim();
+    if (blok) window.aktifAptBlok = blok;
+    window._aptGeriDonAtla = true;
+    modalZorlaKapat('daireDuzenleModal');
+    // Stack'te detay kalsın; toplu anlaşma kapanınca oraya dönsün
+    setTimeout(() => {
+        window._aptGeriDonAtla = false;
+        topluAnlasmaModalAc();
+    }, 280);
+};
+
+function daireMusteriAlaniAyarla(kilitli) {
+    const inp = document.getElementById('dDuzMusteriArama');
+    const ipucu = document.getElementById('dDuzMusteriIpucu');
+    const box = document.getElementById('dDuzMusteriOneriler');
+    if (!inp) return;
+    if (kilitli) {
+        inp.readOnly = true;
+        inp.classList.add('bg-light');
+        inp.tabIndex = -1;
+        if (box) box.style.display = 'none';
+        if (ipucu) ipucu.innerHTML = 'Atanmış müşteri buradan değiştirilemez. Sol alttan kaldırıp yeniden ekleyin.';
+    } else {
+        inp.readOnly = false;
+        inp.classList.remove('bg-light');
+        inp.removeAttribute('tabindex');
+        if (ipucu) ipucu.innerHTML = 'İsim yazıp listeden seçin veya yeni müşteri ekleyin.';
+    }
+}
+
 function daireMusteriAramaCiz() {
+    const inp = document.getElementById('dDuzMusteriArama');
+    if (!inp || inp.readOnly) return;
     const q = document.getElementById('dDuzMusteriArama').value.trim();
     const box = document.getElementById('dDuzMusteriOneriler');
     const ql = q.toLocaleLowerCase('tr-TR');
@@ -8917,64 +9751,180 @@ function daireMusteriAramaCiz() {
         const tamEslesme = aptMusteriCache.some((m) => (m.Unvan || m.Adı || '').toLocaleLowerCase('tr-TR') === ql);
         if (!tamEslesme) {
             html += `<button type="button" class="list-group-item list-group-item-action text-success fw-bold py-2" data-yeni="1"><i class="fas fa-plus-circle me-1"></i>Yeni müşteri ekle: "${aptKacis(q)}"</button>`;
+        } else {
+            html += `<div class="list-group-item text-warning small py-2"><i class="fas fa-info-circle me-1"></i>Bu isimde kayıt var — listeden seçin, mükerrer eklenmez.</div>`;
         }
     }
     box.innerHTML = html || '<div class="list-group-item text-muted py-2">Sonuç yok</div>';
     box.style.display = 'block';
 }
 
-async function daireYeniMusteriEkle(ad) {
+function daireYeniMusteriEkle(ad) {
     const temizAd = String(ad || '').trim();
-    if (!temizAd) return;
     const apt = window.aktifApartman || {};
-    const blok = document.getElementById('dDuzBlok').value.trim();
-    const no = document.getElementById('dDuzNo').value.trim();
-    const adres = [apt.Ad, blok ? blok + ' Blok' : '', no ? 'Daire ' + no : '']
-        .filter(Boolean).join(' ');
+    document.getElementById('aptYmUnvan').value = temizAd.toLocaleUpperCase('tr-TR');
+    document.getElementById('aptYmAd').value = temizAd;
+    document.getElementById('aptYmTel').value = '';
+    const mah = apt.Mahalle || '—';
+    const ilce = apt.Ilce || '';
+    document.getElementById('aptYmAdresBilgi').innerHTML =
+        `<i class="fas fa-map-marker-alt me-1 text-danger"></i> Adres olarak kaydedilecek: <b>${aptKacis(mah)}</b>${ilce ? ' / ' + aptKacis(ilce) : ''} <span class="text-muted">(apartman mahallesi)</span>`;
+    document.getElementById('dDuzMusteriOneriler').style.display = 'none';
+    const el = document.getElementById('aptYeniMusteriModal');
+    if (!el) return;
+    let inst = bootstrap.Modal.getInstance(el);
+    if (!inst) inst = new bootstrap.Modal(el, { backdrop: 'static', keyboard: true });
+    el.style.setProperty('z-index', '1105', 'important');
+    inst.show();
+    setTimeout(() => {
+        const backs = document.querySelectorAll('.modal-backdrop');
+        if (backs.length) backs[backs.length - 1].style.setProperty('z-index', '1100', 'important');
+        document.getElementById('aptYmTel')?.focus();
+    }, 150);
+}
+
+window.aptYeniMusteriKaydet = async function() {
+    const unvan = (document.getElementById('aptYmUnvan').value || '').trim();
+    const ad = (document.getElementById('aptYmAd').value || '').trim() || unvan;
+    let tel = (document.getElementById('aptYmTel').value || '').trim().replace(/\D/g, '');
+    if (tel.startsWith('0')) tel = tel.substring(1);
+    if (!unvan) { alert('Ünvan zorunlu'); return; }
+    if (!tel || tel.length !== 10) { alert('Telefon 10 hane olmalı (başında 0 olmadan)'); return; }
+
+    const apt = window.aktifApartman || {};
+    const mahalle = apt.Mahalle || '';
+    const ilce = apt.Ilce || '';
+    const adres = mahalle || [apt.Ad, apt.Ilce].filter(Boolean).join(' / ');
+
+    // Ön kontrol: sadece ünvan + dükkan içi tanıma BERABER aynıysa mükerrer (telefon yok)
+    const unvanL = unvan.toLocaleLowerCase('tr-TR');
+    const adL = ad.toLocaleLowerCase('tr-TR');
+    const mevcut = aptMusteriCache.find((m) => {
+        const u = (m.Unvan || '').trim().toLocaleLowerCase('tr-TR');
+        const a = (m.Adı || '').trim().toLocaleLowerCase('tr-TR');
+        return u && a && u === unvanL && a === adL;
+    });
+    if (mevcut) {
+        document.getElementById('dDuzMusteriId').value = mevcut.Kimlik;
+        document.getElementById('dDuzMusteriArama').value = mevcut.Unvan || mevcut.Adı || unvan;
+        document.getElementById('dDuzMusteriArama').classList.add('is-valid');
+        const ipucu = document.getElementById('dDuzMusteriIpucu');
+        if (ipucu) ipucu.innerHTML = `<span class="text-warning fw-bold"><i class="fas fa-info-circle me-1"></i>Mükerrer — ünvan + dükkan içi aynı: ${aptKacis(mevcut.Unvan || '')}</span>`;
+        bootstrap.Modal.getInstance(document.getElementById('aptYeniMusteriModal'))?.hide();
+        return;
+    }
+
     try {
         const res = await fetch('/api/musteri', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                ad_soyad: temizAd, unvan: temizAd, telefon: '',
-                adres, ilce: apt.Ilce || '', mahalle: apt.Mahalle || ''
+                ad_soyad: ad,
+                unvan,
+                telefon: tel,
+                adres,
+                ilce,
+                mahalle
             })
         });
         const data = await res.json();
+        if (!res.ok && !data.yeniId) throw new Error(data.hata || 'Müşteri eklenemedi');
+
         const mRes = await fetch('/api/musteriler');
         aptMusteriCache = await mRes.json();
-        let yeniId = data.yeniId;
-        if (!res.ok || data.success === false || !yeniId) {
-            const bul = aptMusteriCache.find((m) => (m.Unvan || m.Adı || '').toLocaleLowerCase('tr-TR') === temizAd.toLocaleLowerCase('tr-TR'));
-            if (bul) yeniId = bul.Kimlik;
-            else if (!res.ok) throw new Error(data.hata || 'Müşteri eklenemedi');
-        }
+        const yeniId = data.yeniId;
+        const gosterAd = data.musteri?.Unvan || unvan;
         document.getElementById('dDuzMusteriId').value = yeniId || '';
-        const inp = document.getElementById('dDuzMusteriArama');
-        inp.value = temizAd;
-        document.getElementById('dDuzMusteriOneriler').style.display = 'none';
-        // "Yeni müşteri eklendi" hissini güçlendir
-        inp.classList.add('is-valid');
+        document.getElementById('dDuzMusteriArama').value = gosterAd;
+        document.getElementById('dDuzMusteriArama').classList.add('is-valid');
         const ipucu = document.getElementById('dDuzMusteriIpucu');
         if (ipucu) {
-            ipucu.innerHTML = `<span class="text-success fw-bold"><i class="fas fa-check-circle me-1"></i>"${temizAd}" yeni müşteri olarak eklendi ve bu daireye seçildi. Adresi: ${apt.Ad || ''}.</span>`;
+            if (data.mevcut) {
+                ipucu.innerHTML = `<span class="text-warning fw-bold"><i class="fas fa-info-circle me-1"></i>${aptKacis(data.mesaj || 'Mevcut müşteri seçildi')}</span>`;
+            } else {
+                ipucu.innerHTML = `<span class="text-success fw-bold"><i class="fas fa-check-circle me-1"></i>"${aptKacis(gosterAd)}" eklendi · Adres: ${aptKacis(mahalle || adres)}</span>`;
+            }
         }
+        bootstrap.Modal.getInstance(document.getElementById('aptYeniMusteriModal'))?.hide();
         if (typeof window.cariListesiniYukle === 'function') { try { await window.cariListesiniYukle(); } catch (_) {} }
     } catch (e) { alert('Hata: ' + e.message); }
+};
+
+function aptDaireOdemeVarMi(d) {
+    if (!d) return false;
+    const anlasilan = parseFloat(d.AnlasilanMiktar) || 0;
+    const kalanKg = d.KalanBorcKg != null ? parseFloat(d.KalanBorcKg) : anlasilan;
+    const odenenKg = Math.max(0, anlasilan - kalanKg);
+    const odenenTl = parseFloat(d.OdenenTl) || 0;
+    return odenenTl > 0.01 || odenenKg > 0.01;
 }
+
+function aptOdemeEngeliMesaji(d) {
+    const anlasilan = parseFloat(d.AnlasilanMiktar) || 0;
+    const kalanKg = d.KalanBorcKg != null ? parseFloat(d.KalanBorcKg) : anlasilan;
+    const odenenKg = Math.max(0, Math.round((anlasilan - kalanKg) * 100) / 100);
+    return `Bu dairede ödeme var (${aptSayi(odenenKg)} kg).\n\nMüşteriyi kaldırmak/değiştirmek için önce carisine gidin ve apartman ödemesini silin; sonra buradan kaldırabilirsiniz.`;
+}
+
+window.daireMusteriKaldir = async function() {
+    const id = document.getElementById('daireDuzenleId').value;
+    if (!id) return;
+    const d = window.aktifApartmanDaireler.find((x) => x.Id === parseInt(id, 10));
+    if (!d || !d.MusteriKimlik) {
+        document.getElementById('dDuzMusteriId').value = '';
+        document.getElementById('dDuzMusteriArama').value = '';
+        document.getElementById('dDuzMusteriArama').classList.remove('is-valid');
+        daireMusteriAlaniAyarla(false);
+        const ipucu = document.getElementById('dDuzMusteriIpucu');
+        if (ipucu) ipucu.textContent = 'Müşteri kaldırıldı (henüz kayıtlı değildi).';
+        return;
+    }
+    if (aptDaireOdemeVarMi(d)) {
+        alert(aptOdemeEngeliMesaji(d));
+        return;
+    }
+    if (!confirm(`Bu daireden müşteriyi kaldırmak istiyor musunuz?\n(${d.MusteriAd || ''})\n\nDaire silinmez; sadece müşteri bağı kopar.`)) return;
+    try {
+        const res = await fetch(`/api/apartman-daire/${id}/musteri`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ musteriKimlik: null, islemiYapan: localStorage.getItem('aktifKullanici') || 'Sistem' })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.hata || 'Kaldırılamadı');
+        d.MusteriKimlik = null;
+        d.MusteriAd = null;
+        document.getElementById('dDuzMusteriId').value = '';
+        document.getElementById('dDuzMusteriArama').value = '';
+        document.getElementById('dDuzMusteriArama').classList.remove('is-valid');
+        daireMusteriAlaniAyarla(false);
+        const ipucu = document.getElementById('dDuzMusteriIpucu');
+        if (ipucu) ipucu.innerHTML = '<span class="text-success"><i class="fas fa-check me-1"></i>Müşteri kaldırıldı — şimdi isim yazıp yeniden ekleyebilirsiniz.</span>';
+        if (typeof apartmanDetayCiz === 'function') apartmanDetayCiz();
+    } catch (e) { alert('Hata: ' + e.message); }
+};
 
 document.addEventListener('input', function(e) {
     if (e.target && e.target.id === 'dDuzMusteriArama') {
+        if (e.target.readOnly) return;
         document.getElementById('dDuzMusteriId').value = '';
         daireMusteriAramaCiz();
     }
 });
 document.addEventListener('focusin', function(e) {
-    if (e.target && e.target.id === 'dDuzMusteriArama') daireMusteriAramaCiz();
+    if (e.target && e.target.id === 'dDuzMusteriArama') {
+        if (e.target.readOnly) return;
+        daireMusteriAramaCiz();
+    }
 });
 document.addEventListener('click', function(e) {
     const box = document.getElementById('dDuzMusteriOneriler');
     if (!box) return;
+    const arama = document.getElementById('dDuzMusteriArama');
+    if (arama && arama.readOnly) {
+        box.style.display = 'none';
+        return;
+    }
     const secim = e.target.closest('#dDuzMusteriOneriler [data-mid]');
     const yeni = e.target.closest('#dDuzMusteriOneriler [data-yeni]');
     if (secim) {
@@ -8992,41 +9942,73 @@ document.addEventListener('click', function(e) {
     }
 });
 
-// Ürün seçilince birim + fiyatı otomatik doldur
 document.addEventListener('change', function(e) {
     if (e.target && e.target.id === 'dDuzUrun') {
         const opt = e.target.options[e.target.selectedIndex];
         if (opt && opt.value) {
-            if (!document.getElementById('dDuzBirim').value) document.getElementById('dDuzBirim').value = opt.getAttribute('data-birim') || '';
-            if (!document.getElementById('dDuzFiyat').value) document.getElementById('dDuzFiyat').value = opt.getAttribute('data-fiyat') || '';
+            if (!document.getElementById('dDuzTonFiyat').value) document.getElementById('dDuzTonFiyat').value = opt.getAttribute('data-fiyat') || '';
+            daireDuzenleKgFiyatGuncelle();
         }
     }
     if (e.target && e.target.id === 'taUrun') {
         const opt = e.target.options[e.target.selectedIndex];
-        if (opt && opt.value) {
-            if (!document.getElementById('taBirim').value) document.getElementById('taBirim').value = opt.getAttribute('data-birim') || '';
-            if (!document.getElementById('taFiyat').value) document.getElementById('taFiyat').value = opt.getAttribute('data-fiyat') || '';
+        if (opt && opt.value && !document.getElementById('taTonFiyat').value) {
+            document.getElementById('taTonFiyat').value = opt.getAttribute('data-fiyat') || '';
+            topluAnlasmaTahminGuncelle();
         }
     }
+    if (e.target && (e.target.id === 'dDuzBlokSec' || e.target.id === 'dDuzNoSec')) {
+        const blok = document.getElementById('dDuzBlokSec').value;
+        document.getElementById('dDuzBlok').value = blok === '(Bloksuz)' ? '' : blok;
+        document.getElementById('dDuzNo').value = document.getElementById('dDuzNoSec').value;
+        const no = document.getElementById('dDuzNoSec').value;
+        const bul = (window.aktifApartmanDaireler || []).find((x) => {
+            const b = (x.Blok && String(x.Blok).trim()) || '(Bloksuz)';
+            return b === blok && String(x.DaireNo || '') === String(no);
+        });
+        if (bul && bul.Id !== parseInt(document.getElementById('daireDuzenleId').value, 10)) {
+            daireDuzenleAc(bul.Id);
+        }
+    }
+    if (e.target && (e.target.id === 'dDuzTonFiyat' || e.target.id === 'dDuzPara')) daireDuzenleKgFiyatGuncelle();
+});
+document.addEventListener('input', function(e) {
+    if (e.target && (e.target.id === 'taToplamTon' || e.target.id === 'taTonFiyat' || e.target.id === 'taPara')) topluAnlasmaTahminGuncelle();
+    if (e.target && (e.target.id === 'dDuzTonFiyat' || e.target.id === 'dDuzPara')) daireDuzenleKgFiyatGuncelle();
 });
 
 window.daireKaydet = async function() {
     const id = document.getElementById('daireDuzenleId').value;
-    let musteriKimlik = document.getElementById('dDuzMusteriId').value || null;
-    const aramaMetni = document.getElementById('dDuzMusteriArama').value.trim();
-    if (!musteriKimlik && aramaMetni) {
-        const bul = aptMusteriCache.find((m) => (m.Unvan || m.Adı || '').toLocaleLowerCase('tr-TR') === aramaMetni.toLocaleLowerCase('tr-TR'));
-        if (bul) musteriKimlik = bul.Kimlik;
+    const mevcutD = window.aktifApartmanDaireler.find((x) => x.Id === parseInt(id, 10));
+    // Atanmış müşteri buradan değiştirilmez; boş dairede formdan atanır
+    let musteriKimlik;
+    if (mevcutD && mevcutD.MusteriKimlik) {
+        musteriKimlik = mevcutD.MusteriKimlik;
+    } else {
+        musteriKimlik = document.getElementById('dDuzMusteriId').value || null;
+        const aramaMetni = document.getElementById('dDuzMusteriArama').value.trim();
+        if (!musteriKimlik && aramaMetni) {
+            const bul = aptMusteriCache.find((m) => (m.Unvan || m.Adı || '').toLocaleLowerCase('tr-TR') === aramaMetni.toLocaleLowerCase('tr-TR'));
+            if (bul) musteriKimlik = bul.Kimlik;
+        }
+        if (!aramaMetni) musteriKimlik = null;
     }
-    if (!aramaMetni) musteriKimlik = null;
+
+    // Anlaşma alanları değiştirilmez — gizli alanlardan / mevcut kayıttan korunur
+    const tonF = parseFloat(document.getElementById('dDuzTonFiyat').value) || 0;
     const govde = {
         blok: document.getElementById('dDuzBlok').value.trim(),
         daireNo: document.getElementById('dDuzNo').value.trim(),
         musteriKimlik,
         urunId: document.getElementById('dDuzUrun').value || null,
         anlasilanMiktar: parseFloat(document.getElementById('dDuzAnlasilan').value) || 0,
-        birim: document.getElementById('dDuzBirim').value.trim(),
-        birimFiyat: document.getElementById('dDuzFiyat').value
+        birim: 'Kg',
+        birimFiyat: tonF ? tonF / 1000 : 0,
+        tonFiyat: tonF || null,
+        paraBirimi: document.getElementById('dDuzPara').value || 'TRY',
+        kalanBorcKg: document.getElementById('dDuzKalanBorcKg').value,
+        daireTipi: document.getElementById('dDuzTip').value,
+        aciklama: document.getElementById('dDuzAciklama').value.trim()
     };
     try {
         const res = await fetch(`/api/apartman-daire/${id}`, {
@@ -9036,8 +10018,10 @@ window.daireKaydet = async function() {
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.hata || 'Kayıt başarısız');
+        window._aptGeriDonAtla = true;
         modalZorlaKapat('daireDuzenleModal');
-        apartmanDetayAc(window.aktifApartman.Id);
+        (window.apartmanModalYigin || []).pop();
+        aptDetayaDon();
     } catch (e) { alert('Hata: ' + e.message); }
 };
 
@@ -9049,8 +10033,381 @@ window.daireSil = async function() {
         const res = await fetch(`/api/apartman-daire/${id}`, { method: 'DELETE' });
         const data = await res.json();
         if (!res.ok) throw new Error(data.hata || 'Silinemedi');
+        window._aptGeriDonAtla = true;
         modalZorlaKapat('daireDuzenleModal');
-        apartmanDetayAc(window.aktifApartman.Id);
+        (window.apartmanModalYigin || []).pop();
+        aptDetayaDon();
+    } catch (e) { alert('Hata: ' + e.message); }
+};
+
+// =========================================================
+// Müşteri düzeltme (yanlış daireye yanlış kişi)
+// =========================================================
+window.musteriDuzeltModalAc = async function() {
+    if (!window.aktifApartman) return;
+    await aptListeleriYukle();
+    window.mdAktifBlok = window.aktifAptBlok || 'TUMU';
+    window.mdSeciliDaireler = new Set();
+    document.getElementById('mdApartmanAd').textContent = window.aktifApartman.Ad || 'Apartman';
+    const ara = document.getElementById('mdAra');
+    if (ara) ara.value = '';
+    document.getElementById('mdDurum').textContent = '';
+    aptCocukModalAc('musteriDuzeltModal');
+    musteriDuzeltCiz();
+};
+
+window.mdBlokSec = function(blok) {
+    window.mdAktifBlok = blok;
+    window.mdSeciliDaireler = new Set();
+    musteriDuzeltCiz();
+};
+
+window.musteriDuzeltCiz = function() {
+    const daireler = aptBlokFiltreliDaireler(window.aktifApartmanDaireler, window.mdAktifBlok);
+    const q = (document.getElementById('mdAra')?.value || '').toLocaleLowerCase('tr-TR').trim();
+    const filtreli = !q ? daireler : daireler.filter((d) => {
+        const blob = [d.Blok, d.DaireNo, d.DaireTipi, d.MusteriAd].filter(Boolean).join(' ').toLocaleLowerCase('tr-TR');
+        return blob.includes(q);
+    });
+
+    aptBlokSekmeleriCiz('mdBlokSekmeler', aptBlokListesi(window.aktifApartmanDaireler), window.mdAktifBlok, 'mdBlokSec');
+
+    const tbody = document.getElementById('mdListeGovdesi');
+    if (!filtreli.length) {
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">Bu blokta daire yok.</td></tr>';
+        mdTakasButonGuncelle();
+        return;
+    }
+
+    tbody.innerHTML = filtreli.map((d) => {
+        const secili = window.mdSeciliDaireler.has(d.Id);
+        const mevcut = d.MusteriAd ? aptKacis(d.MusteriAd) : '<span class="text-danger">— boş —</span>';
+        return `<tr data-daire-id="${d.Id}">
+            <td class="text-center">
+                <input type="checkbox" class="form-check-input md-takas-cb" data-id="${d.Id}" ${secili ? 'checked' : ''} onchange="mdTakasSec(${d.Id}, this.checked)">
+            </td>
+            <td>${aptKacis(d.Blok || '-')}</td>
+            <td class="fw-bold">${aptKacis(d.DaireNo || '-')}</td>
+            <td class="small">${aptKacis(d.DaireTipi || '—')}</td>
+            <td class="small" id="mdMevcut_${d.Id}">${mevcut}</td>
+            <td class="position-relative">
+                <input type="hidden" id="mdYeniId_${d.Id}" value="">
+                <input type="text" class="form-control form-control-sm md-musteri-arama" id="mdArama_${d.Id}"
+                    data-daire="${d.Id}" placeholder="İsim yazıp seçin…" autocomplete="off"
+                    value="">
+                <div class="list-group position-absolute w-100 shadow md-oneriler" id="mdOneri_${d.Id}"
+                    style="z-index:2050; max-height:200px; overflow:auto; display:none;"></div>
+            </td>
+            <td class="text-center">
+                <button type="button" class="btn btn-sm btn-primary" id="mdKaydet_${d.Id}" onclick="musteriDuzeltKaydet(${d.Id})" disabled>
+                    <i class="fas fa-save"></i>
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" title="Müşteriyi kaldır" onclick="musteriDuzeltTemizle(${d.Id})">
+                    <i class="fas fa-user-slash"></i>
+                </button>
+            </td>
+        </tr>`;
+    }).join('');
+    mdTakasButonGuncelle();
+};
+
+function mdTakasButonGuncelle() {
+    const n = window.mdSeciliDaireler?.size || 0;
+    const btn = document.getElementById('mdTakasBtn');
+    const sayi = document.getElementById('mdSeciliSayi');
+    if (sayi) sayi.textContent = String(n);
+    if (btn) btn.disabled = n !== 2;
+}
+
+window.mdTakasSec = function(daireId, checked) {
+    if (!window.mdSeciliDaireler) window.mdSeciliDaireler = new Set();
+    if (checked) {
+        if (window.mdSeciliDaireler.size >= 2 && !window.mdSeciliDaireler.has(daireId)) {
+            // En fazla 2 seçim: yeni seçimde ilkini çıkar
+            const ilk = window.mdSeciliDaireler.values().next().value;
+            window.mdSeciliDaireler.delete(ilk);
+            const eskiCb = document.querySelector(`.md-takas-cb[data-id="${ilk}"]`);
+            if (eskiCb) eskiCb.checked = false;
+        }
+        window.mdSeciliDaireler.add(daireId);
+    } else {
+        window.mdSeciliDaireler.delete(daireId);
+    }
+    mdTakasButonGuncelle();
+};
+
+function mdMusteriAramaCiz(daireId) {
+    const inp = document.getElementById('mdArama_' + daireId);
+    const box = document.getElementById('mdOneri_' + daireId);
+    if (!inp || !box) return;
+    const q = inp.value.trim();
+    const ql = q.toLocaleLowerCase('tr-TR');
+    let matches;
+    if (ql) {
+        matches = aptMusteriCache.filter((m) => {
+            const ad = (m.Unvan || m.Adı || '').toLocaleLowerCase('tr-TR');
+            return ad.includes(ql) || String(m.CEPTEL || '').includes(ql);
+        }).slice(0, 20);
+    } else {
+        matches = aptMusteriCache.slice(0, 20);
+    }
+    box.innerHTML = matches.map((m) => {
+        const ad = m.Unvan || m.Adı || ('#' + m.Kimlik);
+        const tel = m.CEPTEL && m.CEPTEL !== '-' ? ' · ' + m.CEPTEL : '';
+        return `<button type="button" class="list-group-item list-group-item-action py-1 small" data-mid="${m.Kimlik}" data-ad="${aptKacis(ad)}" data-daire="${daireId}">${aptKacis(ad)}<small class="text-muted">${aptKacis(tel)}</small></button>`;
+    }).join('') || '<div class="list-group-item text-muted py-1 small">Sonuç yok</div>';
+    box.style.display = 'block';
+}
+
+document.addEventListener('input', function(e) {
+    if (e.target && e.target.classList.contains('md-musteri-arama')) {
+        const daireId = e.target.getAttribute('data-daire');
+        document.getElementById('mdYeniId_' + daireId).value = '';
+        const btn = document.getElementById('mdKaydet_' + daireId);
+        if (btn) btn.disabled = true;
+        mdMusteriAramaCiz(daireId);
+    }
+});
+
+document.addEventListener('click', function(e) {
+    const secim = e.target.closest('#musteriDuzeltModal .md-oneriler [data-mid]');
+    if (secim) {
+        const daireId = secim.getAttribute('data-daire');
+        document.getElementById('mdYeniId_' + daireId).value = secim.getAttribute('data-mid');
+        document.getElementById('mdArama_' + daireId).value = secim.getAttribute('data-ad');
+        document.getElementById('mdOneri_' + daireId).style.display = 'none';
+        const btn = document.getElementById('mdKaydet_' + daireId);
+        if (btn) btn.disabled = false;
+        return;
+    }
+    if (!e.target.closest('#musteriDuzeltModal .md-musteri-arama') && !e.target.closest('#musteriDuzeltModal .md-oneriler')) {
+        document.querySelectorAll('#musteriDuzeltModal .md-oneriler').forEach((el) => { el.style.display = 'none'; });
+    }
+});
+
+window.musteriDuzeltKaydet = async function(daireId) {
+    const yeniId = document.getElementById('mdYeniId_' + daireId)?.value || null;
+    if (!yeniId) { alert('Önce listeden bir müşteri seçin'); return; }
+    const d = window.aktifApartmanDaireler.find((x) => x.Id === daireId);
+    if (d && String(d.MusteriKimlik || '') === String(yeniId)) {
+        alert('Zaten bu müşteri bağlı'); return;
+    }
+    if (d && aptDaireOdemeVarMi(d) && d.MusteriKimlik) {
+        alert(aptOdemeEngeliMesaji(d));
+        return;
+    }
+    const islemiYapan = localStorage.getItem('aktifKullanici') || 'Sistem';
+    const btn = document.getElementById('mdKaydet_' + daireId);
+    if (btn) btn.disabled = true;
+    try {
+        const res = await fetch(`/api/apartman-daire/${daireId}/musteri`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ musteriKimlik: parseInt(yeniId, 10), islemiYapan })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.hata || 'Güncellenemedi');
+        // Yerel cache güncelle
+        if (d) {
+            d.MusteriKimlik = parseInt(yeniId, 10);
+            d.MusteriAd = data.musteriAd || document.getElementById('mdArama_' + daireId).value;
+        }
+        const mevcutEl = document.getElementById('mdMevcut_' + daireId);
+        if (mevcutEl) mevcutEl.innerHTML = aptKacis(d?.MusteriAd || data.musteriAd || '');
+        document.getElementById('mdArama_' + daireId).value = '';
+        document.getElementById('mdYeniId_' + daireId).value = '';
+        document.getElementById('mdDurum').textContent = `✓ Daire ${d?.DaireNo || daireId} güncellendi` +
+            (data.cariBorc > 0 ? ` · Cari borç yeni müşteriye taşındı (${Number(data.cariBorc).toLocaleString('tr-TR')} ₺)` : '');
+        if (typeof apartmanDetayCiz === 'function') apartmanDetayCiz();
+    } catch (e) {
+        alert('Hata: ' + e.message);
+        if (btn) btn.disabled = false;
+    }
+};
+
+window.musteriDuzeltTemizle = async function(daireId) {
+    const d = window.aktifApartmanDaireler.find((x) => x.Id === daireId);
+    if (!d || !d.MusteriKimlik) { alert('Bu daire zaten boş'); return; }
+    if (aptDaireOdemeVarMi(d)) {
+        alert(aptOdemeEngeliMesaji(d));
+        return;
+    }
+    if (!confirm(`Daire ${d.DaireNo} müşterisini kaldırmak istiyor musunuz?\n(${d.MusteriAd || ''})`)) return;
+    const islemiYapan = localStorage.getItem('aktifKullanici') || 'Sistem';
+    try {
+        const res = await fetch(`/api/apartman-daire/${daireId}/musteri`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ musteriKimlik: null, islemiYapan })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.hata || 'Güncellenemedi');
+        d.MusteriKimlik = null;
+        d.MusteriAd = null;
+        const mevcutEl = document.getElementById('mdMevcut_' + daireId);
+        if (mevcutEl) mevcutEl.innerHTML = '<span class="text-danger">— boş —</span>';
+        document.getElementById('mdDurum').textContent = `✓ Daire ${d.DaireNo} müşterisi kaldırıldı`;
+        if (typeof apartmanDetayCiz === 'function') apartmanDetayCiz();
+    } catch (e) { alert('Hata: ' + e.message); }
+};
+
+window.musteriDuzeltTakas = async function() {
+    const ids = [...(window.mdSeciliDaireler || [])];
+    if (ids.length !== 2) { alert('Takas için tam 2 daire seçin'); return; }
+    const d1 = window.aktifApartmanDaireler.find((x) => x.Id === ids[0]);
+    const d2 = window.aktifApartmanDaireler.find((x) => x.Id === ids[1]);
+    if (aptDaireOdemeVarMi(d1) || aptDaireOdemeVarMi(d2)) {
+        alert('Ödeme yapılmış daire takas edilemez. Önce ilgili caride apartman ödemesini silin.');
+        return;
+    }
+    const etiket = (d) => `${d?.Blok || ''} ${d?.DaireNo || ''} · ${d?.MusteriAd || 'boş'}`.trim();
+    if (!confirm(`Takas edilsin mi?\n\n${etiket(d1)}\n↔\n${etiket(d2)}\n\nCari borçlar da yer değiştirir.`)) return;
+    const islemiYapan = localStorage.getItem('aktifKullanici') || 'Sistem';
+    try {
+        const res = await fetch('/api/apartman/musteri-takas', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ daireId1: ids[0], daireId2: ids[1], islemiYapan })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.hata || 'Takas başarısız');
+        // Yerel cache: müşterileri takas et
+        const ad1 = d1?.MusteriAd || null;
+        const mk1 = d1?.MusteriKimlik || null;
+        if (d1) { d1.MusteriKimlik = d2?.MusteriKimlik || null; d1.MusteriAd = d2?.MusteriAd || null; }
+        if (d2) { d2.MusteriKimlik = mk1; d2.MusteriAd = ad1; }
+        window.mdSeciliDaireler = new Set();
+        document.getElementById('mdDurum').textContent = '✓ Müşteriler takas edildi';
+        musteriDuzeltCiz();
+        if (typeof apartmanDetayCiz === 'function') apartmanDetayCiz();
+    } catch (e) { alert('Hata: ' + e.message); }
+};
+
+// --- Blok bazlı teslimat ---
+window.blokTeslimatAc = function(blok) {
+    if (!blok || blok === 'TUMU') { alert('Lütfen önce bir blok sekmesi seçin.'); return; }
+    document.getElementById('btBlok').value = blok;
+    document.getElementById('btApartmanId').value = window.aktifApartman?.Id || '';
+    document.getElementById('btMiktar').value = '';
+    document.getElementById('btBirim').value = 'ton';
+    const t = document.getElementById('btTarih');
+    if (t) t.value = (typeof bugununTarihiFormati === 'function') ? bugununTarihiFormati() : '';
+    btBilgiTazele();
+    aptCocukModalAc('blokTeslimatModal');
+    btGecmisYukle();
+};
+
+function btBilgiTazele() {
+    const blok = document.getElementById('btBlok').value;
+    const daireler = aptBlokFiltreliDaireler(window.aktifApartmanDaireler, blok)
+        .filter((d) => d.UrunID && (parseFloat(d.AnlasilanMiktar) || 0) > 0);
+    if (!daireler.length) { document.getElementById('btBilgi').innerHTML = 'Bu blokta anlaşmalı daire yok.'; return; }
+    const toplamAnlas = daireler.reduce((t, d) => t + (parseFloat(d.AnlasilanMiktar) || 0), 0);
+    const toplamTeslim = daireler.reduce((t, d) => t + (parseFloat(d.TeslimEdilen) || 0), 0);
+    const kalan = Math.max(0, toplamAnlas - toplamTeslim);
+    document.getElementById('btBilgi').innerHTML =
+        `<b>${aptKacis(window.aktifApartman?.Ad || '')} · ${aptKacis(blok)} Blok</b> (${daireler.length} daire)<br>
+         Anlaşılan: <b>${aptSayi(toplamAnlas / 1000)} ton</b> · İnen: <b class="text-success">${aptSayi(toplamTeslim / 1000)} ton</b> · Kalan: <b class="text-danger">${aptSayi(kalan / 1000)} ton</b>`;
+    document.getElementById('btKgKarsilik').textContent = `Kalan teslimat: ${aptSayi(kalan)} kg`;
+}
+
+async function btGecmisYukle() {
+    const kutu = document.getElementById('btGecmisListe');
+    const blok = document.getElementById('btBlok').value;
+    const aptId = document.getElementById('btApartmanId').value;
+    if (!kutu || !aptId) return;
+    kutu.innerHTML = '<div class="text-muted small text-center py-4">Yükleniyor…</div>';
+    try {
+        const res = await fetch(`/api/apartman/${aptId}/blok-teslimat-gecmisi?blok=${encodeURIComponent(blok)}&_t=` + Date.now());
+        const rows = await res.json();
+        if (!Array.isArray(rows) || !rows.length) {
+            kutu.innerHTML = '<div class="text-muted small text-center py-4">Henüz teslimat girilmemiş.</div>';
+            document.getElementById('btGecmisToplam').textContent = '0 kg';
+            return;
+        }
+        let toplam = 0;
+        kutu.innerHTML = rows.map((r) => {
+            const kg = parseFloat(r.ToplamKg) || 0;
+            toplam += kg;
+            const tar = r.Tarih ? String(r.Tarih).slice(0, 10).split('-').reverse().join('.') : '';
+            return `<div class="d-flex justify-content-between align-items-center border rounded px-2 py-2 mb-2 bg-white">
+                <div>
+                    <div class="fw-bold text-success">${aptSayi(kg)} kg <span class="text-muted small">(${aptSayi(kg/1000)} ton)</span></div>
+                    <div class="small text-muted">${tar} · ${r.DaireSayisi} daire · ${aptKacis(r.IslemiYapan || '')}</div>
+                </div>
+                <button class="btn btn-outline-danger btn-sm" title="Geri al" onclick="btTeslimatSil('${aptKacis(r.Grup)}')"><i class="fas fa-trash"></i></button>
+            </div>`;
+        }).join('');
+        document.getElementById('btGecmisToplam').textContent = `${aptSayi(toplam)} kg`;
+    } catch (e) {
+        kutu.innerHTML = '<div class="text-danger small text-center py-4">Geçmiş yüklenemedi.</div>';
+    }
+}
+
+window.btTeslimatSil = async function(grup) {
+    if (!grup) return;
+    if (!confirm('Bu teslimatı geri almak istediğinize emin misiniz? Stok ve inen miktar düzeltilecek.')) return;
+    try {
+        const res = await fetch(`/api/apartman/blok-teslimat-grup/${encodeURIComponent(grup)}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.hata || 'İşlem başarısız');
+        await btVeriTazele();
+    } catch (e) { alert('Hata: ' + e.message); }
+};
+
+async function btVeriTazele() {
+    // Aktif apartman dairelerini tazele, panelleri güncelle, modal içi bilgi + geçmişi yenile
+    const aptId = document.getElementById('btApartmanId').value;
+    if (aptId) {
+        try {
+            const r = await fetch(`/api/apartman/${aptId}?_t=` + Date.now());
+            const d = await r.json();
+            if (r.ok) {
+                if (d.apartman) window.aktifApartman = d.apartman;
+                window.aktifApartmanDaireler = d.daireler || [];
+            }
+        } catch (_) {}
+    }
+    if (typeof apartmanDetayCiz === 'function') apartmanDetayCiz();
+    if (typeof stoklariYukle === 'function') stoklariYukle();
+    btBilgiTazele();
+    btGecmisYukle();
+}
+
+window.btBirimGuncelle = function() {
+    const birim = document.getElementById('btBirim').value;
+    const v = parseFloat(document.getElementById('btMiktar').value) || 0;
+    const kg = birim === 'ton' ? v * 1000 : v;
+    document.getElementById('btKgKarsilik').textContent = v > 0 ? `= ${aptSayi(kg)} kg dağıtılacak` : '';
+};
+
+window.blokTeslimatKaydet = async function() {
+    const blok = document.getElementById('btBlok').value;
+    const birim = document.getElementById('btBirim').value;
+    const v = parseFloat(document.getElementById('btMiktar').value);
+    if (!v || v <= 0) { alert('Geçerli miktar girin'); return; }
+    const miktarKg = birim === 'ton' ? v * 1000 : v;
+    const tarihStr = document.getElementById('btTarih').value;
+    const tarih = tarihStr ? new Date(tarihStr).toISOString() : new Date().toISOString();
+    const islemiYapan = localStorage.getItem('aktifKullanici') || 'Sistem';
+    try {
+        let res = await fetch(`/api/apartman/${window.aktifApartman.Id}/blok-teslimat`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ blok, miktar: miktarKg, tarih, islemiYapan })
+        });
+        let data = await res.json();
+        if (res.status === 400 && data.kod === 'ASIM') {
+            if (!confirm(`${data.hata}\n\nYine de teslim edilsin mi?`)) return;
+            res = await fetch(`/api/apartman/${window.aktifApartman.Id}/blok-teslimat`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ blok, miktar: miktarKg, tarih, islemiYapan, izinliAsim: true })
+            });
+            data = await res.json();
+        }
+        if (!res.ok) throw new Error(data.hata || 'Teslimat başarısız');
+        document.getElementById('btMiktar').value = '';
+        document.getElementById('btKgKarsilik').textContent = '';
+        await btVeriTazele();
     } catch (e) { alert('Hata: ' + e.message); }
 };
 
@@ -9062,12 +10419,13 @@ window.daireTeslimatAc = async function(daireId) {
     const kalan = anlasilan - teslim;
     document.getElementById('teslimatDaireId').value = d.Id;
     document.getElementById('teslimatDaireBilgi').innerHTML =
-        `<strong>${aptKacis(d.Blok || '')} Daire ${aptKacis(d.DaireNo || '')}</strong> · ${aptKacis(d.MusteriAd || '')}<br>
-         Ürün: ${aptKacis(d.UrunAdi || '-')} · Fiyat: ${aptPara(d.BirimFiyat)} / ${aptKacis(d.Birim || '')}`;
+        `<strong>${aptKacis(window.aktifApartman?.Ad || '')} · ${aptKacis(d.Blok || '')} Blok Daire ${aptKacis(d.DaireNo || '')}${d.DaireTipi ? ' (' + aptKacis(d.DaireTipi) + ')' : ''}</strong><br>
+         ${aptKacis(d.MusteriAd || '')}<br>
+         Ürün: ${aptKacis(d.UrunAdi || '-')} · ${d.TonFiyat ? aptSayi(d.TonFiyat) + ' ' + (d.ParaBirimi || 'TRY') + '/ton' : aptPara(d.BirimFiyat) + '/kg'}`;
     document.getElementById('teslimatMiktar').value = kalan > 0 ? kalan : '';
-    document.getElementById('teslimatKalanNot').textContent = `Anlaşılan ${aptSayi(anlasilan)}, teslim ${aptSayi(teslim)}, kalan ${aptSayi(kalan)} ${d.Birim || ''}`;
+    document.getElementById('teslimatKalanNot').textContent = `Anlaşılan ${aptSayi(anlasilan)} kg, teslim ${aptSayi(teslim)} kg, kalan ${aptSayi(kalan)} kg`;
     document.getElementById('teslimatGecmisi').innerHTML = '';
-    guvenliModalAc('daireTeslimatModal');
+    aptCocukModalAc('daireTeslimatModal');
     daireTeslimatGecmisiYukle(d.Id);
 };
 
@@ -9094,8 +10452,10 @@ window.daireTeslimatGeriAl = async function(teslimatId) {
         const res = await fetch(`/api/apartman-teslimat/${teslimatId}`, { method: 'DELETE' });
         const data = await res.json();
         if (!res.ok) throw new Error(data.hata || 'Geri alınamadı');
+        window._aptGeriDonAtla = true;
         modalZorlaKapat('daireTeslimatModal');
-        apartmanDetayAc(window.aktifApartman.Id);
+        (window.apartmanModalYigin || []).pop();
+        aptDetayaDon();
     } catch (e) { alert('Hata: ' + e.message); }
 };
 
@@ -9120,11 +10480,10 @@ window.daireTeslimatKaydet = async function() {
             data = await res.json();
         }
         if (!res.ok) throw new Error(data.hata || 'Teslim başarısız');
-        if (!data.cariIslendi) {
-            alert('Teslimat kaydedildi ancak müşterinin carisine BORÇ işlenmedi.\n\nBorcun cariye düşmesi için bu dairede hem MÜŞTERİ hem ÜRÜN seçili olmalı. Daireyi açıp ürünü seçtikten sonra teslim edin.');
-        }
+        window._aptGeriDonAtla = true;
         modalZorlaKapat('daireTeslimatModal');
-        apartmanDetayAc(window.aktifApartman.Id);
+        (window.apartmanModalYigin || []).pop();
+        aptDetayaDon();
         if (typeof stoklariYukle === 'function') stoklariYukle();
     } catch (e) { alert('Hata: ' + e.message); }
 };
@@ -9133,11 +10492,149 @@ window.topluAnlasmaModalAc = async function() {
     if (!window.aktifApartman) return;
     await aptListeleriYukle();
     document.getElementById('taUrun').innerHTML = aptUrunSecenekleri('');
-    document.getElementById('taMiktar').value = '';
-    document.getElementById('taBirim').value = '';
-    document.getElementById('taFiyat').value = '';
-    document.getElementById('taSadeceBos').checked = true;
-    guvenliModalAc('topluAnlasmaModal');
+    const bloklar = aptBlokListesi(window.aktifApartmanDaireler).filter((b) => b !== '(Bloksuz)');
+    const tumBloklar = aptBlokListesi(window.aktifApartmanDaireler);
+    const tercih = window.aktifAptBlok && window.aktifAptBlok !== 'TUMU' ? window.aktifAptBlok : null;
+    const ilkBlok = (tercih && tumBloklar.includes(tercih)) ? tercih : (bloklar[0] || tumBloklar[0] || '(Bloksuz)');
+    document.getElementById('taAktifBlok').value = ilkBlok;
+    const sekmeler = document.getElementById('taBlokSekmeler');
+    if (sekmeler) {
+        sekmeler.innerHTML = tumBloklar.map((b) => {
+            const cls = b === ilkBlok ? 'active' : '';
+            return `<li class="nav-item"><button type="button" class="nav-link ${cls}" onclick="taBlokSec('${aptKacis(b).replace(/'/g, "\\'")}')">${aptKacis(b)}</button></li>`;
+        }).join('');
+    }
+    taBlokFormunuDoldur(ilkBlok);
+    aptCocukModalAc('topluAnlasmaModal');
+};
+
+function taBlokAnlasmaOku(blok) {
+    const daireler = aptBlokFiltreliDaireler(window.aktifApartmanDaireler, blok)
+        .filter((d) => (parseFloat(d.AnlasilanMiktar) || 0) > 0 && d.UrunID);
+    if (!daireler.length) return null;
+    const toplamKg = daireler.reduce((t, d) => t + (parseFloat(d.AnlasilanMiktar) || 0), 0);
+    const urunSay = {};
+    daireler.forEach((d) => {
+        const k = String(d.UrunID);
+        urunSay[k] = (urunSay[k] || 0) + 1;
+    });
+    const urunId = Object.entries(urunSay).sort((a, b) => b[1] - a[1])[0][0];
+    const ornek = daireler.find((d) => String(d.UrunID) === String(urunId)) || daireler[0];
+    const tonFiyat = ornek.TonFiyat != null
+        ? parseFloat(ornek.TonFiyat)
+        : (ornek.BirimFiyat ? parseFloat(ornek.BirimFiyat) * 1000 : 0);
+    const tipler = [...new Set(daireler.map((d) => d.DaireTipi || '').filter(Boolean))];
+    return {
+        urunId,
+        urunAdi: ornek.UrunAdi || '',
+        toplamTon: Math.round((toplamKg / 1000) * 1000) / 1000,
+        tonFiyat,
+        paraBirimi: ornek.ParaBirimi || 'TRY',
+        daireTipi: tipler.length === 1 ? tipler[0] : '',
+        anlasmaliSayi: daireler.length,
+        toplamKg
+    };
+}
+
+function taFormKilit(kilitli) {
+    window.taKilitli = !!kilitli;
+    ['taUrun', 'taToplamTon', 'taPara', 'taTonFiyat', 'taDaireTipi', 'taSadeceBos'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.disabled = !!kilitli;
+    });
+    const btn = document.getElementById('taUygulaBtn');
+    if (btn) {
+        btn.disabled = !!kilitli;
+        btn.classList.toggle('disabled', !!kilitli);
+    }
+    const kutu = document.getElementById('taKilitKutu');
+    if (kutu) kutu.classList.toggle('d-none', !kilitli);
+}
+
+window.taKilidiAc = function() {
+    if (!confirm('Kilidi açmak, mevcut anlaşmayı yeniden düzenlemenize izin verir. Devam?')) return;
+    taFormKilit(false);
+    document.getElementById('taSadeceBos').checked = false;
+    const oz = document.getElementById('taBlokOzet');
+    if (oz) oz.innerHTML = (oz.textContent || '') + ' · <span class="text-warning fw-bold">Düzenleme açık</span>';
+};
+
+function taBlokFormunuDoldur(blok) {
+    document.getElementById('taUrun').innerHTML = aptUrunSecenekleri('');
+    const mevcut = taBlokAnlasmaOku(blok);
+    if (mevcut) {
+        document.getElementById('taUrun').innerHTML = aptUrunSecenekleri(mevcut.urunId);
+        document.getElementById('taUrun').value = String(mevcut.urunId);
+        document.getElementById('taToplamTon').value = mevcut.toplamTon;
+        document.getElementById('taTonFiyat').value = mevcut.tonFiyat || '';
+        document.getElementById('taPara').value = mevcut.paraBirimi || 'TRY';
+        document.getElementById('taDaireTipi').value = mevcut.daireTipi || '';
+        document.getElementById('taSadeceBos').checked = false;
+        taFormKilit(true);
+        const yeni = document.getElementById('taYeniBilgi');
+        if (yeni) yeni.classList.add('d-none');
+        const oz = document.getElementById('taBlokOzet');
+        if (oz) {
+            oz.innerHTML = `<span class="text-success fw-bold">Mevcut anlaşma:</span> ${aptSayi(mevcut.toplamTon)} ton · ${aptSayi(mevcut.tonFiyat)} ${mevcut.paraBirimi}/ton · ${mevcut.anlasmaliSayi} daire · ${aptKacis(mevcut.urunAdi || '')}`;
+        }
+    } else {
+        document.getElementById('taToplamTon').value = '';
+        document.getElementById('taTonFiyat').value = '';
+        document.getElementById('taPara').value = 'TRY';
+        document.getElementById('taDaireTipi').value = '';
+        document.getElementById('taSadeceBos').checked = true;
+        taFormKilit(false);
+        const yeni = document.getElementById('taYeniBilgi');
+        if (yeni) yeni.classList.remove('d-none');
+        const kutu = document.getElementById('taKilitKutu');
+        if (kutu) kutu.classList.add('d-none');
+    }
+    topluAnlasmaTahminGuncelle();
+}
+
+window.taBlokSec = function(blok) {
+    document.getElementById('taAktifBlok').value = blok;
+    document.querySelectorAll('#taBlokSekmeler .nav-link').forEach((btn) => {
+        btn.classList.toggle('active', btn.textContent.trim() === blok || (blok === '(Bloksuz)' && btn.textContent.trim() === '(Bloksuz)'));
+    });
+    taBlokFormunuDoldur(blok);
+};
+
+window.blokAnlasmaUygula = async function() {
+    if (window.taKilitli) {
+        alert('Anlaşma kilitli. Önce "Kilidi Aç" ile düzenlemeyi açın.');
+        return;
+    }
+    const blok = document.getElementById('taAktifBlok').value;
+    const govde = {
+        blok: blok === '(Bloksuz)' ? '' : blok,
+        urunId: document.getElementById('taUrun').value || null,
+        toplamTon: parseFloat(document.getElementById('taToplamTon').value) || 0,
+        tonFiyat: parseFloat(document.getElementById('taTonFiyat').value) || 0,
+        paraBirimi: document.getElementById('taPara').value || 'TRY',
+        daireTipi: document.getElementById('taDaireTipi').value || null,
+        sadeceBos: document.getElementById('taSadeceBos').checked
+    };
+    if (!govde.urunId || govde.toplamTon <= 0 || govde.tonFiyat <= 0) {
+        alert('Ürün, toplam ton ve ton fiyatı girin'); return;
+    }
+    const pb = govde.paraBirimi === 'USD' ? 'USD' : '₺';
+    const kapsam = govde.sadeceBos ? 'sadece boş dairelere' : 'bloktaki anlaşmalı dairelere de (yeniden)';
+    if (!confirm(`${blok} bloğuna ${govde.toplamTon} ton @ ${govde.tonFiyat} ${pb}/ton ${kapsam} uygulanacak. Devam?`)) return;
+    try {
+        const res = await fetch(`/api/apartman/${window.aktifApartman.Id}/blok-anlasma`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(govde)
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.hata || 'Uygulanamadı');
+        window._aptGeriDonAtla = true;
+        modalZorlaKapat('topluAnlasmaModal');
+        (window.apartmanModalYigin || []).pop();
+        alert(`✓ ${data.mesaj}\n\nDaire başı: ${aptSayi(data.kgPerDaire)} kg\nToplam cari borç: ${aptPara(data.toplamBorc)}`);
+        aptDetayaDon();
+    } catch (e) { alert('Hata: ' + e.message); }
 };
 
 window.musteriApartmanBilgisiYukle = async function(musteriId) {
@@ -9150,6 +10647,13 @@ window.musteriApartmanBilgisiYukle = async function(musteriId) {
         const res = await fetch(`/api/musteri/${musteriId}/apartman-daireler?_t=` + Date.now());
         const rows = await res.json();
         if (!res.ok || !Array.isArray(rows) || !rows.length) return;
+
+        // Anlaşması olan dairelerin borcunu cariye yaz (eski kayıtlar dahil)
+        const borcGerekli = rows.some((d) => (parseFloat(d.AnlasilanMiktar) || 0) > 0 && (parseFloat(d.BirimFiyat) || 0) > 0);
+        if (borcGerekli) {
+            await fetch(`/api/musteri/${musteriId}/apartman-borc-esitle`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+        }
+
         liste.innerHTML = rows.map((d) => {
             const anlasilan = parseFloat(d.AnlasilanMiktar) || 0;
             const teslim = parseFloat(d.TeslimEdilen) || 0;
@@ -9159,13 +10663,15 @@ window.musteriApartmanBilgisiYukle = async function(musteriId) {
             else if (teslim > 0) { durum = 'Kısmi'; cls = 'bg-warning text-dark'; }
             else if (anlasilan > 0) { durum = 'Bekliyor'; cls = 'bg-danger'; }
             else { durum = 'Anlaşma yok'; cls = 'bg-secondary'; }
-            const yer = `${d.Blok ? d.Blok + ' Blok · ' : ''}Daire ${d.DaireNo || ''}`;
+            const yer = `${d.Blok ? d.Blok + ' Blok · ' : ''}Daire ${d.DaireNo || ''}${d.DaireTipi ? ' (' + d.DaireTipi + ')' : ''}`;
+            const borcKg = d.KalanBorcKg != null ? parseFloat(d.KalanBorcKg) : anlasilan;
             return `<div class="col-md-6">
                 <div class="border rounded-3 p-2 h-100 d-flex justify-content-between align-items-center" role="button" onclick="apartmanDetayAcMusteriden(${d.ApartmanId})">
                     <div>
                         <div class="fw-bold small"><i class="fas fa-building text-warning me-1"></i>${aptKacis(d.ApartmanAd)}</div>
                         <div class="text-muted small">${aptKacis(yer)}${d.UrunAdi ? ' · ' + aptKacis(d.UrunAdi) : ''}</div>
-                        <div class="small">Anlaşılan ${aptSayi(anlasilan)} · Teslim ${aptSayi(teslim)} · <span class="${kalan > 0 ? 'text-danger' : 'text-success'} fw-bold">Kalan ${aptSayi(kalan)}</span> ${aptKacis(d.Birim || '')}</div>
+                        <div class="small">Anlaş. ${aptSayi(anlasilan)} kg · Teslim ${aptSayi(teslim)} kg · <span class="${kalan > 0 ? 'text-danger' : 'text-success'} fw-bold">Kalan ${aptSayi(kalan)} kg</span>
+                        · Borç ${aptSayi(borcKg)} kg${d.TonFiyat ? ' · ' + aptSayi(d.TonFiyat) + ' ' + (d.ParaBirimi || 'TRY') + '/ton' : ''}</div>
                     </div>
                     <span class="badge ${cls}">${durum}</span>
                 </div>
@@ -9175,25 +10681,4 @@ window.musteriApartmanBilgisiYukle = async function(musteriId) {
     } catch (_) {}
 };
 
-window.topluAnlasmaUygula = async function() {
-    const govde = {
-        urunId: document.getElementById('taUrun').value || null,
-        anlasilanMiktar: parseFloat(document.getElementById('taMiktar').value) || 0,
-        birim: document.getElementById('taBirim').value.trim(),
-        birimFiyat: document.getElementById('taFiyat').value,
-        sadeceBos: document.getElementById('taSadeceBos').checked
-    };
-    if (!govde.urunId || govde.anlasilanMiktar <= 0) { alert('Ürün ve miktar girin'); return; }
-    if (!confirm('Bu anlaşma seçili dairelere uygulanacak. Devam?')) return;
-    try {
-        const res = await fetch(`/api/apartman/${window.aktifApartman.Id}/toplu-anlasma`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(govde)
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.hata || 'Uygulanamadı');
-        modalZorlaKapat('topluAnlasmaModal');
-        apartmanDetayAc(window.aktifApartman.Id);
-    } catch (e) { alert('Hata: ' + e.message); }
-};
+window.topluAnlasmaUygula = window.blokAnlasmaUygula;
