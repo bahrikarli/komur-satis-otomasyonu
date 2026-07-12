@@ -3813,28 +3813,40 @@ async function apartmanYetimBorcSatirlariTemizle(pool) {
     }
 }
 
-/** Günlük listede 'bugüne kaymış' anlaşma tarihlerini bir kez onarır (AnlasmaTarihi boş olanlar). */
+/** Günlük listede 'bugüne kaymış' anlaşma tarihlerini onarır (yanlış kilitlenmiş AnlasmaTarihi dahil). */
 async function apartmanAnlasmaTarihleriniOnar(pool) {
     try {
-        const rows = await pool.request().query(`
-            SELECT Id FROM [komur].[dbo].[ApartmanDaireler]
-            WHERE AnlasmaMakbuzNo IS NOT NULL
-              AND AnlasmaTarihi IS NULL
-              AND MusteriKimlik IS NOT NULL
-              AND AnlasilanMiktar > 0
+        // OlusturmaZamani = SYSUTCDATETIME (UTC). TR sabit UTC+3 (DST yok).
+        const r1 = await pool.request().query(`
+            UPDATE MH
+            SET MH.TARİH = DATEADD(HOUR, 3, D.OlusturmaZamani),
+                MH.YIL = YEAR(DATEADD(HOUR, 3, D.OlusturmaZamani))
+            FROM [komur].[dbo].[MusteriHareket] MH
+            INNER JOIN [komur].[dbo].[ApartmanDaireler] D ON D.AnlasmaMakbuzNo = MH.MakbuzNo
+            WHERE MH.notlar LIKE N'%Apartman anlaşması%'
+              AND D.OlusturmaZamani IS NOT NULL
+              AND CAST(MH.TARİH AS DATE) > CAST(DATEADD(HOUR, 3, D.OlusturmaZamani) AS DATE)
         `);
-        const liste = rows.recordset || [];
-        if (!liste.length) return;
-        console.log(`Apartman anlaşma tarihi onarımı: ${liste.length} daire`);
-        for (const row of liste) {
-            try {
-                await daireAnlasmaBorcEsitle(pool, row.Id, 'Sistem');
-            } catch (e) {
-                console.warn(`Apartman tarih onarım daire ${row.Id}:`, e.message);
-            }
+        const r2 = await pool.request().query(`
+            UPDATE D
+            SET D.AnlasmaTarihi = DATEADD(HOUR, 3, D.OlusturmaZamani)
+            FROM [komur].[dbo].[ApartmanDaireler] D
+            WHERE D.AnlasmaMakbuzNo IS NOT NULL
+              AND D.OlusturmaZamani IS NOT NULL
+              AND (
+                    D.AnlasmaTarihi IS NULL
+                    OR CAST(D.AnlasmaTarihi AS DATE) > CAST(DATEADD(HOUR, 3, D.OlusturmaZamani) AS DATE)
+                  )
+        `);
+        const n1 = r1.rowsAffected?.[0] || 0;
+        const n2 = r2.rowsAffected?.[0] || 0;
+        if (n1 || n2) {
+            console.log(`Apartman anlaşma tarihi onarımı: hareket=${n1}, daire=${n2}`);
         }
+        return { hareket: n1, daire: n2 };
     } catch (e) {
         console.warn('Apartman anlaşma tarihi onarımı:', e.message);
+        return { hareket: 0, daire: 0, hata: e.message };
     }
 }
 
@@ -3937,7 +3949,11 @@ async function daireAnlasmaBorcEsitle(pool, daireId, islemiYapan, usdKurHarici) 
             }
         }
 
-        // Sabit anlaşma tarihi: bir kez kilitlenir, sonraki eşitlemeler kaydırmaz
+        // Sabit anlaşma tarihi: bir kez kilitlenir, sonraki eşitlemeler kaydırmaz.
+        // Yanlışlıkla "bugün"e kilitlendiyse daire oluşturma (UTC→TR) gününe geri alınır.
+        const olusturmaStr = d.OlusturmaZamani
+            ? istanbulSimdiSqlStr(new Date(d.OlusturmaZamani))
+            : null;
         let anlasmaTarihStr = null;
         if (d.AnlasmaTarihi) {
             anlasmaTarihStr = normalizeIslemTarihiStr(
@@ -3947,24 +3963,27 @@ async function daireAnlasmaBorcEsitle(pool, daireId, islemiYapan, usdKurHarici) 
             );
         } else if (mevcutTarihStr) {
             anlasmaTarihStr = normalizeIslemTarihiStr(mevcutTarihStr);
-            // Daha önce her eşitlemede "bugün"e kaymış olabilir → daire oluşturma gününe geri al
-            if (d.OlusturmaZamani) {
-                const olusturmaStr = istanbulSimdiSqlStr(new Date(d.OlusturmaZamani));
-                const bugunStr = istanbulSimdiSqlStr().slice(0, 10);
-                if (anlasmaTarihStr.slice(0, 10) === bugunStr && olusturmaStr.slice(0, 10) < bugunStr) {
-                    anlasmaTarihStr = olusturmaStr;
-                }
-            }
-        } else if (d.OlusturmaZamani && d.AnlasmaMakbuzNo) {
-            anlasmaTarihStr = istanbulSimdiSqlStr(new Date(d.OlusturmaZamani));
+        } else if (olusturmaStr && d.AnlasmaMakbuzNo) {
+            anlasmaTarihStr = olusturmaStr;
         } else {
             anlasmaTarihStr = normalizeIslemTarihiStr(new Date());
         }
+        if (olusturmaStr && anlasmaTarihStr && anlasmaTarihStr.slice(0, 10) > olusturmaStr.slice(0, 10)) {
+            anlasmaTarihStr = olusturmaStr;
+        }
         const tarihObj = sqlTarihDateObj(anlasmaTarihStr);
         const yil = sqlYilFromTarihStr(anlasmaTarihStr);
+        const kilitGun = d.AnlasmaTarihi
+            ? normalizeIslemTarihiStr(
+                d.AnlasmaTarihi instanceof Date
+                    ? istanbulSimdiSqlStr(d.AnlasmaTarihi)
+                    : d.AnlasmaTarihi
+            ).slice(0, 10)
+            : null;
+        // Kilit varsa TARİH'e dokunma — ama kilit oluşturma gününden sonraysa (bozuk kilit) düzelt
+        const tarihKilitli = !!(kilitGun && (!olusturmaStr || kilitGun <= olusturmaStr.slice(0, 10)));
 
         if (mevcutKimlik) {
-            const tarihKilitli = !!d.AnlasmaTarihi;
             const reqUp = tx.request()
                 .input('kid', sql.Int, mevcutKimlik)
                 .input('kisi', sql.Int, d.MusteriKimlik)
@@ -3997,9 +4016,13 @@ async function daireAnlasmaBorcEsitle(pool, daireId, islemiYapan, usdKurHarici) 
                 .input('mNo', sql.NVarChar, d.AnlasmaMakbuzNo)
                 .input('fiyat', sql.Decimal(18, 6), kgFiyat)
                 .input('at', sql.DateTime2, tarihObj)
-                .query(`
+                .query(tarihKilitli ? `
                     UPDATE [komur].[dbo].[ApartmanDaireler]
-                    SET AnlasmaMakbuzNo = @mNo, BirimFiyat = @fiyat, AnlasmaTarihi = ISNULL(AnlasmaTarihi, @at)
+                    SET AnlasmaMakbuzNo = @mNo, BirimFiyat = @fiyat
+                    WHERE Id = @id
+                ` : `
+                    UPDATE [komur].[dbo].[ApartmanDaireler]
+                    SET AnlasmaMakbuzNo = @mNo, BirimFiyat = @fiyat, AnlasmaTarihi = @at
                     WHERE Id = @id
                 `);
 
@@ -4929,6 +4952,18 @@ app.delete('/api/apartman-daire/:id', async (req, res) => {
         res.json({ mesaj: 'Daire silindi' });
     } catch (err) {
         console.error('DAIRE SIL HATASI:', err);
+        res.status(500).json({ hata: err.message });
+    }
+});
+
+// --- Apartman anlaşma tarihlerini zorla onar (bugüne kaymış cari satırları) ---
+app.post('/api/apartman/anlasma-tarih-onar', async (req, res) => {
+    try {
+        await ensureApartmanTablolari();
+        const pool = await sql.connect(config);
+        const sonuc = await apartmanAnlasmaTarihleriniOnar(pool);
+        res.json({ success: true, ...sonuc });
+    } catch (err) {
         res.status(500).json({ hata: err.message });
     }
 });
