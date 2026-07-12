@@ -3707,6 +3707,11 @@ AND NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[komur].
 BEGIN
     ALTER TABLE [komur].[dbo].[ApartmanDaireler] ADD [OdenenTl] DECIMAL(18,2) NOT NULL CONSTRAINT DF_AptDaire_Odenen DEFAULT (0);
 END
+IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[komur].[dbo].[ApartmanDaireler]') AND type in (N'U'))
+AND NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[komur].[dbo].[ApartmanDaireler]') AND name = N'AnlasmaTarihi')
+BEGIN
+    ALTER TABLE [komur].[dbo].[ApartmanDaireler] ADD [AnlasmaTarihi] DATETIME2 NULL;
+END
 -- BirimFiyat DECIMAL(18,2) idi: 0.295 USD/kg → 0.30 yuvarlanıyordu (295$/ton borç şişiyordu)
 IF EXISTS (
     SELECT 1 FROM sys.columns
@@ -3808,9 +3813,35 @@ async function apartmanYetimBorcSatirlariTemizle(pool) {
     }
 }
 
+/** Günlük listede 'bugüne kaymış' anlaşma tarihlerini bir kez onarır (AnlasmaTarihi boş olanlar). */
+async function apartmanAnlasmaTarihleriniOnar(pool) {
+    try {
+        const rows = await pool.request().query(`
+            SELECT Id FROM [komur].[dbo].[ApartmanDaireler]
+            WHERE AnlasmaMakbuzNo IS NOT NULL
+              AND AnlasmaTarihi IS NULL
+              AND MusteriKimlik IS NOT NULL
+              AND AnlasilanMiktar > 0
+        `);
+        const liste = rows.recordset || [];
+        if (!liste.length) return;
+        console.log(`Apartman anlaşma tarihi onarımı: ${liste.length} daire`);
+        for (const row of liste) {
+            try {
+                await daireAnlasmaBorcEsitle(pool, row.Id, 'Sistem');
+            } catch (e) {
+                console.warn(`Apartman tarih onarım daire ${row.Id}:`, e.message);
+            }
+        }
+    } catch (e) {
+        console.warn('Apartman anlaşma tarihi onarımı:', e.message);
+    }
+}
+
 /**
  * Apartman daire anlaşması → müşteri carisine borç yazar/günceller/siler.
  * Miktar her zaman kg; borç = KalanBorcKg × kg fiyat (USD ise güncel kur ile TL).
+ * ÖNEMLİ: Mevcut borç satırı güncellenirken TARİH değiştirilmez (günlük listede "bugüne kayma" olmaz).
  */
 async function daireAnlasmaBorcEsitle(pool, daireId, islemiYapan, usdKurHarici) {
     await ensureStokDonusumKolonlari();
@@ -3870,35 +3901,113 @@ async function daireAnlasmaBorcEsitle(pool, daireId, islemiYapan, usdKurHarici) 
         const tutar = Math.round((kalanTutar + odenenTl) * 100) / 100;
         const borcGerekli = d.MusteriKimlik && d.UrunID && anlasilanKg > 0 && kgFiyat > 0 && (kalanKg > 0 || odenenTl > 0);
 
-        if (d.AnlasmaMakbuzNo) {
-            await tx.request().input('mNo', sql.NVarChar, d.AnlasmaMakbuzNo)
-                .query(`DELETE FROM [komur].[dbo].[MusteriHareket] WHERE MakbuzNo = @mNo`);
-        }
-
         if (!borcGerekli) {
+            if (d.AnlasmaMakbuzNo) {
+                await tx.request().input('mNo', sql.NVarChar, d.AnlasmaMakbuzNo)
+                    .query(`DELETE FROM [komur].[dbo].[MusteriHareket] WHERE MakbuzNo = @mNo`);
+            }
             await tx.request().input('id', sql.Int, daireId)
-                .query(`UPDATE [komur].[dbo].[ApartmanDaireler] SET AnlasmaMakbuzNo = NULL WHERE Id = @id`);
+                .query(`UPDATE [komur].[dbo].[ApartmanDaireler] SET AnlasmaMakbuzNo = NULL, AnlasmaTarihi = NULL WHERE Id = @id`);
             await tx.commit();
             return { ok: true, borc: 0, makbuzNo: null, kalanKg };
         }
+
         const daireEtiket = `${d.Blok ? d.Blok + ' Blok ' : ''}D:${d.DaireNo || ''}${d.DaireTipi ? ' (' + d.DaireTipi + ')' : ''}`.trim();
         const fiyatEtiket = paraBirimi === 'USD'
             ? `${tonFiyat || (kgFiyat * 1000)} USD/ton (${kgFiyat.toFixed(4)} USD/kg)`
             : `${tonFiyat || (kgFiyat * 1000)} ₺/ton (${kgFiyat.toFixed(4)} ₺/kg)`;
-        // MİKTAR her zaman ANLAŞILAN kg (sabit). Ödenen kısım cari bakiyeden (BORÇ - ÖDEME) düşer.
-        // Kalan borç kg anlaşılandan azsa açıklamaya bilgi olarak eklenir.
         const kalanBilgi = (kalanKg > 0 && kalanKg < anlasilanKg - 0.01) ? ` · kalan borç ${Math.round(kalanKg * 100) / 100} kg` : '';
         const aciklama = `${temizAd} · ${d.ApartmanAd || 'Apartman'} ${daireEtiket} · ${anlasilanKg} kg · ${fiyatEtiket}${kalanBilgi}`;
-        const tarihStr = normalizeIslemTarihiStr(new Date());
-        const tarihObj = sqlTarihDateObj(tarihStr);
-        const yil = sqlYilFromTarihStr(tarihStr);
-        const makbuzNo = await yeniMakbuzNoAl(tx);
-
-        // MİKTAR = anlaşılan kg (sabit). Caride T/K = ödeme ilerlemesi: ödenen kg / kalan borç kg.
         const adetInt = Math.round(anlasilanKg);
         const kalanBorcGoster = Math.round(kalanKg * 100) / 100;
         const teslimDurumu = kalanBorcGoster <= 0.001 ? 'Teslim Edildi' : 'Bekliyor';
 
+        // Mevcut cari satırı: tutarı güncelle, TARİH'e dokunma
+        let mevcutKimlik = null;
+        let mevcutTarihStr = null;
+        if (d.AnlasmaMakbuzNo) {
+            const eskiRes = await tx.request().input('mNo', sql.NVarChar, d.AnlasmaMakbuzNo).query(`
+                SELECT TOP 1 Kimlik, CONVERT(varchar(19), TARİH, 120) AS TarihStr
+                FROM [komur].[dbo].[MusteriHareket]
+                WHERE MakbuzNo = @mNo
+            `);
+            if (eskiRes.recordset[0]) {
+                mevcutKimlik = eskiRes.recordset[0].Kimlik;
+                mevcutTarihStr = eskiRes.recordset[0].TarihStr || null;
+            }
+        }
+
+        // Sabit anlaşma tarihi: bir kez kilitlenir, sonraki eşitlemeler kaydırmaz
+        let anlasmaTarihStr = null;
+        if (d.AnlasmaTarihi) {
+            anlasmaTarihStr = normalizeIslemTarihiStr(
+                d.AnlasmaTarihi instanceof Date
+                    ? istanbulSimdiSqlStr(d.AnlasmaTarihi)
+                    : d.AnlasmaTarihi
+            );
+        } else if (mevcutTarihStr) {
+            anlasmaTarihStr = normalizeIslemTarihiStr(mevcutTarihStr);
+            // Daha önce her eşitlemede "bugün"e kaymış olabilir → daire oluşturma gününe geri al
+            if (d.OlusturmaZamani) {
+                const olusturmaStr = istanbulSimdiSqlStr(new Date(d.OlusturmaZamani));
+                const bugunStr = istanbulSimdiSqlStr().slice(0, 10);
+                if (anlasmaTarihStr.slice(0, 10) === bugunStr && olusturmaStr.slice(0, 10) < bugunStr) {
+                    anlasmaTarihStr = olusturmaStr;
+                }
+            }
+        } else if (d.OlusturmaZamani && d.AnlasmaMakbuzNo) {
+            anlasmaTarihStr = istanbulSimdiSqlStr(new Date(d.OlusturmaZamani));
+        } else {
+            anlasmaTarihStr = normalizeIslemTarihiStr(new Date());
+        }
+        const tarihObj = sqlTarihDateObj(anlasmaTarihStr);
+        const yil = sqlYilFromTarihStr(anlasmaTarihStr);
+
+        if (mevcutKimlik) {
+            const tarihKilitli = !!d.AnlasmaTarihi;
+            const reqUp = tx.request()
+                .input('kid', sql.Int, mevcutKimlik)
+                .input('kisi', sql.Int, d.MusteriKimlik)
+                .input('aciklama', sql.NVarChar, aciklama)
+                .input('miktar', sql.Int, adetInt)
+                .input('tutar', sql.Decimal(18, 2), tutar)
+                .input('yil', sql.Int, yil)
+                .input('birimTur', sql.NVarChar, 'Kg')
+                .input('islemiYapan', sql.NVarChar, islemiYapan || 'Sistem')
+                .input('durum', sql.NVarChar, teslimDurumu)
+                .input('kalan', sql.Float, kalanBorcGoster);
+            if (!tarihKilitli) reqUp.input('tarih', sql.DateTime2, tarihObj);
+            await reqUp.query(tarihKilitli ? `
+                    UPDATE [komur].[dbo].[MusteriHareket]
+                    SET Kisi = @kisi, YIL = @yil, AÇIKLAMA = @aciklama, ADET = @miktar,
+                        BORÇ = @tutar, TeslimDurumu = @durum,
+                        KalanTeslimat = @kalan, birimtür = @birimTur, IslemiYapan = @islemiYapan,
+                        notlar = N'Apartman anlaşması (kg)'
+                    WHERE Kimlik = @kid
+                ` : `
+                    UPDATE [komur].[dbo].[MusteriHareket]
+                    SET Kisi = @kisi, YIL = @yil, AÇIKLAMA = @aciklama, ADET = @miktar,
+                        BORÇ = @tutar, TARİH = @tarih, TeslimDurumu = @durum,
+                        KalanTeslimat = @kalan, birimtür = @birimTur, IslemiYapan = @islemiYapan,
+                        notlar = N'Apartman anlaşması (kg)'
+                    WHERE Kimlik = @kid
+                `);
+
+            await tx.request().input('id', sql.Int, daireId)
+                .input('mNo', sql.NVarChar, d.AnlasmaMakbuzNo)
+                .input('fiyat', sql.Decimal(18, 6), kgFiyat)
+                .input('at', sql.DateTime2, tarihObj)
+                .query(`
+                    UPDATE [komur].[dbo].[ApartmanDaireler]
+                    SET AnlasmaMakbuzNo = @mNo, BirimFiyat = @fiyat, AnlasmaTarihi = ISNULL(AnlasmaTarihi, @at)
+                    WHERE Id = @id
+                `);
+
+            await tx.commit();
+            return { ok: true, borc: tutar, makbuzNo: d.AnlasmaMakbuzNo, kalanKg, paraBirimi, usdKur };
+        }
+
+        const makbuzNo = await yeniMakbuzNoAl(tx);
         await tx.request()
             .input('kisi', sql.Int, d.MusteriKimlik)
             .input('aciklama', sql.NVarChar, aciklama)
@@ -3919,7 +4028,8 @@ async function daireAnlasmaBorcEsitle(pool, daireId, islemiYapan, usdKurHarici) 
 
         await tx.request().input('id', sql.Int, daireId).input('mNo', sql.NVarChar, makbuzNo)
             .input('fiyat', sql.Decimal(18, 6), kgFiyat)
-            .query(`UPDATE [komur].[dbo].[ApartmanDaireler] SET AnlasmaMakbuzNo = @mNo, BirimFiyat = @fiyat WHERE Id = @id`);
+            .input('at', sql.DateTime2, tarihObj)
+            .query(`UPDATE [komur].[dbo].[ApartmanDaireler] SET AnlasmaMakbuzNo = @mNo, BirimFiyat = @fiyat, AnlasmaTarihi = @at WHERE Id = @id`);
 
         await tx.commit();
         return { ok: true, borc: tutar, makbuzNo, kalanKg, paraBirimi, usdKur };
@@ -3944,6 +4054,7 @@ async function aptAyarDeger(pool, anahtar) {
 /** Ödeme türü → ayar anahtarı (eski: NAKİT/KKARTI/VADE DOLAR) */
 function aptOdemeTurAyarAnahtari(odemeTuru) {
     const t = String(odemeTuru || 'Nakit').toLocaleLowerCase('tr-TR');
+    if (t.includes('taksit')) return 'AptUsdTonKartTaksit';
     if (t.includes('kredi') || t.includes('kart')) return 'AptUsdTonKart';
     if (t.includes('vade')) return 'AptUsdTonVade';
     return 'AptUsdTonNakit'; // Nakit + Havale/EFT
@@ -5297,7 +5408,15 @@ async function sunucuyuBaslat({ exitOnError = true } = {}) {
 }
 
 if (require.main === module) {
-    sunucuyuBaslat();
+    sunucuyuBaslat().then(async () => {
+        try {
+            await ensureApartmanTablolari();
+            const pool = await sql.connect(config);
+            await apartmanAnlasmaTarihleriniOnar(pool);
+        } catch (e) {
+            console.warn('Apartman başlangıç onarımı:', e.message);
+        }
+    }).catch(() => {});
 }
 
 module.exports = { app, sunucuyuBaslat };

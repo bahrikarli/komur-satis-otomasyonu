@@ -1397,14 +1397,20 @@ function odemeAlModalAc() {
 window.tahsilatApartmanOnizleme = async function() {
     const kutu = document.getElementById('tahsilatAptOnizlemeKutu');
     const govde = document.getElementById('tahsilatAptOnizleme');
+    const uyari = document.getElementById('tahsilatAptUyariKutu');
     if (!kutu || !govde) return;
+
     const kapsamSel = document.getElementById('tahsilatKapsam');
     const kutuAcik = document.getElementById('tahsilatKapsamKutu') && !document.getElementById('tahsilatKapsamKutu').classList.contains('d-none');
-    const kapsam = kutuAcik && kapsamSel ? kapsamSel.value : (window.tahsilatKapsam || 'apartman');
-    if (kapsam === 'genel' || !aktifMusteriId) {
+    const kapsam = kutuAcik && kapsamSel ? kapsamSel.value : (window.tahsilatKapsam || 'genel');
+    const apartmanMi = !!aktifMusteriId && kapsam === 'apartman';
+
+    if (uyari) uyari.classList.toggle('d-none', !apartmanMi);
+    if (!apartmanMi) {
         kutu.classList.add('d-none');
         return;
     }
+
     kutu.classList.remove('d-none');
     const tutarHam = (document.getElementById('tahsilatTutar')?.value || '').replace(/\./g, '').replace(',', '.');
     const tutar = parseFloat(tutarHam) || 0;
@@ -1421,7 +1427,7 @@ window.tahsilatApartmanOnizleme = async function() {
         const fmt = (n, d = 2) => Number(n || 0).toLocaleString('tr-TR', { minimumFractionDigits: d, maximumFractionDigits: d });
         const kaynak = o.tonKaynak === 'ayar' ? 'ayar (tür fiyatı)' : 'anlaşma fiyatı';
         govde.innerHTML = `
-            <div class="fw-bold text-dark mb-1"><i class="fas fa-dollar-sign text-success me-1"></i>Apartman ödeme (eski mantık)</div>
+            <div class="fw-bold text-dark mb-1"><i class="fas fa-dollar-sign text-success me-1"></i>Apartman ödeme</div>
             <div>Anlık USD: <b>${fmt(kur, 4)}</b></div>
             <div>${odemeTuru} ton: <b>${fmt(o.tonFiyat, 2)} USD/ton</b> <span class="text-muted">(${kaynak})</span></div>
             ${tutar > 0 ? `<div>Ö.USD: <b>${fmt(o.odenenUsd, 2)}</b> · Tahmini kg: <b class="text-success">${fmt(o.tahminiKg, 2)}</b></div>` : '<div class="text-muted">Tutar girince kg önizlemesi çıkar</div>'}
@@ -1431,19 +1437,58 @@ window.tahsilatApartmanOnizleme = async function() {
     }
 };
 
+/** Apartman ödemesinde KK Taksit seçeneğini göster/gizle + uyarı */
+window.tahsilatOdemeTurleriniAyarla = function(apartmanMi) {
+    const sel = document.getElementById('tahsilatAciklama');
+    const uyari = document.getElementById('tahsilatAptUyariKutu');
+    if (uyari) uyari.classList.toggle('d-none', !apartmanMi);
+    if (!sel) return;
+    const onceki = sel.value;
+    const secenekler = apartmanMi
+        ? [
+            ['Nakit', 'Nakit'],
+            ['Havale/EFT', 'Havale/EFT'],
+            ['Kredi Kartı', 'Kredi Kartı'],
+            ['Kredi Kartı Taksit', 'Kredi Kartı Taksit'],
+            ['Vade', 'Vade']
+        ]
+        : [
+            ['Nakit', 'Nakit'],
+            ['Havale/EFT', 'Havale/EFT'],
+            ['Kredi Kartı', 'Kredi Kartı'],
+            ['Vade', 'Vade']
+        ];
+    sel.innerHTML = secenekler.map(([v, t]) => `<option value="${v}">${t}</option>`).join('');
+    const varMi = secenekler.some(([v]) => v === onceki);
+    sel.value = varMi ? onceki : 'Nakit';
+};
+
+window.tahsilatKapsamDegisti = function() {
+    const sel = document.getElementById('tahsilatKapsam');
+    const aptMi = sel && sel.value === 'apartman';
+    if (sel) window.tahsilatKapsam = sel.value;
+    tahsilatOdemeTurleriniAyarla(!!aptMi);
+    tahsilatApartmanOnizleme();
+};
+
 // Ödeme hedefini (apartman/genel) borç durumuna göre ayarla
 async function odemeKapsamHazirla(musteriId) {
     const kutu = document.getElementById('tahsilatKapsamKutu');
     const sel = document.getElementById('tahsilatKapsam');
     const bilgi = document.getElementById('tahsilatKapsamBilgi');
     const onizlemeKutu = document.getElementById('tahsilatAptOnizlemeKutu');
+    const uyari = document.getElementById('tahsilatAptUyariKutu');
     window.tahsilatKapsam = 'genel';
     if (kutu) kutu.classList.add('d-none');
     if (onizlemeKutu) onizlemeKutu.classList.add('d-none');
+    if (uyari) uyari.classList.add('d-none');
     try {
         const res = await fetch(`/api/musteri/${musteriId}/borc-ozet?_t=` + Date.now());
         const o = await res.json();
-        if (!res.ok) return;
+        if (!res.ok) {
+            tahsilatOdemeTurleriniAyarla(false);
+            return;
+        }
         const ap = parseFloat(o.apartmanBorc) || 0;
         const gn = parseFloat(o.genelBorc) || 0;
         const paraFmt = (n) => (n || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 }) + ' ₺';
@@ -1452,13 +1497,17 @@ async function odemeKapsamHazirla(musteriId) {
             if (sel) sel.value = 'apartman';
             if (kutu) kutu.classList.remove('d-none');
             if (bilgi) bilgi.innerHTML = `🏢 Apartman: <b>${paraFmt(ap)}</b>${o.apartmanKalanKg ? ' (' + o.apartmanKalanKg + ' kg)' : ''} · 📋 Genel: <b>${paraFmt(gn)}</b>`;
+            tahsilatOdemeTurleriniAyarla(true);
         } else if (ap > 0) {
             window.tahsilatKapsam = 'apartman';
+            tahsilatOdemeTurleriniAyarla(true);
         } else {
             window.tahsilatKapsam = 'genel';
+            tahsilatOdemeTurleriniAyarla(false);
         }
     } catch (e) {
         console.warn('borç özet alınamadı', e);
+        tahsilatOdemeTurleriniAyarla(false);
     }
 }
 
@@ -7580,14 +7629,6 @@ window.tanimlamalarModalAc = async function() {
         if(document.getElementById('ayarModulToptanci')) document.getElementById('ayarModulToptanci').checked = ok('ModulToptanci');
         if(document.getElementById('ayarModulSevkiyat')) document.getElementById('ayarModulSevkiyat').checked = ok('ModulSevkiyat');
 
-        const aptDeger = (anahtar) => {
-            const a = ayarlar.find((x) => x.Anahtar === anahtar);
-            return a && a.Deger != null ? a.Deger : '';
-        };
-        if (document.getElementById('ayarAptUsdTonNakit')) document.getElementById('ayarAptUsdTonNakit').value = aptDeger('AptUsdTonNakit');
-        if (document.getElementById('ayarAptUsdTonKart')) document.getElementById('ayarAptUsdTonKart').value = aptDeger('AptUsdTonKart');
-        if (document.getElementById('ayarAptUsdTonVade')) document.getElementById('ayarAptUsdTonVade').value = aptDeger('AptUsdTonVade');
-
     } catch(e) { 
         document.getElementById('ayarMakbuzBaslangic').value = "";
     }
@@ -7603,9 +7644,6 @@ window.ayarlariKaydet = async function() {
     const mGider = document.getElementById('ayarModulGider')?.checked ? 'true' : 'false';
     const mToptanci = document.getElementById('ayarModulToptanci')?.checked ? 'true' : 'false';
     const mSevkiyat = document.getElementById('ayarModulSevkiyat')?.checked ? 'true' : 'false';
-    const aptNakit = (document.getElementById('ayarAptUsdTonNakit')?.value || '').trim().replace(',', '.');
-    const aptKart = (document.getElementById('ayarAptUsdTonKart')?.value || '').trim().replace(',', '.');
-    const aptVade = (document.getElementById('ayarAptUsdTonVade')?.value || '').trim().replace(',', '.');
     
     if(!basNo || basNo <= 0) { alert("Lütfen geçerli bir başlangıç numarası girin."); return; }
 
@@ -7619,10 +7657,7 @@ window.ayarlariKaydet = async function() {
             fetch('/api/ayar-guncelle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ anahtar: 'MakbuzOtomatikYazdir', deger: otoMakbuz }) }),
             fetch('/api/ayar-guncelle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ anahtar: 'ModulGider', deger: mGider }) }),
             fetch('/api/ayar-guncelle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ anahtar: 'ModulToptanci', deger: mToptanci }) }),
-            fetch('/api/ayar-guncelle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ anahtar: 'ModulSevkiyat', deger: mSevkiyat }) }),
-            fetch('/api/ayar-guncelle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ anahtar: 'AptUsdTonNakit', deger: aptNakit }) }),
-            fetch('/api/ayar-guncelle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ anahtar: 'AptUsdTonKart', deger: aptKart }) }),
-            fetch('/api/ayar-guncelle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ anahtar: 'AptUsdTonVade', deger: aptVade }) })
+            fetch('/api/ayar-guncelle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ anahtar: 'ModulSevkiyat', deger: mSevkiyat }) })
         ]);
 
         localStorage.setItem('ayarOtoMakbuz', otoMakbuz); 
@@ -8816,7 +8851,7 @@ window.desktopGuncellemeKontrolEt = async function() {
 // 🏢 APARTMAN (TOPLU SATIŞ) MODÜLÜ - MASAÜSTÜ
 // =========================================================
 if (window.sistemdekiTumModallar) {
-    ['apartmanlarModal', 'apartmanEkleModal', 'apartmanDetayModal', 'daireOlusturModal', 'daireDuzenleModal', 'daireTeslimatModal', 'topluAnlasmaModal', 'blokTeslimatModal', 'musteriDuzeltModal']
+    ['apartmanlarModal', 'apartmanEkleModal', 'apartmanDetayModal', 'daireOlusturModal', 'daireDuzenleModal', 'daireTeslimatModal', 'topluAnlasmaModal', 'blokTeslimatModal', 'musteriDuzeltModal', 'apartmanYapilandirmaModal']
         .forEach((id) => { if (!window.sistemdekiTumModallar.includes(id)) window.sistemdekiTumModallar.push(id); });
 }
 
@@ -8829,7 +8864,7 @@ window._aptGeriDonuyor = false;
 window._aptGeriDonAtla = false;
 window.mdAktifBlok = 'TUMU';
 window.mdSeciliDaireler = new Set();
-const APT_COCUK_MODALLAR = ['apartmanEkleModal', 'daireOlusturModal', 'daireDuzenleModal', 'daireTeslimatModal', 'topluAnlasmaModal', 'blokTeslimatModal', 'musteriDuzeltModal'];
+const APT_COCUK_MODALLAR = ['apartmanEkleModal', 'daireOlusturModal', 'daireDuzenleModal', 'daireTeslimatModal', 'topluAnlasmaModal', 'blokTeslimatModal', 'musteriDuzeltModal', 'apartmanYapilandirmaModal'];
 let aptMusteriCache = [];
 let aptUrunCache = [];
 
@@ -9202,11 +9237,17 @@ window.apartmanKaydet = async function() {
 };
 
 window.apartmanDetayAc = async function(id) {
+    const aptId = parseInt(id, 10);
+    if (!aptId) return;
+    // Çift tıklama / Aç+kart aynı anda → tek istek
+    if (window._apartmanDetayAcBusy) return;
+    window._apartmanDetayAcBusy = aptId;
     aptYiginKaynakEkle('apartmanDetayModal');
-    await aptListeleriYukle();
     try {
-        await fetch(`/api/apartman/${id}/borc-esitle`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-        const res = await fetch(`/api/apartman/${id}?_t=` + Date.now());
+        // Ürün/müşteri cache varsa tekrar çekme
+        await aptListeleriYukle();
+        // NOT: borc-esitle açılışta bekletilmez (80 daire × kur = gecikme). Liste anında gelir.
+        const res = await fetch(`/api/apartman/${aptId}?_t=` + Date.now());
         const data = await res.json();
         if (!res.ok) throw new Error(data.hata || 'Detay alınamadı');
         window.aktifApartman = data.apartman;
@@ -9238,6 +9279,7 @@ window.apartmanDetayAc = async function(id) {
         apartmanDetayCiz();
         guvenliModalAc('apartmanDetayModal');
     } catch (e) { alert('Hata: ' + e.message); }
+    finally { window._apartmanDetayAcBusy = null; }
 };
 
 // Cari karttan apartmana geçiş: geri dönüş için müşteriyi hatırla
@@ -9321,7 +9363,45 @@ function apartmanDetayCiz() {
 }
 
 window.apartmanDetayAra = function() {
-    apartmanDetayCiz();
+    clearTimeout(window._aptAraTimer);
+    window._aptAraTimer = setTimeout(() => apartmanDetayCiz(), 120);
+};
+
+window.apartmanYapilandirmaAc = async function() {
+    try {
+        const res = await fetch('/api/ayarlar?_t=' + Date.now());
+        const ayarlar = await res.json();
+        const deger = (anahtar) => {
+            const a = (ayarlar || []).find((x) => x.Anahtar === anahtar);
+            return a && a.Deger != null ? a.Deger : '';
+        };
+        if (document.getElementById('aptYapilandirmaNakit')) document.getElementById('aptYapilandirmaNakit').value = deger('AptUsdTonNakit');
+        if (document.getElementById('aptYapilandirmaKart')) document.getElementById('aptYapilandirmaKart').value = deger('AptUsdTonKart');
+        if (document.getElementById('aptYapilandirmaKartTaksit')) document.getElementById('aptYapilandirmaKartTaksit').value = deger('AptUsdTonKartTaksit');
+        if (document.getElementById('aptYapilandirmaVade')) document.getElementById('aptYapilandirmaVade').value = deger('AptUsdTonVade');
+        aptCocukModalAc('apartmanYapilandirmaModal');
+    } catch (e) {
+        alert('Ayarlar yüklenemedi: ' + (e.message || e));
+    }
+};
+
+window.apartmanYapilandirmaKaydet = async function() {
+    const nakit = (document.getElementById('aptYapilandirmaNakit')?.value || '').trim().replace(',', '.');
+    const kart = (document.getElementById('aptYapilandirmaKart')?.value || '').trim().replace(',', '.');
+    const taksit = (document.getElementById('aptYapilandirmaKartTaksit')?.value || '').trim().replace(',', '.');
+    const vade = (document.getElementById('aptYapilandirmaVade')?.value || '').trim().replace(',', '.');
+    try {
+        await Promise.all([
+            fetch('/api/ayar-guncelle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ anahtar: 'AptUsdTonNakit', deger: nakit }) }),
+            fetch('/api/ayar-guncelle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ anahtar: 'AptUsdTonKart', deger: kart }) }),
+            fetch('/api/ayar-guncelle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ anahtar: 'AptUsdTonKartTaksit', deger: taksit }) }),
+            fetch('/api/ayar-guncelle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ anahtar: 'AptUsdTonVade', deger: vade }) })
+        ]);
+        modalZorlaKapat('apartmanYapilandirmaModal');
+        alert('Apartman ödeme fiyatları kaydedildi.');
+    } catch (e) {
+        alert('Kayıt hatası: ' + (e.message || e));
+    }
 };
 
 function aptDaireDurumMetin(d) {
