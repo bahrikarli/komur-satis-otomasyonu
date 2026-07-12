@@ -1446,11 +1446,28 @@ app.get('/api/ozet', async (req, res) => {
         const musteriRes = await sql.query('SELECT COUNT(*) as toplam FROM [komur].[dbo].[Kimlik]');
         const { aktifMusteri, pasifMusteri } = await musteriAktifPasifSayilari();
         
-        // 2. Bugünkü Satışları Un ve Kömür olarak gruplayıp topluyoruz
+        // 2. Bugünkü satış adetleri (Un / Kömür)
+        // DİKKAT: LIKE '%UN%' yanlışlıkla KURŞUNLU, SUNUCU vb. yakalar.
+        // Un: kelime olarak "un" (başta/ortada/sonda boşlukla) veya "kristal un".
+        // Apartman anlaşması borç satırları günlük satış birimine dahil edilmez.
         const satisQuery = `
             SELECT 
-                ISNULL(SUM(CASE WHEN UPPER(AÇIKLAMA) LIKE '%UN%' THEN ADET ELSE 0 END), 0) as UnSatis,
-                ISNULL(SUM(CASE WHEN UPPER(AÇIKLAMA) NOT LIKE '%UN%' THEN ADET ELSE 0 END), 0) as KomurSatis
+                ISNULL(SUM(CASE 
+                    WHEN ISNULL(notlar, N'') LIKE N'%Apartman anlaşması%' THEN 0
+                    WHEN UPPER(REPLACE(REPLACE(AÇIKLAMA, N'İ', N'I'), N'ı', N'I')) LIKE N'% UN%'
+                      OR UPPER(REPLACE(REPLACE(AÇIKLAMA, N'İ', N'I'), N'ı', N'I')) LIKE N'UN %'
+                      OR UPPER(REPLACE(REPLACE(AÇIKLAMA, N'İ', N'I'), N'ı', N'I')) LIKE N'%UN %'
+                      OR UPPER(REPLACE(REPLACE(AÇIKLAMA, N'İ', N'I'), N'ı', N'I')) LIKE N'%UN/%'
+                      OR UPPER(REPLACE(REPLACE(AÇIKLAMA, N'İ', N'I'), N'ı', N'I')) LIKE N'%KRISTAL UN%'
+                    THEN ADET ELSE 0 END), 0) as UnSatis,
+                ISNULL(SUM(CASE 
+                    WHEN ISNULL(notlar, N'') LIKE N'%Apartman anlaşması%' THEN 0
+                    WHEN UPPER(REPLACE(REPLACE(AÇIKLAMA, N'İ', N'I'), N'ı', N'I')) LIKE N'% UN%'
+                      OR UPPER(REPLACE(REPLACE(AÇIKLAMA, N'İ', N'I'), N'ı', N'I')) LIKE N'UN %'
+                      OR UPPER(REPLACE(REPLACE(AÇIKLAMA, N'İ', N'I'), N'ı', N'I')) LIKE N'%UN %'
+                      OR UPPER(REPLACE(REPLACE(AÇIKLAMA, N'İ', N'I'), N'ı', N'I')) LIKE N'%UN/%'
+                      OR UPPER(REPLACE(REPLACE(AÇIKLAMA, N'İ', N'I'), N'ı', N'I')) LIKE N'%KRISTAL UN%'
+                    THEN 0 ELSE ADET END), 0) as KomurSatis
             FROM [komur].[dbo].[MusteriHareket]
             WHERE CAST(TARİH as DATE) = CAST(GETDATE() as DATE) 
               AND BORÇ > 0 
@@ -1477,8 +1494,22 @@ app.get('/api/mobil-ozet', async (req, res) => {
         const { aktifMusteri, pasifMusteri } = await musteriAktifPasifSayilari();
         const satisQuery = `
             SELECT 
-                ISNULL(SUM(CASE WHEN UPPER(AÇIKLAMA) LIKE '%UN%' THEN ADET ELSE 0 END), 0) as UnSatis,
-                ISNULL(SUM(CASE WHEN UPPER(AÇIKLAMA) NOT LIKE '%UN%' THEN ADET ELSE 0 END), 0) as KomurSatis
+                ISNULL(SUM(CASE 
+                    WHEN ISNULL(notlar, N'') LIKE N'%Apartman anlaşması%' THEN 0
+                    WHEN UPPER(REPLACE(REPLACE(AÇIKLAMA, N'İ', N'I'), N'ı', N'I')) LIKE N'% UN%'
+                      OR UPPER(REPLACE(REPLACE(AÇIKLAMA, N'İ', N'I'), N'ı', N'I')) LIKE N'UN %'
+                      OR UPPER(REPLACE(REPLACE(AÇIKLAMA, N'İ', N'I'), N'ı', N'I')) LIKE N'%UN %'
+                      OR UPPER(REPLACE(REPLACE(AÇIKLAMA, N'İ', N'I'), N'ı', N'I')) LIKE N'%UN/%'
+                      OR UPPER(REPLACE(REPLACE(AÇIKLAMA, N'İ', N'I'), N'ı', N'I')) LIKE N'%KRISTAL UN%'
+                    THEN ADET ELSE 0 END), 0) as UnSatis,
+                ISNULL(SUM(CASE 
+                    WHEN ISNULL(notlar, N'') LIKE N'%Apartman anlaşması%' THEN 0
+                    WHEN UPPER(REPLACE(REPLACE(AÇIKLAMA, N'İ', N'I'), N'ı', N'I')) LIKE N'% UN%'
+                      OR UPPER(REPLACE(REPLACE(AÇIKLAMA, N'İ', N'I'), N'ı', N'I')) LIKE N'UN %'
+                      OR UPPER(REPLACE(REPLACE(AÇIKLAMA, N'İ', N'I'), N'ı', N'I')) LIKE N'%UN %'
+                      OR UPPER(REPLACE(REPLACE(AÇIKLAMA, N'İ', N'I'), N'ı', N'I')) LIKE N'%UN/%'
+                      OR UPPER(REPLACE(REPLACE(AÇIKLAMA, N'İ', N'I'), N'ı', N'I')) LIKE N'%KRISTAL UN%'
+                    THEN 0 ELSE ADET END), 0) as KomurSatis
             FROM [komur].[dbo].[MusteriHareket]
             WHERE CAST(TARİH as DATE) = CAST(GETDATE() as DATE) 
               AND BORÇ > 0 
