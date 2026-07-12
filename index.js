@@ -1793,6 +1793,8 @@ app.put('/api/taksit-ode/:id', async (req, res) => {
 
 // GÜNLÜK ÖZET VE HAREKETLER (Tarihe göre)
 // --- GÜNLÜK ÖZET VE HAREKETLER (Tarihe göre) ---
+// Apartman anlaşması BORÇ satırları kasa günlüğüne GİRMEZ (cari borç; kur/eşitleme ile
+// tarihi kayıp her gün "yeni satış" gibi görünmesin). Apartman ödemeleri (ÖDEME) görünür.
 app.get('/api/gunluk-hareketler', async (req, res) => {
     const { baslangic, bitis } = req.query;
     
@@ -1819,6 +1821,11 @@ app.get('/api/gunluk-hareketler', async (req, res) => {
         FROM [komur].[dbo].[MusteriHareket] MH
         LEFT JOIN [komur].[dbo].[Kimlik] K ON MH.Kisi = K.Kimlik
         WHERE CAST(MH.TARİH as DATE) BETWEEN @bas AND @bit
+          AND NOT (
+                MH.notlar LIKE N'%Apartman anlaşması%'
+                AND ISNULL(MH.ÖDEME, 0) = 0
+                AND ISNULL(MH.BORÇ, 0) > 0
+          )
         ORDER BY MH.TARİH DESC, MH.Kimlik DESC
         `;
         
@@ -3973,18 +3980,11 @@ async function daireAnlasmaBorcEsitle(pool, daireId, islemiYapan, usdKurHarici) 
         }
         const tarihObj = sqlTarihDateObj(anlasmaTarihStr);
         const yil = sqlYilFromTarihStr(anlasmaTarihStr);
-        const kilitGun = d.AnlasmaTarihi
-            ? normalizeIslemTarihiStr(
-                d.AnlasmaTarihi instanceof Date
-                    ? istanbulSimdiSqlStr(d.AnlasmaTarihi)
-                    : d.AnlasmaTarihi
-            ).slice(0, 10)
-            : null;
-        // Kilit varsa TARİH'e dokunma — ama kilit oluşturma gününden sonraysa (bozuk kilit) düzelt
-        const tarihKilitli = !!(kilitGun && (!olusturmaStr || kilitGun <= olusturmaStr.slice(0, 10)));
 
         if (mevcutKimlik) {
-            const reqUp = tx.request()
+            // Mevcut anlaşma: sadece tutar/açıklama. TARİH ASLA değişmez
+            // (eski bug: her eşitlemede bugüne yazılıp günlükte tekrar görünüyordu).
+            await tx.request()
                 .input('kid', sql.Int, mevcutKimlik)
                 .input('kisi', sql.Int, d.MusteriKimlik)
                 .input('aciklama', sql.NVarChar, aciklama)
@@ -3994,19 +3994,11 @@ async function daireAnlasmaBorcEsitle(pool, daireId, islemiYapan, usdKurHarici) 
                 .input('birimTur', sql.NVarChar, 'Kg')
                 .input('islemiYapan', sql.NVarChar, islemiYapan || 'Sistem')
                 .input('durum', sql.NVarChar, teslimDurumu)
-                .input('kalan', sql.Float, kalanBorcGoster);
-            if (!tarihKilitli) reqUp.input('tarih', sql.DateTime2, tarihObj);
-            await reqUp.query(tarihKilitli ? `
+                .input('kalan', sql.Float, kalanBorcGoster)
+                .query(`
                     UPDATE [komur].[dbo].[MusteriHareket]
                     SET Kisi = @kisi, YIL = @yil, AÇIKLAMA = @aciklama, ADET = @miktar,
                         BORÇ = @tutar, TeslimDurumu = @durum,
-                        KalanTeslimat = @kalan, birimtür = @birimTur, IslemiYapan = @islemiYapan,
-                        notlar = N'Apartman anlaşması (kg)'
-                    WHERE Kimlik = @kid
-                ` : `
-                    UPDATE [komur].[dbo].[MusteriHareket]
-                    SET Kisi = @kisi, YIL = @yil, AÇIKLAMA = @aciklama, ADET = @miktar,
-                        BORÇ = @tutar, TARİH = @tarih, TeslimDurumu = @durum,
                         KalanTeslimat = @kalan, birimtür = @birimTur, IslemiYapan = @islemiYapan,
                         notlar = N'Apartman anlaşması (kg)'
                     WHERE Kimlik = @kid
@@ -4016,13 +4008,10 @@ async function daireAnlasmaBorcEsitle(pool, daireId, islemiYapan, usdKurHarici) 
                 .input('mNo', sql.NVarChar, d.AnlasmaMakbuzNo)
                 .input('fiyat', sql.Decimal(18, 6), kgFiyat)
                 .input('at', sql.DateTime2, tarihObj)
-                .query(tarihKilitli ? `
+                .query(`
                     UPDATE [komur].[dbo].[ApartmanDaireler]
-                    SET AnlasmaMakbuzNo = @mNo, BirimFiyat = @fiyat
-                    WHERE Id = @id
-                ` : `
-                    UPDATE [komur].[dbo].[ApartmanDaireler]
-                    SET AnlasmaMakbuzNo = @mNo, BirimFiyat = @fiyat, AnlasmaTarihi = @at
+                    SET AnlasmaMakbuzNo = @mNo, BirimFiyat = @fiyat,
+                        AnlasmaTarihi = ISNULL(AnlasmaTarihi, @at)
                     WHERE Id = @id
                 `);
 
