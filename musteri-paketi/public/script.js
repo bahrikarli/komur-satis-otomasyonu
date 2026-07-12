@@ -1427,10 +1427,12 @@ window.tahsilatApartmanOnizleme = async function() {
         const fmt = (n, d = 2) => Number(n || 0).toLocaleString('tr-TR', { minimumFractionDigits: d, maximumFractionDigits: d });
         const kaynak = o.tonKaynak === 'ayar' ? 'ayar (tür fiyatı)' : 'anlaşma fiyatı';
         govde.innerHTML = `
-            <div class="fw-bold text-dark mb-1"><i class="fas fa-dollar-sign text-success me-1"></i>Apartman ödeme</div>
-            <div>Anlık USD: <b>${fmt(kur, 4)}</b></div>
-            <div>${odemeTuru} ton: <b>${fmt(o.tonFiyat, 2)} USD/ton</b> <span class="text-muted">(${kaynak})</span></div>
-            ${tutar > 0 ? `<div>Ö.USD: <b>${fmt(o.odenenUsd, 2)}</b> · Tahmini kg: <b class="text-success">${fmt(o.tahminiKg, 2)}</b></div>` : '<div class="text-muted">Tutar girince kg önizlemesi çıkar</div>'}
+            <div class="d-flex flex-wrap gap-3 align-items-baseline">
+                <span class="fw-bold text-dark"><i class="fas fa-dollar-sign text-success me-1"></i>Apartman ödeme</span>
+                <span>Anlık USD: <b>${fmt(kur, 4)}</b></span>
+                <span>${odemeTuru} ton: <b>${fmt(o.tonFiyat, 2)} USD/ton</b> <span class="text-muted">(${kaynak})</span></span>
+                ${tutar > 0 ? `<span>Ö.USD: <b>${fmt(o.odenenUsd, 2)}</b> · Tahmini kg: <b class="text-success">${fmt(o.tahminiKg, 2)}</b></span>` : '<span class="text-muted">Tutar girince kg önizlemesi çıkar</span>'}
+            </div>
         `;
     } catch (e) {
         govde.innerHTML = '<span class="text-danger">Önizleme alınamadı</span>';
