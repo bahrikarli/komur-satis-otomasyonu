@@ -3475,11 +3475,14 @@ window.gunlukOzetGetir = async function() {
         let nakitToplam = 0, kartToplam = 0, havaleToplam = 0;
         let birlesikListe = [];
 
-        // 1. Müşteri Hareketleri
+        // 1. Müşteri Hareketleri (apartman anlaşma BORÇ satırları günlük kasaya alınmaz)
         if (Array.isArray(hareketler)) {
             hareketler.forEach(h => {
+                const notlar = String(h.notlar || '');
                 const borc = parseFloat(h.BORÇ) || 0;
                 const odeme = parseFloat(h.ÖDEME) || 0;
+                if (notlar.includes('Apartman anlaşması') && odeme === 0 && borc > 0) return;
+
                 toplamSatis += borc;
                 toplamTahsilat += odeme;
 
