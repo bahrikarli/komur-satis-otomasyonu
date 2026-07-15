@@ -296,20 +296,7 @@
 
     function tarihGoster(v, sadeceTarih = false) {
         if (!v) return '—';
-        const ham = String(v);
-        if (/Z$/i.test(ham) || /[+-]\d{2}:\d{2}$/.test(ham)) {
-            const d = new Date(ham);
-            if (Number.isNaN(d.getTime())) return ham;
-            return new Intl.DateTimeFormat('tr-TR', {
-                timeZone: TZ_IST,
-                day: '2-digit',
-                month: '2-digit',
-                year: 'numeric',
-                hour: sadeceTarih ? undefined : '2-digit',
-                minute: sadeceTarih ? undefined : '2-digit',
-                hour12: false
-            }).format(d);
-        }
+        // Masaüstü ile aynı: SQL saati yerel duvar saati; Z gelse bile UTC'ye çevirme (+3 olmasın).
         const p = parseDbTarihParcala(v);
         if (!p) return String(v);
         const gun = String(p.d).padStart(2, '0');
