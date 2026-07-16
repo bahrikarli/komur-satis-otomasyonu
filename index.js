@@ -1016,6 +1016,7 @@ app.put('/api/sifre-degistir', async (req, res) => {
 // Kimlik ve MusteriHareket tablolarını birleştirerek borç/alacak bilgisini çekiyoruz
 app.get('/api/musteriler', async (req, res) => {
     try {
+        try { await ensureApartmanTablolari(); } catch (_) {}
         const query = `
             SELECT 
                 K.Kimlik, 
@@ -1034,6 +1035,15 @@ app.get('/api/musteriler', async (req, res) => {
                 ISNULL(SUM(MH.BORÇ), 0) AS ToplamBorc,
                 ISNULL(SUM(MH.ÖDEME), 0) AS ToplamOdeme,
                 (ISNULL(SUM(MH.BORÇ), 0) - ISNULL(SUM(MH.ÖDEME), 0)) AS Bakiye,
+
+                -- Apartman anlaşması olan müşterilerde apartman ad(lar)ı
+                ISNULL(STUFF((
+                    SELECT DISTINCT ', ' + A.Ad
+                    FROM [komur].[dbo].[ApartmanDaireler] D WITH (NOLOCK)
+                    INNER JOIN [komur].[dbo].[Apartmanlar] A WITH (NOLOCK) ON D.ApartmanId = A.Id
+                    WHERE D.MusteriKimlik = K.Kimlik AND ISNULL(D.AnlasilanMiktar, 0) > 0
+                    FOR XML PATH(''), TYPE
+                ).value('.', 'NVARCHAR(MAX)'), 1, 2, ''), '') AS ApartmanAdlari,
                 CASE
                     WHEN EXISTS (
                         SELECT 1 FROM [komur].[dbo].[MusteriHareket] MH2 WITH (NOLOCK)
@@ -1942,7 +1952,9 @@ app.get('/api/bekleyen-teslimatlar', async (req, res) => {
             WHERE 
                 MH.TeslimDurumu = 'Bekliyor' 
                 AND (MH.KalanTeslimat > 0 OR MH.KalanTeslimat IS NULL)
-                AND MH.notlar NOT LIKE N'%Apartman anlaşması%'   -- apartmanlar blok bazında ayrı listelenir
+                -- Apartman anlaşma hareketleri daire bazlı sevkiyat değildir.
+                -- Bunlar aşağıdaki sorguda yalnızca apartman + blok bazında listelenir.
+                AND ISNULL(MH.notlar, N'') NOT LIKE N'%Apartman anlaşması%'
             ORDER BY MH.TARİH ASC
         `;
         const result = await sql.query(query);

@@ -2434,12 +2434,32 @@
         el.innerHTML = '<div class="empty-msg">Yükleniyor…</div>';
         try {
             const res = await apiFetch('/api/bekleyen-teslimatlar');
-            const rows = await res.json();
+            const hamRows = await res.json();
+            // Apartman anlaşmaları mobil sevkiyatta daire daire gösterilmez.
+            // Yalnızca backend'in apartman + blok bazlı toplam satırları kalır.
+            const rows = Array.isArray(hamRows) ? hamRows.filter((r) => {
+                if (r.IsApartmanBlok == 1) return true;
+                return !String(r.notlar || '').toLocaleLowerCase('tr-TR').includes('apartman anlaşması');
+            }) : [];
             if (!Array.isArray(rows) || !rows.length) {
                 el.innerHTML = '<div class="empty-msg">Bekleyen sevkiyat yok</div>';
                 return;
             }
             el.innerHTML = rows.map((r) => {
+                if (r.IsApartmanBlok == 1) {
+                    const anlasilan = Number(r.ToplamAnlasilan) || 0;
+                    const teslim = Number(r.ToplamTeslim) || 0;
+                    const kalan = Math.max(0, anlasilan - teslim);
+                    const blok = String(r.ApartmanBlok || '').trim();
+                    const blokMetni = blok && blok !== '(Bloksuz)' ? `${blok} Blok` : 'Blok yok';
+                    const adr = [r.ApartmanIlce, r.ApartmanMahalle].filter(Boolean).join(' · ');
+                    return `<div class="sevk-item">
+                        <div class="sevk-musteri"><i class="fas fa-building"></i> ${r.ApartmanAd || 'Apartman'}</div>
+                        <div class="sevk-musteri-alt">${blokMetni}${r.DaireSayisi ? ` · ${r.DaireSayisi} daire` : ''}</div>
+                        <div class="detay">${r.UrunAdi || '—'}${adr ? '<br>' + adr : ''}</div>
+                        <span class="miktar">Kalan: ${formatSayi(kalan / 1000)} ton</span>
+                    </div>`;
+                }
                 const musteriHtml = musteriKimlikHtml(r).replace(/bugun-musteri/g, 'sevk-musteri').replace(/bugun-musteri-alt/g, 'sevk-musteri-alt');
                 const kalan = r.KalanTeslimat ?? r.ADET ?? 0;
                 const adr = [r.Ilce, r.Mahalle, r.Adres].filter(Boolean).join(' · ');

@@ -1026,14 +1026,24 @@ const baslikGuncelle = (unvan) => {
 
     // =========================================================
     // 🚨 1. ADIM: ÜNVANI VE ADRESİ ANA LİSTEDEN GARANTİLE
+    // (Önce hafızadaki listeye bak; yoksa sunucudan çek → açılış hızlanır)
     // =========================================================
     try {
-        const mRes = await fetch('/api/musteriler');
-        if (mRes.ok) {
-            const mList = await mRes.json();
-            const gercekMusteri = mList.find(x => x.Kimlik == musteriId || x.KİMLİK == musteriId);
-            
-            if (gercekMusteri) {
+        let gercekMusteri = Array.isArray(tumMusteriler)
+            ? tumMusteriler.find(x => x.Kimlik == musteriId || x.KİMLİK == musteriId)
+            : null;
+
+        if (!gercekMusteri) {
+            const mRes = await fetch('/api/musteriler');
+            if (mRes.ok) {
+                const mList = await mRes.json();
+                if (Array.isArray(mList) && mList.length) tumMusteriler = mList;
+                gercekMusteri = mList.find(x => x.Kimlik == musteriId || x.KİMLİK == musteriId);
+            }
+        }
+
+        if (gercekMusteri) {
+            {
                 // Ünvanı ve ADRESİ hafızaya alıyoruz
                 aktifMusteriUnvan = gercekMusteri.Unvan || gercekMusteri.UNVAN || gercekMusteri.unvan || "";
                 window.aktifMusteriAdres = gercekMusteri.Adres || gercekMusteri.ADRES || gercekMusteri.adres || ""; 
@@ -1064,8 +1074,9 @@ const baslikGuncelle = (unvan) => {
     const telElementi = document.getElementById('detayTelefon');
     if (telElementi) telElementi.innerText = temizTel;
 
+    // Apartman bilgisi arka planda yüklensin; ekstrenin açılışını bekletmesin
     if (typeof window.musteriApartmanBilgisiYukle === 'function') {
-        await window.musteriApartmanBilgisiYukle(musteriId);
+        window.musteriApartmanBilgisiYukle(musteriId).catch(() => {});
     }
 
     try {
@@ -1102,6 +1113,7 @@ const baslikGuncelle = (unvan) => {
         tabloGovdesi.innerHTML = '';
 
         let toplamBorc = 0, toplamOdenen = 0;
+        let ekstreHtml = '';
 
         islemler.forEach(islem => {
             const borc = parseFloat(islem.BORÇ) || 0; 
@@ -1277,8 +1289,8 @@ const baslikGuncelle = (unvan) => {
                     <i class="fas fa-trash"></i>
                 </button>`;
 
-            // --- TABLOYA BASMA ---
-            tabloGovdesi.innerHTML += `
+            // --- TABLOYA BASMA (önce metin olarak biriktir, en sonda tek seferde bas) ---
+            ekstreHtml += `
                 <tr class="align-middle">
                     <td>
                         <div class="fw-bold text-dark" style="font-size: 0.85rem;">${tarihGunu}</div>
@@ -1297,6 +1309,8 @@ const baslikGuncelle = (unvan) => {
                 </tr>
             `;
         });
+
+        tabloGovdesi.innerHTML = ekstreHtml;
 
         // Alt Toplamlar
         const kalanBakiye = toplamBorc - toplamOdenen;
@@ -1717,15 +1731,27 @@ let tumMusteriler = [];
 
 async function cariListesiniYukle() {
     const tabloGövdesi = document.getElementById('cariTabloGövdesi');
-    tabloGövdesi.innerHTML = '<tr><td colspan="5" class="text-center py-4">Veriler yükleniyor, lütfen bekleyin...</td></tr>';
-    
+
+    // Hafızada liste varsa hemen göster (modal anında açılır), taze veri arkadan gelir
+    const onbellekVar = Array.isArray(tumMusteriler) && tumMusteriler.length > 0;
+    if (onbellekVar) {
+        tabloyuGuncelle(tumMusteriler);
+    } else {
+        tabloGövdesi.innerHTML = '<tr><td colspan="5" class="text-center py-4">Veriler yükleniyor, lütfen bekleyin...</td></tr>';
+    }
+
     try {
         const response = await fetch('/api/musteriler'); 
         // Backend'den gelen tüm listeyi kaydediyoruz
         tumMusteriler = await response.json(); 
         
-        // Tabloyu ilk kez dolduruyoruz
-        tabloyuGuncelle(tumMusteriler);
+        // Arama kutusunda metin varsa filtreyi koruyarak yenile, yoksa tam listeyi bas
+        const aramaKutusu = document.getElementById('cariAramaKutusu');
+        if (aramaKutusu && aramaKutusu.value.trim() !== '' && typeof cariAraUygula === 'function') {
+            cariAraUygula();
+        } else {
+            tabloyuGuncelle(tumMusteriler);
+        }
 
     } catch (error) {
         console.error("Müşteri listesi çekilirken hata:", error);
@@ -1755,11 +1781,16 @@ function metinHtmlAttributeIcin(metin) {
 }
 
 // Tabloyu çizen ana fonksiyon (Hem ilk yüklemede hem aramada burası çalışır)
+// Performans: binlerce satırı aynı anda çizmek tarayıcıyı dondurduğu için üst sınır koyuyoruz.
+const CARI_TABLO_SATIR_LIMITI = 300;
 function tabloyuGuncelle(liste) {
     const tabloGövdesi = document.getElementById('cariTabloGövdesi');
     let tabloIcerigi = ''; 
 
-    liste.forEach(musteri => {
+    const toplamSonuc = liste.length;
+    const gosterilecekler = toplamSonuc > CARI_TABLO_SATIR_LIMITI ? liste.slice(0, CARI_TABLO_SATIR_LIMITI) : liste;
+
+    gosterilecekler.forEach(musteri => {
         const adi = musteri.Adı ? musteri.Adı.trim() : '';
         const unvan = musteri.Unvan ? musteri.Unvan.trim() : '';
         const mahalle = mahalleGorunumStr(musteri.Mahalle);
@@ -1790,12 +1821,18 @@ function tabloyuGuncelle(liste) {
                 ? '<span class="badge bg-secondary ms-1">Pasif</span>'
                 : '';
 
+        // Apartman anlaşması varsa apartman adını yeşil vurgulu göster
+        const apartmanAdlari = (musteri.ApartmanAdlari || '').trim();
+        const apartmanSatiri = apartmanAdlari
+            ? `<div class="text-success fw-bold" style="font-size: 0.8em;"><i class="fas fa-building me-1"></i>${apartmanAdlari}</div>`
+            : '';
+
         tabloIcerigi += `
             <tr class="cari-rehber-satiri" style="cursor: pointer;" title="Cari kartı için çift tıklayın"
                 data-musteri-id="${musteri.Kimlik}"
                 data-musteri-ad="${metinHtmlAttributeIcin(adi)}"
                 data-musteri-tel="${metinHtmlAttributeIcin(musteri.CEPTEL || '')}">
-                <td>${musteriGosterim}${durumBadge}</td>
+                <td>${musteriGosterim}${apartmanSatiri}${durumBadge}</td>
                 <td>
                     <div class="fw-bold">${musteri.CEPTEL || '-'}</div>
                     <div class="text-primary small fw-semibold">${mahalle}</div>
@@ -1807,37 +1844,57 @@ function tabloyuGuncelle(liste) {
         `;
     });
 
+    if (toplamSonuc > CARI_TABLO_SATIR_LIMITI) {
+        tabloIcerigi += `
+            <tr>
+                <td colspan="5" class="text-center text-muted py-3">
+                    <i class="fas fa-info-circle me-1"></i>
+                    ${toplamSonuc.toLocaleString('tr-TR')} sonuçtan ilk ${CARI_TABLO_SATIR_LIMITI} tanesi gösteriliyor. Aramayı daraltarak devam edin.
+                </td>
+            </tr>
+        `;
+    }
+
     tabloGövdesi.innerHTML = tabloIcerigi;
 }
 
 // 🔎 ARAMA FONKSİYONU: HTML'deki inputun oninput olayına bağla
 // Örnek: <input type="text" oninput="cariAra(this.value)">
 // Eski cariAra() fonksiyonunu bununla değiştir:
+// Her tuş vuruşunda değil, yazma durunca (150ms) filtrele → donmayı önler
+let _cariAraZamanlayici = null;
 function cariAra() {
+    if (_cariAraZamanlayici) clearTimeout(_cariAraZamanlayici);
+    _cariAraZamanlayici = setTimeout(cariAraUygula, 150);
+}
+
+function cariAraUygula() {
     // 1. Arama kutusuna yazılan metni al (Türkçe uyumlu küçük harf)
     const aramaMetni = document.getElementById('cariAramaKutusu').value.toLocaleLowerCase('tr-TR').trim();
-    
+
     // 2. Eğer arama kutusu boşsa tüm listeyi göster
     if (aramaMetni === "") {
         tabloyuGuncelle(tumMusteriler);
         return;
     }
 
-    // 3. tumMusteriler dizisi içinde Adı, Unvan, Mahalle veya Telefonu kontrol et
+    // 3. tumMusteriler dizisi içinde Adı, Unvan, Mahalle, Telefon veya Apartman adını kontrol et
     const filtrelenmisSonuclar = tumMusteriler.filter(m => {
         const ad = (m.Adı || "").toLocaleLowerCase('tr-TR');
         const unvan = (m.Unvan || "").toLocaleLowerCase('tr-TR');
         const mahalleHam = (m.Mahalle || "").toLocaleLowerCase('tr-TR');
         const mahalleFmt = mahalleGorunumStr(m.Mahalle).toLocaleLowerCase('tr-TR');
         const tel = (m.CEPTEL || "");
+        const apartman = (m.ApartmanAdlari || "").toLocaleLowerCase('tr-TR');
 
         return ad.includes(aramaMetni) ||
                unvan.includes(aramaMetni) ||
                mahalleHam.includes(aramaMetni) ||
                (mahalleFmt && mahalleFmt.includes(aramaMetni)) ||
-               tel.includes(aramaMetni);
+               tel.includes(aramaMetni) ||
+               (apartman && apartman.includes(aramaMetni));
     });
-    
+
     // 4. Sadece bulunan sonuçları tabloya bas
     tabloyuGuncelle(filtrelenmisSonuclar);
 }
@@ -3030,6 +3087,12 @@ window.bekleyenTeslimatlariYukle = async function() {
     try {
         const response = await fetch('/api/bekleyen-teslimatlar');
         let veriler = await response.json();
+        // Eski sunucu/veri kayıtlarına karşı ek güvence: apartman anlaşma hareketleri
+        // daire daire gösterilmez; yalnızca backend'in blok toplam satırı kullanılır.
+        veriler = Array.isArray(veriler) ? veriler.filter((v) => {
+            if (v.IsApartmanBlok == 1) return true;
+            return !String(v.notlar || '').toLocaleLowerCase('tr-TR').includes('apartman anlaşması');
+        }) : [];
         window.sonSevkiyatVerileri = veriler;
         const tabloGovdesi = document.getElementById('bekleyenTeslimatlarGovdesi');
         
@@ -10734,9 +10797,10 @@ window.musteriApartmanBilgisiYukle = async function(musteriId) {
         if (!res.ok || !Array.isArray(rows) || !rows.length) return;
 
         // Anlaşması olan dairelerin borcunu cariye yaz (eski kayıtlar dahil)
+        // Arka planda çalışır; cari kartın açılışını bekletmez
         const borcGerekli = rows.some((d) => (parseFloat(d.AnlasilanMiktar) || 0) > 0 && (parseFloat(d.BirimFiyat) || 0) > 0);
         if (borcGerekli) {
-            await fetch(`/api/musteri/${musteriId}/apartman-borc-esitle`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+            fetch(`/api/musteri/${musteriId}/apartman-borc-esitle`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).catch(() => {});
         }
 
         liste.innerHTML = rows.map((d) => {
