@@ -14,7 +14,7 @@
     <link rel="icon" type="image/png" sizes="512x512" href="/mobil/icon-512.png">
     <link rel="apple-touch-icon" href="/mobil/icon-192.png">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="/mobil/mobil.css?v=37">
+    <link rel="stylesheet" href="/mobil/mobil.css?v=38">
 </head>
 <body>
     <div id="app">
@@ -709,6 +709,8 @@
             <div class="action-row action-row-2">
                 <button type="button" class="btn btn-outline-primary flex-btn" id="btnTopluAnlasmaAc"><i class="fas fa-handshake me-1"></i>Toplu anlaşma</button>
             </div>
+            <div id="aptBlokSekmeler" class="apt-blok-sekmeler"></div>
+            <input type="search" id="aptMusteriAra" class="field-input search" placeholder="Ad soyad / daire ara…" autocomplete="off">
             <div class="section-title">Daireler</div>
             <div id="aptDaireListe" class="tedarikci-list">—</div>
         </div>
@@ -833,6 +835,7 @@
                 <label class="field-label" for="taDaireTipi">Daire tipi (opsiyonel)</label>
                 <select id="taDaireTipi" class="field-input"><option value="">—</option><option>2+1</option><option>3+1</option><option>4+1</option></select>
                 <div id="taBlokOzet" class="form-hint mt-1"></div>
+                <div id="taOdemeKilitKutu" class="form-hint mt-1 d-none" style="color:#b91c1c;font-weight:700;">Bu blokta ödeme var — tekrar anlaşma kapalı. Yalnızca boş dairelere yazılabilir.</div>
                 <label class="checkbox-satir mt-2"><input type="checkbox" id="taSadeceBos" checked> Sadece boş dairelere uygula</label>
                 <button type="button" class="btn btn-primary btn-block mt-2" id="btnTopluAnlasmaKaydet">Bu Bloğa Uygula</button>
             </div>
@@ -842,6 +845,6 @@
     <div id="toast" class="toast d-none"></div>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js" crossorigin="anonymous"></script>
     <script src="/adres-sozlugu.js"></script>
-    <script src="/mobil/mobil.js?v=48"></script>
+    <script src="/mobil/mobil.js?v=52"></script>
 </body>
 </html>

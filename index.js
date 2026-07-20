@@ -1959,41 +1959,9 @@ app.get('/api/bekleyen-teslimatlar', async (req, res) => {
         `;
         const result = await sql.query(query);
 
-        // 🏢 Apartman teslimatları: kişi kişi değil, BLOK bazında (tüm daireler dahil)
-        const blokQuery = `
-            SELECT
-                AP.Id AS ApartmanId,
-                AP.Ad AS ApartmanAd,
-                ISNULL(AP.Mahalle, '') AS ApartmanMahalle,
-                ISNULL(AP.Ilce, '') AS ApartmanIlce,
-                ISNULL(NULLIF(LTRIM(RTRIM(D.Blok)), ''), '(Bloksuz)') AS ApartmanBlok,
-                COUNT(*) AS DaireSayisi,
-                SUM(D.AnlasilanMiktar) AS ToplamAnlasilan,
-                SUM(ISNULL(D.TeslimEdilen, 0)) AS ToplamTeslim,
-                MAX(S.UrunAdi) AS UrunAdi
-            FROM [komur].[dbo].[ApartmanDaireler] D
-            INNER JOIN [komur].[dbo].[Apartmanlar] AP ON AP.Id = D.ApartmanId
-            LEFT JOIN [komur].[dbo].[StokListesi] S ON S.ID = D.UrunID
-            WHERE D.UrunID IS NOT NULL AND D.AnlasilanMiktar > 0
-            GROUP BY AP.Id, AP.Ad, AP.Mahalle, AP.Ilce, ISNULL(NULLIF(LTRIM(RTRIM(D.Blok)), ''), '(Bloksuz)')
-            HAVING SUM(D.AnlasilanMiktar) > SUM(ISNULL(D.TeslimEdilen, 0)) + 0.01
-            ORDER BY AP.Ad, ApartmanBlok
-        `;
-        const blokRes = await sql.query(blokQuery);
-        const blokSatirlari = (blokRes.recordset || []).map((b) => ({
-            IsApartmanBlok: 1,
-            ApartmanId: b.ApartmanId,
-            ApartmanAd: b.ApartmanAd,
-            ApartmanBlok: b.ApartmanBlok,
-            ApartmanMahalle: b.ApartmanMahalle,
-            ApartmanIlce: b.ApartmanIlce,
-            DaireSayisi: b.DaireSayisi,
-            ToplamAnlasilan: b.ToplamAnlasilan,
-            ToplamTeslim: b.ToplamTeslim,
-            UrunAdi: b.UrunAdi
-        }));
-
-        res.json([...blokSatirlari, ...result.recordset]);
+        // Apartman teslimatları bu genel sevkiyat listesine dahil edilmez.
+        // Daire ve blok teslimatları yalnızca Apartmanlar modülünden yönetilir.
+        res.json(result.recordset || []);
     } catch (err) {
         res.status(500).json({ hata: err.message });
     }
@@ -4129,11 +4097,119 @@ async function aptOdemeEfektifTonFiyat(pool, odemeTuru, anlasmaTonFiyat) {
     return anl > 0 ? anl : 0;
 }
 
+/**
+ * ÖdenenTl yazılmış ama KalanBorcKg düşmemiş daireleri onarır.
+ * (Kur/fiyat hatası veya eski kayıtlar → listede "ödeme yok" görünümü)
+ */
+async function apartmanOdemeKgOnarApartman(pool, apartmanId) {
+    const aid = parseInt(apartmanId, 10);
+    if (!aid) return { onarilan: 0 };
+    const daireler = await pool.request().input('aid', sql.Int, aid).query(`
+        SELECT Id, AnlasilanMiktar, KalanBorcKg, BirimFiyat, TonFiyat, ParaBirimi, AnlasmaKuru,
+               ISNULL(OdenenTl, 0) AS OdenenTl, MusteriKimlik
+        FROM [komur].[dbo].[ApartmanDaireler]
+        WHERE ApartmanId = @aid AND ISNULL(AnlasilanMiktar, 0) > 0
+    `);
+    let onarilan = 0;
+    let usdKur = null;
+
+    for (const d of daireler.recordset || []) {
+        const anl = parseFloat(d.AnlasilanMiktar) || 0;
+        let kalan = d.KalanBorcKg != null ? parseFloat(d.KalanBorcKg) : anl;
+        if (!Number.isFinite(kalan) || kalan < 0) kalan = anl;
+        if (kalan > anl) kalan = anl;
+        const odenenKg = Math.max(0, anl - kalan);
+        const odTl = parseFloat(d.OdenenTl) || 0;
+
+        // 1) OdenenTl var ama kg düşmemiş → TL'den kg tahmin et
+        if (odTl > 0.01 && odenenKg < 0.01) {
+            const para = String(d.ParaBirimi || 'TRY').toUpperCase();
+            let kgFiyat = apartmanDaireKgFiyat(d);
+            let kgBirimTl = kgFiyat;
+            if (para === 'USD') {
+                if (usdKur == null) {
+                    usdKur = await tcmbUsdSatisKuruGetir() || null;
+                }
+                const kur = usdKur || parseFloat(d.AnlasmaKuru) || 0;
+                if (!(kur > 0) || !(kgFiyat > 0)) continue;
+                kgBirimTl = kgFiyat * kur;
+            }
+            if (!(kgBirimTl > 0)) continue;
+            const tahminKg = Math.min(anl, Math.round((odTl / kgBirimTl) * 100) / 100);
+            const yeniKalan = Math.max(0, Math.round((anl - tahminKg) * 100) / 100);
+            if (Math.abs(yeniKalan - kalan) > 0.01) {
+                await pool.request()
+                    .input('id', sql.Int, d.Id)
+                    .input('kg', sql.Decimal(18, 2), yeniKalan)
+                    .query(`UPDATE [komur].[dbo].[ApartmanDaireler] SET KalanBorcKg = @kg WHERE Id = @id`);
+                await daireAnlasmaBorcEsitle(pool, d.Id, 'Sistem', usdKur);
+                onarilan++;
+                continue;
+            }
+        }
+
+        // 2) Cari APT ödemesi var, daire OdenenTl/kg boş → yalnızca tek daireli müşterilerde uygula
+        if (odenenKg < 0.01 && odTl < 0.01 && d.MusteriKimlik) {
+            const kacDaire = (daireler.recordset || []).filter((x) => Number(x.MusteriKimlik) === Number(d.MusteriKimlik)).length;
+            if (kacDaire !== 1) continue;
+
+            const odRes = await pool.request().input('mk', sql.Int, d.MusteriKimlik).query(`
+                SELECT ÖDEME, notlar, birimtür
+                FROM [komur].[dbo].[MusteriHareket] WITH (NOLOCK)
+                WHERE Kisi = @mk AND ISNULL(ÖDEME, 0) > 0
+                  AND (
+                    ISNULL(birimtür, '') = 'APT'
+                    OR ISNULL(notlar, '') LIKE N'%Apartman:%'
+                    OR ISNULL(notlar, '') LIKE N'%Anlık USD%'
+                  )
+                ORDER BY Kimlik ASC
+            `);
+            let toplamOdTl = 0;
+            let toplamKgNot = 0;
+            for (const h of odRes.recordset || []) {
+                const tl = parseFloat(h.ÖDEME) || 0;
+                toplamOdTl += tl;
+                const not = String(h.notlar || '');
+                const m = not.match(/(\d+[.,]?\d*)\s*kg/i);
+                if (m) toplamKgNot += parseFloat(String(m[1]).replace(',', '.')) || 0;
+            }
+            if (toplamOdTl < 0.01 && toplamKgNot < 0.01) continue;
+
+            let dusulecekKg = toplamKgNot;
+            if (dusulecekKg < 0.01) {
+                const para = String(d.ParaBirimi || 'TRY').toUpperCase();
+                let kgFiyat = apartmanDaireKgFiyat(d);
+                let kgBirimTl = kgFiyat;
+                if (para === 'USD') {
+                    if (usdKur == null) usdKur = await tcmbUsdSatisKuruGetir() || null;
+                    const kur = usdKur || parseFloat(d.AnlasmaKuru) || 0;
+                    if (!(kur > 0) || !(kgFiyat > 0)) continue;
+                    kgBirimTl = kgFiyat * kur;
+                }
+                if (!(kgBirimTl > 0)) continue;
+                dusulecekKg = Math.round((toplamOdTl / kgBirimTl) * 100) / 100;
+            }
+            dusulecekKg = Math.min(anl, Math.max(0, dusulecekKg));
+            if (dusulecekKg < 0.01) continue;
+            const yeniKalan = Math.max(0, Math.round((anl - dusulecekKg) * 100) / 100);
+            const yazTl = Math.round(toplamOdTl * 100) / 100;
+            await pool.request()
+                .input('id', sql.Int, d.Id)
+                .input('kg', sql.Decimal(18, 2), yeniKalan)
+                .input('tl', sql.Decimal(18, 2), yazTl)
+                .query(`UPDATE [komur].[dbo].[ApartmanDaireler] SET KalanBorcKg = @kg, OdenenTl = @tl WHERE Id = @id`);
+            await daireAnlasmaBorcEsitle(pool, d.Id, 'Sistem', usdKur);
+            onarilan++;
+        }
+    }
+    return { onarilan };
+}
+
 /** Ödeme alındığında apartman kg borcundan düş (USD: anlık kur + türe göre ton fiyatı) */
 async function apartmanOdemeKgIsle(pool, musteriId, odemeTl, islemiYapan, odemeTuru) {
     const tutar = parseFloat(odemeTl) || 0;
     if (tutar <= 0 || !musteriId) {
-        return { islenen: 0, kgDusen: 0, detay: [], kur: null, odenenUsd: 0, tonFiyat: null, odemeTuru: odemeTuru || null };
+        return { islenen: 0, kgDusen: 0, detay: [], kur: null, odenenUsd: 0, tonFiyat: null, odemeTuru: odemeTuru || null, uyari: null };
     }
 
     await ensureApartmanTablolari();
@@ -4152,6 +4228,8 @@ async function apartmanOdemeKgIsle(pool, musteriId, odemeTl, islemiYapan, odemeT
     let usdKur = null;
     let kullanilanTonFiyat = null;
     let toplamOdenenUsd = 0;
+    let uyari = null;
+    let usdDaireAtlandi = false;
 
     for (const d of daireler.recordset || []) {
         if (kalanOdeme <= 0.001) break;
@@ -4170,9 +4248,15 @@ async function apartmanOdemeKgIsle(pool, musteriId, odemeTl, islemiYapan, odemeT
             if (usdKur == null) {
                 usdKur = await tcmbUsdSatisKuruGetir() || parseFloat(d.AnlasmaKuru) || null;
             }
-            if (!usdKur || usdKur <= 0) continue;
+            if (!usdKur || usdKur <= 0) {
+                usdDaireAtlandi = true;
+                continue;
+            }
             odemeTon = await aptOdemeEfektifTonFiyat(pool, odemeTuru, anlasmaTon);
-            if (odemeTon <= 0) continue;
+            if (odemeTon <= 0) {
+                usdDaireAtlandi = true;
+                continue;
+            }
             kgFiyat = apartmanKgFiyatFromTon(odemeTon);
             if (kullanilanTonFiyat == null) kullanilanTonFiyat = odemeTon;
         } else {
@@ -4233,6 +4317,10 @@ async function apartmanOdemeKgIsle(pool, musteriId, odemeTl, islemiYapan, odemeT
         });
     }
 
+    if (usdDaireAtlandi && toplamKg < 0.01) {
+        uyari = 'Apartman USD borcu vardı ama kur/ton fiyatı alınamadığı için kg düşümü yapılamadı. Ödeme cariye yazıldı; apartman listesini yenileyince onarım denenecek.';
+    }
+
     return {
         islenen: Math.round((tutar - kalanOdeme) * 100) / 100,
         kgDusen: Math.round(toplamKg * 100) / 100,
@@ -4240,7 +4328,8 @@ async function apartmanOdemeKgIsle(pool, musteriId, odemeTl, islemiYapan, odemeT
         kur: usdKur,
         odenenUsd: Math.round(toplamOdenenUsd * 10000) / 10000,
         tonFiyat: kullanilanTonFiyat,
-        odemeTuru: odemeTuru || 'Nakit'
+        odemeTuru: odemeTuru || 'Nakit',
+        uyari
     };
 }
 
@@ -4371,6 +4460,9 @@ app.get('/api/apartman/:id', async (req, res) => {
         const apt = await pool.request().input('id', sql.Int, id)
             .query(`SELECT * FROM [komur].[dbo].[Apartmanlar] WHERE Id = @id`);
         if (!apt.recordset.length) return res.status(404).json({ hata: 'Apartman bulunamadı' });
+
+        // Ödeme caride var ama listede görünmeyen kg'leri onar
+        try { await apartmanOdemeKgOnarApartman(pool, id); } catch (_) { /* liste yine de gelsin */ }
 
         const daireler = await pool.request().input('id', sql.Int, id)
             .query(`
@@ -4840,6 +4932,32 @@ app.put('/api/apartman/:id/blok-anlasma', async (req, res) => {
         }
         if (sadeceBos) whereSql += ' AND AnlasilanMiktar = 0';
 
+        // Blokta ödeme varsa tekrar anlaşma (yeniden yazma) yasak
+        const odemeKontrol = await pool.request()
+            .input('aid', sql.Int, apartmanId)
+            .input('blok', sql.NVarChar, blokAd)
+            .query(`
+                SELECT TOP 1 Id, Blok, DaireNo,
+                       ISNULL(OdenenTl, 0) AS OdenenTl,
+                       ISNULL(AnlasilanMiktar, 0) AS AnlasilanMiktar,
+                       KalanBorcKg
+                FROM [komur].[dbo].[ApartmanDaireler]
+                WHERE ApartmanId = @aid AND Blok = @blok
+                  AND (
+                    ISNULL(OdenenTl, 0) > 0.01
+                    OR (ISNULL(AnlasilanMiktar, 0) - ISNULL(KalanBorcKg, AnlasilanMiktar)) > 0.01
+                  )
+            `);
+        if ((odemeKontrol.recordset || []).length) {
+            if (!sadeceBos) {
+                return res.status(400).json({
+                    hata: `"${blokAd}" bloğunda ödeme hareketi var. Tekrar anlaşma uygulanamaz. Sadece boş dairelere yazmak için "Sadece boş dairelere uygula" seçili olmalı.`,
+                    kod: 'BLOK_ODEME_VAR'
+                });
+            }
+            // sadeceBos: yine de ödeme olan dairelere asla dokunma (zaten AnlasilanMiktar=0 filtresi var)
+        }
+
         const daireRes = await pool.request()
             .input('aid', sql.Int, apartmanId)
             .input('blok', sql.NVarChar, blokAd)
@@ -4868,9 +4986,27 @@ app.put('/api/apartman/:id/blok-anlasma', async (req, res) => {
                     UPDATE [komur].[dbo].[ApartmanDaireler]
                     SET UrunID=@urun, AnlasilanMiktar=@kg, Birim='Kg', BirimFiyat=@fiyat,
                         TonFiyat=@tonF, ParaBirimi=@para, AnlasmaKuru=@kuru,
-                        KalanBorcKg=@kg, TeslimEdilen=0, OdenenTl=0,
+                        -- Ödeme yapılmış dairelerin kg/TL ödeme bilgisini silme
+                        KalanBorcKg = CASE
+                            WHEN ISNULL(OdenenTl, 0) > 0.01
+                              OR (ISNULL(AnlasilanMiktar, 0) - ISNULL(KalanBorcKg, AnlasilanMiktar)) > 0.01
+                            THEN ISNULL(KalanBorcKg, @kg)
+                            ELSE @kg
+                        END,
+                        TeslimEdilen = CASE
+                            WHEN ISNULL(OdenenTl, 0) > 0.01
+                              OR (ISNULL(AnlasilanMiktar, 0) - ISNULL(KalanBorcKg, AnlasilanMiktar)) > 0.01
+                            THEN TeslimEdilen
+                            ELSE 0
+                        END,
+                        OdenenTl = CASE
+                            WHEN ISNULL(OdenenTl, 0) > 0.01 THEN OdenenTl
+                            ELSE 0
+                        END,
                         DaireTipi = CASE WHEN @tip IS NOT NULL AND @tip <> '' THEN @tip ELSE DaireTipi END
                     WHERE Id=@id
+                      AND ISNULL(OdenenTl, 0) <= 0.01
+                      AND (ISNULL(AnlasilanMiktar, 0) - ISNULL(KalanBorcKg, AnlasilanMiktar)) <= 0.01
                 `);
         }
 
@@ -4925,7 +5061,14 @@ app.put('/api/apartman/:id/toplu-anlasma', async (req, res) => {
             .input('fiyat', sql.Decimal(18, 4), kgF)
             .query(`
                 UPDATE [komur].[dbo].[ApartmanDaireler]
-                SET UrunID=@urun, AnlasilanMiktar=@anlasilan, Birim='Kg', BirimFiyat=@fiyat, KalanBorcKg=@anlasilan, OdenenTl=0
+                SET UrunID=@urun, AnlasilanMiktar=@anlasilan, Birim='Kg', BirimFiyat=@fiyat,
+                    KalanBorcKg = CASE
+                        WHEN ISNULL(OdenenTl, 0) > 0.01
+                          OR (ISNULL(AnlasilanMiktar, 0) - ISNULL(KalanBorcKg, AnlasilanMiktar)) > 0.01
+                        THEN ISNULL(KalanBorcKg, @anlasilan)
+                        ELSE @anlasilan
+                    END,
+                    OdenenTl = CASE WHEN ISNULL(OdenenTl, 0) > 0.01 THEN OdenenTl ELSE 0 END
                 WHERE ${idWhere}
             `);
 
@@ -5008,6 +5151,8 @@ app.post('/api/apartman/:id/borc-esitle', async (req, res) => {
     try {
         await ensureApartmanTablolari();
         const pool = await sql.connect(config);
+        // Önce eksik kg düşümlerini onar (ödeme caride var, listede görünmeyenler)
+        const onar = await apartmanOdemeKgOnarApartman(pool, apartmanId);
         const daireler = await pool.request().input('aid', sql.Int, apartmanId).query(`
             SELECT Id FROM [komur].[dbo].[ApartmanDaireler]
             WHERE ApartmanId = @aid AND MusteriKimlik IS NOT NULL AND UrunID IS NOT NULL
@@ -5020,7 +5165,12 @@ app.post('/api/apartman/:id/borc-esitle', async (req, res) => {
             if (r.borc > 0) { toplamBorc += r.borc; adet += 1; }
         }
         await apartmanYetimBorcSatirlariTemizle(pool);
-        res.json({ mesaj: `${adet} dairenin cari borcu güncellendi`, toplamBorc, daireSayisi: adet });
+        res.json({
+            mesaj: `${adet} dairenin cari borcu güncellendi`,
+            toplamBorc,
+            daireSayisi: adet,
+            odenenOnarilan: onar.onarilan || 0
+        });
     } catch (err) {
         console.error('BORC ESITLE HATASI:', err);
         res.status(500).json({ hata: err.message });

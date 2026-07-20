@@ -1191,6 +1191,44 @@ html, body {
 .cari-ozet-kutu .val.odeme { color: #4ade80; }
 .cari-ozet-kutu .val.bakiye-borc { color: #f87171; }
 .cari-ozet-kutu .val.bakiye-alacak { color: #4ade80; }
+.cari-ozet-kutu .val .od-yesil { color: #16a34a; }
+.cari-ozet-kutu .val .borc-kirmizi { color: #dc2626; }
+
+.apt-blok-sekmeler {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 6px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 2px 0 10px;
+    margin-bottom: 4px;
+}
+.apt-blok-sekme {
+    flex: 0 0 auto;
+    border: 1px solid #cbd5e1;
+    background: #fff;
+    color: #334155;
+    border-radius: 999px;
+    padding: 6px 12px;
+    font-size: 0.78rem;
+    font-weight: 700;
+}
+.apt-blok-sekme.aktif {
+    background: #0f172a;
+    border-color: #0f172a;
+    color: #fff;
+}
+.apt-daire-kg {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    margin-top: 6px;
+    font-size: 0.78rem;
+}
+.apt-daire-kg span { white-space: nowrap; }
+.apt-daire-kg .anl { color: #475569; }
+.apt-daire-kg .od { color: #16a34a; font-weight: 700; }
+.apt-daire-kg .bc { color: #dc2626; font-weight: 700; }
 
 .action-row {
     display: flex;

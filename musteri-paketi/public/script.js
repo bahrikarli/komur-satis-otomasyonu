@@ -1709,6 +1709,11 @@ async function tahsilatiKaydet() {
                 const usd = a.odenenUsd != null ? Number(a.odenenUsd).toLocaleString('tr-TR', { minimumFractionDigits: 2 }) : '—';
                 const ton = a.tonFiyat != null ? Number(a.tonFiyat).toLocaleString('tr-TR', { maximumFractionDigits: 2 }) : '—';
                 alert(`Apartman kg düşümü\nAnlık USD: ${kur}\nÖ.USD: ${usd}\nKg: ${a.kgDusen}\nTür ton: ${ton} USD/ton`);
+            } else if (apartmanaUygula && data.apartmanKg && data.apartmanKg.uyari) {
+                alert('⚠️ ' + data.apartmanKg.uyari);
+            } else if (apartmanaUygula && (!data.apartmanKg || !(data.apartmanKg.islenen > 0))) {
+                // Apartman seçiliydi ama kg düşmedi — kullanıcıya haber ver
+                console.warn('Apartman kg düşümü uygulanamadı', data.apartmanKg);
             }
             
             const tel = document.getElementById('detayTelefon')?.innerText || "";
@@ -3087,10 +3092,10 @@ window.bekleyenTeslimatlariYukle = async function() {
     try {
         const response = await fetch('/api/bekleyen-teslimatlar');
         let veriler = await response.json();
-        // Eski sunucu/veri kayıtlarına karşı ek güvence: apartman anlaşma hareketleri
-        // daire daire gösterilmez; yalnızca backend'in blok toplam satırı kullanılır.
+        // Eski sunucu/veri kayıtlarına karşı ek güvence: apartman teslimatları
+        // bu genel listede hiç gösterilmez; Apartmanlar modülünden yönetilir.
         veriler = Array.isArray(veriler) ? veriler.filter((v) => {
-            if (v.IsApartmanBlok == 1) return true;
+            if (v.IsApartmanBlok == 1) return false;
             return !String(v.notlar || '').toLocaleLowerCase('tr-TR').includes('apartman anlaşması');
         }) : [];
         window.sonSevkiyatVerileri = veriler;
@@ -9081,6 +9086,38 @@ function aptSayi(n) {
     return (parseFloat(n) || 0).toLocaleString('tr-TR', { maximumFractionDigits: 2 });
 }
 
+/** Daire ödenen kg: önce KalanBorcKg farkı; yoksa OdenenTl'den kabaca tahmin */
+function aptOdenenKg(d) {
+    const anlasilan = parseFloat(d.AnlasilanMiktar) || 0;
+    const borcKg = d.KalanBorcKg != null ? parseFloat(d.KalanBorcKg) : anlasilan;
+    let odenen = Math.max(0, Math.round((anlasilan - borcKg) * 100) / 100);
+    if (odenen < 0.01) {
+        const odTl = parseFloat(d.OdenenTl) || 0;
+        if (odTl > 0.01) {
+            const para = String(d.ParaBirimi || 'TRY').toUpperCase();
+            const ton = parseFloat(d.TonFiyat) || ((parseFloat(d.BirimFiyat) || 0) * 1000);
+            const kgFiyat = parseFloat(d.BirimFiyat) || (ton > 0 ? ton / 1000 : 0);
+            const kur = para === 'USD' ? (parseFloat(d.AnlasmaKuru) || 0) : 1;
+            const kgBirimTl = kgFiyat * (kur > 0 ? kur : 1);
+            if (kgBirimTl > 0) {
+                odenen = Math.min(anlasilan, Math.round((odTl / kgBirimTl) * 100) / 100);
+            }
+        }
+    }
+    return odenen;
+}
+
+function aptBorcKg(d) {
+    const anlasilan = parseFloat(d.AnlasilanMiktar) || 0;
+    const odenen = aptOdenenKg(d);
+    const borcHam = d.KalanBorcKg != null ? parseFloat(d.KalanBorcKg) : anlasilan;
+    // OdenenTl'den tahmin varsa borç = anlaşılan - ödenen
+    if (odenen > 0.01 && Math.abs(borcHam - anlasilan) < 0.01) {
+        return Math.max(0, Math.round((anlasilan - odenen) * 100) / 100);
+    }
+    return Math.max(0, Math.round(borcHam * 100) / 100);
+}
+
 window.aktifAptBlok = 'TUMU';
 
 function aptBlokListesi(daireler) {
@@ -9379,11 +9416,8 @@ function apartmanDetayCiz() {
     }
     const toplamAnlasilan = daireler.reduce((t, d) => t + (parseFloat(d.AnlasilanMiktar) || 0), 0);
     const toplamTeslim = daireler.reduce((t, d) => t + (parseFloat(d.TeslimEdilen) || 0), 0);
-    const toplamBorcKg = daireler.reduce((t, d) => {
-        const a = parseFloat(d.AnlasilanMiktar) || 0;
-        return t + (d.KalanBorcKg != null ? parseFloat(d.KalanBorcKg) : a);
-    }, 0);
-    const toplamOdenenKg = Math.max(0, toplamAnlasilan - toplamBorcKg);
+    const toplamOdenenKg = daireler.reduce((t, d) => t + aptOdenenKg(d), 0);
+    const toplamBorcKg = Math.max(0, Math.round((toplamAnlasilan - toplamOdenenKg) * 100) / 100);
     const dolu = daireler.filter((d) => d.MusteriKimlik).length;
 
     document.getElementById('apartmanDetayOzet').innerHTML = `
@@ -9404,8 +9438,8 @@ function apartmanDetayCiz() {
     }
     tbody.innerHTML = filtreli.map((d) => {
         const anlasilan = parseFloat(d.AnlasilanMiktar) || 0;
-        const borcKg = d.KalanBorcKg != null ? parseFloat(d.KalanBorcKg) : anlasilan;
-        const odenenKg = Math.max(0, Math.round((anlasilan - borcKg) * 100) / 100);
+        const odenenKg = aptOdenenKg(d);
+        const borcKg = aptBorcKg(d);
         let durum, durumCls;
         if (anlasilan > 0 && borcKg <= 0.01) { durum = 'Ödendi'; durumCls = 'bg-success'; }
         else if (odenenKg > 0) { durum = 'Kısmi ödeme'; durumCls = 'bg-warning text-dark'; }
@@ -9474,8 +9508,8 @@ window.apartmanYapilandirmaKaydet = async function() {
 
 function aptDaireDurumMetin(d) {
     const anlasilan = parseFloat(d.AnlasilanMiktar) || 0;
-    const borcKg = d.KalanBorcKg != null ? parseFloat(d.KalanBorcKg) : anlasilan;
-    const odenenKg = Math.max(0, anlasilan - borcKg);
+    const odenenKg = aptOdenenKg(d);
+    const borcKg = aptBorcKg(d);
     if (anlasilan > 0 && borcKg <= 0.01) return 'Ödendi';
     if (odenenKg > 0) return 'Kısmi ödeme';
     if (anlasilan > 0) return 'Bekliyor';
@@ -9517,10 +9551,11 @@ window.apartmanRaporYazdir = function(kapsam) {
     let toplamAnlas = 0, toplamOdenen = 0, toplamBorc = 0, dolu = 0;
     liste.forEach((d) => {
         const a = parseFloat(d.AnlasilanMiktar) || 0;
-        const borc = d.KalanBorcKg != null ? parseFloat(d.KalanBorcKg) : a;
+        const odenen = aptOdenenKg(d);
+        const borc = aptBorcKg(d);
         toplamAnlas += a;
         toplamBorc += borc;
-        toplamOdenen += Math.max(0, a - borc);
+        toplamOdenen += odenen;
         if (d.MusteriKimlik) dolu += 1;
     });
 
@@ -9533,8 +9568,8 @@ window.apartmanRaporYazdir = function(kapsam) {
         let bAnlas = 0, bOdenen = 0, bBorc = 0;
         const satirlar = rows.map((d) => {
             const anlasilan = parseFloat(d.AnlasilanMiktar) || 0;
-            const borcKg = d.KalanBorcKg != null ? parseFloat(d.KalanBorcKg) : anlasilan;
-            const odenenKg = Math.max(0, Math.round((anlasilan - borcKg) * 100) / 100);
+            const odenenKg = aptOdenenKg(d);
+            const borcKg = aptBorcKg(d);
             bAnlas += anlasilan;
             bBorc += borcKg;
             bOdenen += odenenKg;
@@ -10684,22 +10719,63 @@ function taBlokAnlasmaOku(blok) {
     };
 }
 
-function taFormKilit(kilitli) {
-    window.taKilitli = !!kilitli;
-    ['taUrun', 'taToplamTon', 'taPara', 'taTonFiyat', 'taDaireTipi', 'taSadeceBos'].forEach((id) => {
-        const el = document.getElementById(id);
-        if (el) el.disabled = !!kilitli;
+function taBlokOdemeVar(blok) {
+    const daireler = aptBlokFiltreliDaireler(window.aktifApartmanDaireler, blok);
+    return daireler.some((d) => {
+        const anl = parseFloat(d.AnlasilanMiktar) || 0;
+        const odenenKg = typeof aptOdenenKg === 'function'
+            ? aptOdenenKg(d)
+            : Math.max(0, anl - (d.KalanBorcKg != null ? parseFloat(d.KalanBorcKg) : anl));
+        const odTl = parseFloat(d.OdenenTl) || 0;
+        return odTl > 0.01 || odenenKg > 0.01;
     });
+}
+
+function taBlokBosDaireVar(blok) {
+    return aptBlokFiltreliDaireler(window.aktifApartmanDaireler, blok)
+        .some((d) => (parseFloat(d.AnlasilanMiktar) || 0) <= 0);
+}
+
+function taFormKilit(kilitli, opts) {
+    const odemeKilit = !!(opts && opts.odemeKilit);
+    window.taKilitli = !!kilitli && !odemeKilit;
+    window.taOdemeKilit = odemeKilit;
+    ['taUrun', 'taToplamTon', 'taPara', 'taTonFiyat', 'taDaireTipi'].forEach((id) => {
+        const el = document.getElementById(id);
+        // Ödeme kilidinde boş daireye yazmak için form açık kalır
+        if (el) el.disabled = !!kilitli && !odemeKilit;
+    });
+    const sadeceBos = document.getElementById('taSadeceBos');
+    if (sadeceBos) {
+        if (odemeKilit) {
+            sadeceBos.checked = true;
+            sadeceBos.disabled = true;
+        } else {
+            sadeceBos.disabled = !!kilitli;
+        }
+    }
     const btn = document.getElementById('taUygulaBtn');
+    const blok = document.getElementById('taAktifBlok')?.value;
+    const tamamenPasif = odemeKilit && blok && !taBlokBosDaireVar(blok);
     if (btn) {
-        btn.disabled = !!kilitli;
-        btn.classList.toggle('disabled', !!kilitli);
+        const disabled = tamamenPasif || (!!kilitli && !odemeKilit);
+        btn.disabled = disabled;
+        btn.classList.toggle('disabled', disabled);
     }
     const kutu = document.getElementById('taKilitKutu');
-    if (kutu) kutu.classList.toggle('d-none', !kilitli);
+    if (kutu) kutu.classList.toggle('d-none', !kilitli || odemeKilit);
+    const odemeKutu = document.getElementById('taOdemeKilitKutu');
+    if (odemeKutu) odemeKutu.classList.toggle('d-none', !odemeKilit);
+    const unlockBtn = document.getElementById('taKilidiAcBtn');
+    if (unlockBtn) unlockBtn.classList.toggle('d-none', !!odemeKilit);
 }
 
 window.taKilidiAc = function() {
+    const blok = document.getElementById('taAktifBlok')?.value;
+    if (blok && taBlokOdemeVar(blok)) {
+        alert('Bu blokta ödeme hareketi var. Tekrar anlaşma açılamaz.');
+        return;
+    }
     if (!confirm('Kilidi açmak, mevcut anlaşmayı yeniden düzenlemenize izin verir. Devam?')) return;
     taFormKilit(false);
     document.getElementById('taSadeceBos').checked = false;
@@ -10709,6 +10785,7 @@ window.taKilidiAc = function() {
 
 function taBlokFormunuDoldur(blok) {
     document.getElementById('taUrun').innerHTML = aptUrunSecenekleri('');
+    const odemeVar = taBlokOdemeVar(blok);
     const mevcut = taBlokAnlasmaOku(blok);
     if (mevcut) {
         document.getElementById('taUrun').innerHTML = aptUrunSecenekleri(mevcut.urunId);
@@ -10717,13 +10794,14 @@ function taBlokFormunuDoldur(blok) {
         document.getElementById('taTonFiyat').value = mevcut.tonFiyat || '';
         document.getElementById('taPara').value = mevcut.paraBirimi || 'TRY';
         document.getElementById('taDaireTipi').value = mevcut.daireTipi || '';
-        document.getElementById('taSadeceBos').checked = false;
-        taFormKilit(true);
+        document.getElementById('taSadeceBos').checked = !!odemeVar;
+        taFormKilit(true, { odemeKilit: odemeVar });
         const yeni = document.getElementById('taYeniBilgi');
         if (yeni) yeni.classList.add('d-none');
         const oz = document.getElementById('taBlokOzet');
         if (oz) {
-            oz.innerHTML = `<span class="text-success fw-bold">Mevcut anlaşma:</span> ${aptSayi(mevcut.toplamTon)} ton · ${aptSayi(mevcut.tonFiyat)} ${mevcut.paraBirimi}/ton · ${mevcut.anlasmaliSayi} daire · ${aptKacis(mevcut.urunAdi || '')}`;
+            oz.innerHTML = `<span class="text-success fw-bold">Mevcut anlaşma:</span> ${aptSayi(mevcut.toplamTon)} ton · ${aptSayi(mevcut.tonFiyat)} ${mevcut.paraBirimi}/ton · ${mevcut.anlasmaliSayi} daire · ${aptKacis(mevcut.urunAdi || '')}`
+                + (odemeVar ? ' · <span class="text-danger fw-bold">Ödeme var — tekrar anlaşma kapalı</span>' : '');
         }
     } else {
         document.getElementById('taToplamTon').value = '';
@@ -10731,11 +10809,17 @@ function taBlokFormunuDoldur(blok) {
         document.getElementById('taPara').value = 'TRY';
         document.getElementById('taDaireTipi').value = '';
         document.getElementById('taSadeceBos').checked = true;
-        taFormKilit(false);
+        taFormKilit(false, { odemeKilit: odemeVar });
         const yeni = document.getElementById('taYeniBilgi');
-        if (yeni) yeni.classList.remove('d-none');
+        if (yeni) yeni.classList.toggle('d-none', odemeVar);
         const kutu = document.getElementById('taKilitKutu');
         if (kutu) kutu.classList.add('d-none');
+        const oz = document.getElementById('taBlokOzet');
+        if (oz) {
+            oz.innerHTML = odemeVar
+                ? '<span class="text-danger fw-bold">Bu blokta ödeme var — yalnızca boş dairelere anlaşma yazılabilir.</span>'
+                : '';
+        }
     }
     topluAnlasmaTahminGuncelle();
 }
@@ -10754,6 +10838,11 @@ window.blokAnlasmaUygula = async function() {
         return;
     }
     const blok = document.getElementById('taAktifBlok').value;
+    const odemeVar = taBlokOdemeVar(blok);
+    if (odemeVar) {
+        // Ödeme olan blokta yalnızca boş dairelere izin
+        document.getElementById('taSadeceBos').checked = true;
+    }
     const govde = {
         blok: blok === '(Bloksuz)' ? '' : blok,
         urunId: document.getElementById('taUrun').value || null,
@@ -10761,8 +10850,16 @@ window.blokAnlasmaUygula = async function() {
         tonFiyat: parseFloat(document.getElementById('taTonFiyat').value) || 0,
         paraBirimi: document.getElementById('taPara').value || 'TRY',
         daireTipi: document.getElementById('taDaireTipi').value || null,
-        sadeceBos: document.getElementById('taSadeceBos').checked
+        sadeceBos: document.getElementById('taSadeceBos').checked || odemeVar
     };
+    if (odemeVar && !govde.sadeceBos) {
+        alert('Bu blokta ödeme hareketi var. Tekrar anlaşma uygulanamaz.');
+        return;
+    }
+    if (odemeVar && !taBlokBosDaireVar(blok)) {
+        alert('Bu blokta ödeme var ve boş daire kalmamış. Tekrar anlaşma yapılamaz.');
+        return;
+    }
     if (!govde.urunId || govde.toplamTon <= 0 || govde.tonFiyat <= 0) {
         alert('Ürün, toplam ton ve ton fiyatı girin'); return;
     }
