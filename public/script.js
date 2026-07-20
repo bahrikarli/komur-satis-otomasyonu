@@ -1575,10 +1575,17 @@ async function tahsilatiKaydet() {
         aktifPersonel = (navbarAd && navbarAd !== 'Yükleniyor...') ? navbarAd : 'SİSTEM KAYDI';
     }
 
+    // Ödeme kapsamı: apartman seçiliyse taksit radarına GİRME
+    // (Taksit planları yalnızca genel borç içindir; apartman ayrı ödenir)
+    const kapsamSelOn = document.getElementById('tahsilatKapsam');
+    const kutuAcikOn = document.getElementById('tahsilatKapsamKutu') && !document.getElementById('tahsilatKapsamKutu').classList.contains('d-none');
+    const secilenKapsamOn = kutuAcikOn && kapsamSelOn ? kapsamSelOn.value : (window.tahsilatKapsam || 'apartman');
+    const apartmanOdemeMi = secilenKapsamOn !== 'genel';
+
     // =======================================================
-    // 🚨 AKILLI HAVUZ RADARI (YÖNLENDİRME SİSTEMİ)
+    // 🚨 AKILLI HAVUZ RADARI — sadece GENEL ödemelerde
     // =======================================================
-    try {
+    if (!apartmanOdemeMi) try {
         const tRes = await fetch(`/api/musteri-taksitler/${aktifMusteriId}`);
         const taksitler = await tRes.json();
 
@@ -1664,10 +1671,7 @@ async function tahsilatiKaydet() {
 
     // 5. SUNUCUYA GÖNDERİM
     // Ödeme hedefi: apartman seçiliyse kg mantığı çalışsın, genel ise apartmana dokunma
-    const kapsamSel = document.getElementById('tahsilatKapsam');
-    const kutuAcik = document.getElementById('tahsilatKapsamKutu') && !document.getElementById('tahsilatKapsamKutu').classList.contains('d-none');
-    const secilenKapsam = kutuAcik && kapsamSel ? kapsamSel.value : (window.tahsilatKapsam || 'apartman');
-    const apartmanaUygula = secilenKapsam !== 'genel';
+    const apartmanaUygula = apartmanOdemeMi;
     try {
         const response = await fetch('/api/musteri-odeme-makbuzlu', {
             method: 'POST',

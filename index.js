@@ -1802,7 +1802,7 @@ app.put('/api/taksit-ode/:id', async (req, res) => {
             }
 
             // --- EKSTREYE YAZ ---
-            const insTaksit = await transaction.request()
+            await transaction.request()
                 .input('kisi', sql.Int, musteriId)
                 .input('tutar', sql.Decimal(18,2), toplamTahsilat)
                 .input('aciklama', sql.NVarChar, finalAciklama)
@@ -1813,32 +1813,14 @@ app.put('/api/taksit-ode/:id', async (req, res) => {
                     DECLARE @EskiBakiye DECIMAL(18,2);
                     SELECT @EskiBakiye = ISNULL(SUM(BORÇ) - SUM(ÖDEME), 0) FROM [komur].[dbo].[MusteriHareket] WHERE Kisi = @kisi;
                     INSERT INTO [komur].[dbo].[MusteriHareket] (Kisi, YIL, AÇIKLAMA, ADET, BİRİM, BORÇ, ÖDEME, TARİH, IslemiYapan, MakbuzNo, ISLEM_BAKIYESI)
-                    OUTPUT INSERTED.Kimlik
                     VALUES (@kisi, YEAR(@tar), @aciklama, 0, 0, 0, @tutar, @tar, @yapan, @mNo, @EskiBakiye - @tutar);
                 `);
-            const yeniHareketId = insTaksit.recordset?.[0]?.Kimlik || null;
 
             await transaction.commit();
 
-            // Taksit ödemesi de apartman kg borcundan düşsün (aksi halde listede "Bekliyor" kalır)
-            let apartmanOdeme = null;
-            try {
-                apartmanOdeme = await apartmanOdemeKgIsle(pool, parseInt(musteriId, 10), toplamTahsilat, islemiYapan || 'Sistem', odemeTuru || 'Nakit');
-                if (yeniHareketId && apartmanOdeme && apartmanOdeme.islenen > 0) {
-                    const kurTxt = apartmanOdeme.kur
-                        ? `Anlık USD: ${Number(apartmanOdeme.kur).toLocaleString('tr-TR', { minimumFractionDigits: 4 })} · Ö.USD: ${Number(apartmanOdeme.odenenUsd || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })} · ${apartmanOdeme.kgDusen} kg · ${apartmanOdeme.tonFiyat || '—'} USD/ton`
-                        : `Apartman: ${apartmanOdeme.kgDusen} kg`;
-                    await pool.request()
-                        .input('id', sql.Int, yeniHareketId)
-                        .input('not', sql.NVarChar, kurTxt)
-                        .query(`UPDATE [komur].[dbo].[MusteriHareket] SET birimtür = 'APT', notlar = CASE WHEN notlar IS NULL OR notlar = '' THEN @not ELSE notlar + N' | ' + @not END WHERE Kimlik = @id`);
-                }
-            } catch (aptErr) {
-                console.warn('Taksit → apartman kg düşümü:', aptErr.message);
-            }
-
-            // 🚨 Frontende de aynı detaylı açıklamayı gönderiyoruz ki makbuza o basılsın
-            res.json({ success: true, makbuzNo: formatliMakbuzNo, finansalOzet: finalAciklama, apartmanKg: apartmanOdeme });
+            // Taksit planı yalnızca GENEL borç içindir; apartman kg borcuna dokunulmaz.
+            // Apartman ödemeleri tahsilatta "Apartman borcu" kapsamı / kart-taksit ton fiyatı ile yapılır.
+            res.json({ success: true, makbuzNo: formatliMakbuzNo, finansalOzet: finalAciklama });
 
         } catch (err) {
             await transaction.rollback();
@@ -4219,34 +4201,8 @@ async function apartmanOdemeKgOnarApartman(pool, apartmanId) {
                 .query(`UPDATE [komur].[dbo].[ApartmanDaireler] SET KalanBorcKg = @kg, OdenenTl = @tl WHERE Id = @id`);
             await daireAnlasmaBorcEsitle(pool, d.Id, 'Sistem', usdKur);
             onarilan++;
-            continue;
         }
-
-        // 3) Taksit tahsilatı var ama apartman kg'ye yazılmamış (eski bug)
-        if (odenenKg < 0.01 && odTl < 0.01 && d.MusteriKimlik) {
-            const kacDaire = (daireler.recordset || []).filter((x) => Number(x.MusteriKimlik) === Number(d.MusteriKimlik)).length;
-            if (kacDaire !== 1) continue;
-
-            const taksitOd = await pool.request().input('mk', sql.Int, d.MusteriKimlik).query(`
-                SELECT ISNULL(SUM(ÖDEME), 0) AS Toplam
-                FROM [komur].[dbo].[MusteriHareket] WITH (NOLOCK)
-                WHERE Kisi = @mk AND ISNULL(ÖDEME, 0) > 0
-                  AND ISNULL(birimtür, '') <> 'APT'
-                  AND (
-                    AÇIKLAMA LIKE N'%Taksit Tahsilat%'
-                    OR AÇIKLAMA LIKE N'%taksit tahsilat%'
-                  )
-                  AND ISNULL(notlar, '') NOT LIKE N'%Apartman:%'
-                  AND ISNULL(notlar, '') NOT LIKE N'%Anlık USD%'
-            `);
-            const taksitTl = parseFloat(taksitOd.recordset?.[0]?.Toplam) || 0;
-            if (taksitTl < 0.01) continue;
-
-            try {
-                const r = await apartmanOdemeKgIsle(pool, d.MusteriKimlik, taksitTl, 'Sistem', 'Havale');
-                if (r && r.islenen > 0) onarilan++;
-            } catch (_) { /* sonraki daireye devam */ }
-        }
+        // Taksit tahsilatı apartman kg'ye ASLA uygulanmaz (taksit = genel borç planı).
     }
     return { onarilan };
 }

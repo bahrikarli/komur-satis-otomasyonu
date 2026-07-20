@@ -1821,7 +1821,9 @@
         return data;
     }
 
-    async function tahsilatTaksitRadari(tutar, odemeTuru, ozelNot, kapatModalId = 'modal-odeme') {
+    async function tahsilatTaksitRadari(tutar, odemeTuru, ozelNot, kapatModalId = 'modal-odeme', { apartmanOdeme = false } = {}) {
+        // Apartman ödemesi taksit havuzuna ASLA yönlendirilmez (taksit = genel borç)
+        if (apartmanOdeme) return false;
         const mid = musteriKimlik(aktifMusteri);
         let taksitler;
         try {
@@ -2666,18 +2668,20 @@
         btn.disabled = true;
         btn.textContent = 'Kaydediliyor…';
         try {
-            const yonlendi = await tahsilatTaksitRadari(tutar, odemeTuru, not);
-            if (yonlendi) return;
-
             const kutuAcik = $('odemeKapsamKutu') && !$('odemeKapsamKutu').classList.contains('d-none');
             const secilenKapsam = kutuAcik ? ($('odemeKapsam').value) : (window.mobilOdemeKapsam || 'apartman');
+            const apartmanOdemeMi = secilenKapsam !== 'genel';
+
+            const yonlendi = await tahsilatTaksitRadari(tutar, odemeTuru, not, 'modal-odeme', { apartmanOdeme: apartmanOdemeMi });
+            if (yonlendi) return;
+
             await makbuzluOdemeKaydet(
                 tutar,
                 odemeTuru,
                 tahsilatAciklama(odemeTuru, not, false),
                 not,
                 oncekiBakiye - tutar,
-                secilenKapsam !== 'genel'
+                apartmanOdemeMi
             );
             toast(`${odemeTuru} tahsilat kaydedildi`);
             modalKapat('modal-odeme');
