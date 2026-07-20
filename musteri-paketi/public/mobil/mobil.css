@@ -503,6 +503,9 @@ html, body {
 .tedarikci-bakiye { font-size: 0.85rem; font-weight: 700; text-align: right; white-space: nowrap; }
 .tedarikci-bakiye--borc { color: var(--danger); }
 .tedarikci-bakiye--alacak { color: var(--ok); }
+.apt-liste-kg .od-yesil { color: #16a34a; }
+.apt-liste-kg .borc-kirmizi { color: #dc2626; }
+.apt-liste-kg .ayrac { color: #94a3b8; margin: 0 2px; font-weight: 600; }
 .tedarikci-kur-notu {
     margin: 0 0 12px;
     padding: 10px 12px;
@@ -1218,17 +1221,58 @@ html, body {
     border-color: #0f172a;
     color: #fff;
 }
-.apt-daire-kg {
+.apt-daire-item {
+    padding: 12px 4px 12px;
+    border-bottom: 1px solid #cbd5e1;
+    cursor: pointer;
+}
+.apt-daire-item:last-child { border-bottom: none; }
+.apt-daire-ust {
     display: flex;
     justify-content: space-between;
-    gap: 8px;
-    margin-top: 6px;
+    align-items: flex-start;
+    gap: 10px;
+}
+.apt-daire-ad {
+    font-weight: 700;
+    font-size: 0.92rem;
+    color: #0f172a;
+    min-width: 0;
+    flex: 1;
+    line-height: 1.25;
+}
+.apt-daire-urun {
+    margin-top: 4px;
+    font-size: 0.78rem;
+    color: var(--muted);
+    line-height: 1.3;
+}
+.apt-daire-kg {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 6px;
+    margin-top: 8px;
     font-size: 0.78rem;
 }
-.apt-daire-kg span { white-space: nowrap; }
+.apt-daire-kg span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .apt-daire-kg .anl { color: #475569; }
-.apt-daire-kg .od { color: #16a34a; font-weight: 700; }
-.apt-daire-kg .bc { color: #dc2626; font-weight: 700; }
+.apt-daire-kg .od { color: #16a34a; font-weight: 700; text-align: center; }
+.apt-daire-kg .bc { color: #dc2626; font-weight: 700; text-align: right; }
+.apt-daire-alt {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+    font-size: 0.78rem;
+    color: var(--muted);
+}
+.apt-daire-aksiyon {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
 
 .action-row {
     display: flex;

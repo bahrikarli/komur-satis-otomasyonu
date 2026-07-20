@@ -2556,8 +2556,9 @@
                 const odenen = aptOdenenKg(d);
                 const borc = aptBorcKg(d);
                 let durum, cls;
-                if (anlasilan > 0 && borc <= 0.01) { durum = 'Ödendi'; cls = 'tedarikci-tur--odeme'; }
-                else if (odenen > 0) { durum = 'Kısmi'; cls = 'tedarikci-tur--alim'; }
+                if (anlasilan > 0 && odenen >= anlasilan - 0.01) { durum = 'Ödendi'; cls = 'tedarikci-tur--odeme'; }
+                else if (anlasilan > 0 && borc <= 0.01) { durum = 'Ödendi'; cls = 'tedarikci-tur--odeme'; }
+                else if (odenen > 0.01) { durum = 'Kısmi'; cls = 'tedarikci-tur--alim'; }
                 else if (anlasilan > 0) { durum = 'Bekliyor'; cls = ''; }
                 else { durum = 'Anlaşma yok'; cls = ''; }
                 const yer = `${d.Blok ? d.Blok + ' Blok · ' : ''}Daire ${d.DaireNo || ''}`;
@@ -3439,8 +3440,13 @@
     function aptBorcKg(d) {
         const anlasilan = parseFloat(d.AnlasilanMiktar) || 0;
         const odenen = aptOdenenKg(d);
+        if (odenen >= anlasilan - 0.01 && anlasilan > 0) return 0;
         const borcHam = d.KalanBorcKg != null ? parseFloat(d.KalanBorcKg) : anlasilan;
         if (odenen > 0.01 && Math.abs(borcHam - anlasilan) < 0.01) {
+            return Math.max(0, Math.round((anlasilan - odenen) * 100) / 100);
+        }
+        // Ödenen varsa ham borç tutarsızsa ödenen üzerinden hesapla
+        if (odenen > 0.01) {
             return Math.max(0, Math.round((anlasilan - odenen) * 100) / 100);
         }
         return Math.max(0, Math.round(borcHam * 100) / 100);
@@ -3485,6 +3491,9 @@
             const tamam = a.TamamDaire || 0;
             const kismi = a.KismiDaire || 0;
             const bekleyen = Math.max(0, daire - tamam - kismi);
+            const anlasilan = parseFloat(a.ToplamAnlasilan) || 0;
+            const odenen = parseFloat(a.ToplamOdenenKg) || 0;
+            const borc = Math.max(0, Math.round((anlasilan - odenen) * 100) / 100);
             const konum = [a.Mahalle, a.Ilce].filter(Boolean).join(' / ');
             return `<div class="tedarikci-item" data-apt-id="${a.Id}" role="button" tabindex="0">
                 <div class="tedarikci-item-ust">
@@ -3493,7 +3502,11 @@
                         <div class="tedarikci-item-meta">${ekstreRaporKacis(konum || '—')}</div>
                         <div class="tedarikci-item-meta">✓ ${tamam} · ◐ ${kismi} · ○ ${bekleyen} · ${daire} daire</div>
                     </div>
-                    <div class="tedarikci-bakiye">${aptSayi(a.ToplamTeslim)}/${aptSayi(a.ToplamAnlasilan)}</div>
+                    <div class="tedarikci-bakiye apt-liste-kg">
+                        <span class="od-yesil">${aptSayi(odenen)}</span>
+                        <span class="ayrac">/</span>
+                        <span class="borc-kirmizi">${aptSayi(borc)}</span>
+                    </div>
                 </div>
             </div>`;
         }).join('');
@@ -3540,15 +3553,16 @@
         } catch (err) { toast(err.message || 'Hata'); }
     }
 
+    let _apartmanDetayAcBusy = null;
     async function apartmanDetayAc(id) {
-        if (!stokCache.length) await stoklariYukleCache();
-        if (!musteriCache.length) {
-            try { const r = await apiFetch('/api/musteriler'); musteriCache = await r.json(); } catch (_) {}
-        }
+        const aptId = parseInt(id, 10);
+        if (!aptId) return;
+        if (_apartmanDetayAcBusy === aptId) return;
+        _apartmanDetayAcBusy = aptId;
         try {
-            await apiFetch(`/api/apartman/${id}/borc-esitle`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-            const res = await apiFetch(`/api/apartman/${id}?_t=` + Date.now());
-            const data = await res.json();
+            // Stok/müşteri açılışı bekletmesin — daire düzenlerken lazım olursa yüklenir
+            const res = await apiFetch(`/api/apartman/${aptId}?_t=` + Date.now());
+            const data = await apiJson(res, 'Detay alınamadı');
             if (!res.ok) throw new Error(data.hata || 'Detay alınamadı');
             aktifApartman = data.apartman;
             aktifApartmanDaireler = data.daireler || [];
@@ -3558,7 +3572,28 @@
             $('aptDetayMeta').textContent = [data.apartman.Mahalle, data.apartman.Ilce].filter(Boolean).join(' / ') || '—';
             apartmanDetayCiz();
             overlayAc('overlay-apartman-detay');
-        } catch (err) { toast(err.message || 'Hata'); }
+
+            // borc-esitle arka planda; bitince listeyi sessizce yenile
+            apiFetch(`/api/apartman/${aptId}/borc-esitle`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: '{}'
+            }).then(async () => {
+                if (!aktifApartman || Number(aktifApartman.Id) !== aptId) return;
+                try {
+                    const r2 = await apiFetch(`/api/apartman/${aptId}?_t=` + Date.now());
+                    const d2 = await r2.json();
+                    if (r2.ok && d2.daireler) {
+                        aktifApartmanDaireler = d2.daireler;
+                        apartmanDetayCiz();
+                    }
+                } catch (_) { /* sessiz */ }
+            }).catch(() => {});
+        } catch (err) {
+            toast(err.message || 'Hata');
+        } finally {
+            _apartmanDetayAcBusy = null;
+        }
     }
 
     function aptBlokSekmeleriCizMob() {
@@ -3611,30 +3646,30 @@
             const odenen = aptOdenenKg(d);
             const borc = aptBorcKg(d);
             let durum, cls;
-            if (anlasilan > 0 && borc <= 0.01) { durum = 'Ödendi'; cls = 'tedarikci-tur--odeme'; }
-            else if (odenen > 0) { durum = 'Kısmi'; cls = 'tedarikci-tur--alim'; }
+            // Ödenen kg öncelikli (KalanBorcKg eski kalsa bile Ödendi göster)
+            if (anlasilan > 0 && odenen >= anlasilan - 0.01) { durum = 'Ödendi'; cls = 'tedarikci-tur--odeme'; }
+            else if (anlasilan > 0 && borc <= 0.01) { durum = 'Ödendi'; cls = 'tedarikci-tur--odeme'; }
+            else if (odenen > 0.01) { durum = 'Kısmi'; cls = 'tedarikci-tur--alim'; }
             else if (anlasilan > 0) { durum = 'Bekliyor'; cls = ''; }
             else { durum = 'Anlaşma yok'; cls = ''; }
             const baslik = `${d.Blok ? d.Blok + ' · ' : ''}Daire ${d.DaireNo || ''}${d.DaireTipi ? ' (' + d.DaireTipi + ')' : ''}`;
             const cariBtn = d.MusteriKimlik
                 ? `<button type="button" class="ekstre-info-btn" data-apt-cari="${d.MusteriKimlik}" title="Cariye git"><i class="fas fa-user"></i></button>`
                 : '';
-            const teslimBtn = (d.MusteriKimlik && d.UrunID && anlasilan > 0)
-                ? `<button type="button" class="ekstre-info-btn" data-teslim="${d.Id}" title="Teslim et"><i class="fas fa-truck-ramp-box"></i></button>`
-                : '';
-            return `<div class="ekstre-item" data-daire="${d.Id}" role="button">
-                <div class="ust">
-                    <span>${ekstreRaporKacis(baslik)}</span>
-                    <span class="ust-sag"><span class="tedarikci-tur ${cls}">${durum}</span>${cariBtn}${teslimBtn}</span>
+            return `<div class="apt-daire-item" data-daire="${d.Id}" role="button">
+                <div class="apt-daire-ust">
+                    <span class="apt-daire-ad">${d.MusteriAd ? ekstreRaporKacis(d.MusteriAd) : '<span class="text-danger">— müşteri yok —</span>'}</span>
+                    <span class="tedarikci-tur ${cls}">${durum}</span>
                 </div>
-                <div class="aciklama">${d.MusteriAd ? ekstreRaporKacis(d.MusteriAd) : '<span class="text-danger">— müşteri yok —</span>'}</div>
-                <div class="alt">
-                    <span class="alt-detay">${d.UrunAdi ? ekstreRaporKacis(d.UrunAdi) : '-'}${d.TonFiyat ? ' · ' + aptSayi(d.TonFiyat) + ' ' + (d.ParaBirimi || 'TRY') + '/ton' : ''}</span>
-                </div>
+                <div class="apt-daire-urun">${d.UrunAdi ? ekstreRaporKacis(d.UrunAdi) : '—'}${d.TonFiyat ? ' · ' + aptSayi(d.TonFiyat) + ' ' + (d.ParaBirimi || 'TRY') + '/ton' : ''}</div>
                 <div class="apt-daire-kg">
-                    <span class="anl">Anlaş. ${anlasilan ? aptSayi(anlasilan) : '—'}</span>
-                    <span class="od">Ödenen ${odenen > 0 ? aptSayi(odenen) : '—'}</span>
-                    <span class="bc">Borç ${anlasilan ? aptSayi(borc) : '—'}</span>
+                    <span class="anl">Anlaş. ${aptSayi(anlasilan)}</span>
+                    <span class="od">Ödenen ${aptSayi(odenen)}</span>
+                    <span class="bc">Borç ${aptSayi(borc)}</span>
+                </div>
+                <div class="apt-daire-alt">
+                    <span>${ekstreRaporKacis(baslik)}</span>
+                    <span class="apt-daire-aksiyon">${cariBtn}</span>
                 </div>
             </div>`;
         }).join('');
@@ -3676,11 +3711,20 @@
         } catch (err) { toast(err.message || 'Hata'); }
     }
 
-    function daireDuzenleAc(daireId) {
+    async function daireDuzenleAc(daireId) {
         const d = aktifApartmanDaireler.find((x) => x.Id === daireId);
         if (!d) return;
+        if (!stokCache.length) {
+            try { await stoklariYukleCache(); } catch (_) {}
+        }
+        if (!musteriCache.length) {
+            try {
+                const r = await apiFetch('/api/musteriler');
+                const rows = await r.json();
+                if (Array.isArray(rows)) musteriCache = rows;
+            } catch (_) {}
+        }
         $('btnDaireKaydet').dataset.id = d.Id;
-        $('btnDaireSil').dataset.id = d.Id;
         $('dDuzBlok').value = d.Blok || '';
         $('dDuzNo').value = d.DaireNo || '';
         $('dDuzMusteriId').value = d.MusteriKimlik || '';
@@ -3906,8 +3950,11 @@
         if (btn) btn.disabled = !!(odemeVar && !taBlokBosDaireVarMob(blok));
     }
 
-    function topluAnlasmaAc() {
+    async function topluAnlasmaAc() {
         if (!aktifApartman) return;
+        if (!stokCache.length) {
+            try { await stoklariYukleCache(); } catch (_) {}
+        }
         $('taUrun').innerHTML = aptUrunSecenekleri('');
         $('taToplamTon').value = '';
         $('taTonFiyat').value = '';
@@ -4076,7 +4123,6 @@
         $('btnDaireOlusturAc')?.addEventListener('click', daireOlusturAc);
         $('btnDaireOlusturKaydet')?.addEventListener('click', daireOlusturKaydet);
         $('btnDaireKaydet')?.addEventListener('click', daireKaydet);
-        $('btnDaireSil')?.addEventListener('click', daireSil);
         $('btnDaireTeslimatKaydet')?.addEventListener('click', daireTeslimatKaydet);
         $('btnTopluAnlasmaAc')?.addEventListener('click', topluAnlasmaAc);
         $('btnTopluAnlasmaKaydet')?.addEventListener('click', topluAnlasmaKaydet);
@@ -4113,12 +4159,6 @@
                 // Apartman detayından cariye: geri dönüş için apartman id tut
                 window._aptCariGeriId = aktifApartman?.Id || null;
                 musteriDetayAc(mid);
-                return;
-            }
-            const teslimBtn = e.target.closest('[data-teslim]');
-            if (teslimBtn?.dataset.teslim) {
-                e.preventDefault(); e.stopPropagation();
-                daireTeslimatAc(Number(teslimBtn.dataset.teslim));
                 return;
             }
             const item = e.target.closest('[data-daire]');

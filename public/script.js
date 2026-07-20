@@ -9267,7 +9267,12 @@ function apartmanKartlariCiz(liste) {
                             <span class="text-success">✓ ${tamam}</span>
                             <span class="text-warning">◐ ${kismi}</span>
                             <span class="text-danger">○ ${bekleyen}</span>
-                            <span class="ms-auto text-muted">Teslim: ${aptSayi(a.ToplamTeslim)}/${aptSayi(a.ToplamAnlasilan)}</span>
+                            <span class="ms-auto">
+                                <span class="text-success fw-semibold">${aptSayi(a.ToplamOdenenKg)}</span>
+                                <span class="text-muted">/</span>
+                                <span class="text-danger fw-semibold">${aptSayi(Math.max(0, (parseFloat(a.ToplamAnlasilan) || 0) - (parseFloat(a.ToplamOdenenKg) || 0)))}</span>
+                                <span class="text-muted"> kg</span>
+                            </span>
                         </div>
                     </div>
                     <button type="button" class="btn btn-warning fw-bold px-3 flex-shrink-0"

@@ -4440,6 +4440,38 @@ app.get('/api/apartmanlar', async (req, res) => {
                 (SELECT COUNT(*) FROM [komur].[dbo].[ApartmanDaireler] D WHERE D.ApartmanId = A.Id AND D.MusteriKimlik IS NOT NULL) AS DoluDaire,
                 (SELECT ISNULL(SUM(D.AnlasilanMiktar),0) FROM [komur].[dbo].[ApartmanDaireler] D WHERE D.ApartmanId = A.Id) AS ToplamAnlasilan,
                 (SELECT ISNULL(SUM(D.TeslimEdilen),0) FROM [komur].[dbo].[ApartmanDaireler] D WHERE D.ApartmanId = A.Id) AS ToplamTeslim,
+                (SELECT ISNULL(SUM(
+                    CASE
+                        WHEN ISNULL(D.AnlasilanMiktar,0) > 0
+                             AND (ISNULL(D.AnlasilanMiktar,0) - ISNULL(D.KalanBorcKg, D.AnlasilanMiktar)) > 0.01
+                        THEN ISNULL(D.AnlasilanMiktar,0) - ISNULL(D.KalanBorcKg, D.AnlasilanMiktar)
+                        WHEN ISNULL(D.OdenenTl,0) > 0.01
+                             AND (
+                                ISNULL(D.BirimFiyat,0) > 0
+                                OR ISNULL(D.TonFiyat,0) > 0
+                             )
+                        THEN
+                            CASE
+                                WHEN (
+                                    ISNULL(NULLIF(D.BirimFiyat,0), ISNULL(D.TonFiyat,0) / 1000.0)
+                                    * CASE WHEN UPPER(ISNULL(D.ParaBirimi,'TRY')) = 'USD'
+                                           THEN ISNULL(NULLIF(D.AnlasmaKuru,0), 1) ELSE 1 END
+                                ) <= 0 THEN 0
+                                WHEN D.OdenenTl / (
+                                    ISNULL(NULLIF(D.BirimFiyat,0), ISNULL(D.TonFiyat,0) / 1000.0)
+                                    * CASE WHEN UPPER(ISNULL(D.ParaBirimi,'TRY')) = 'USD'
+                                           THEN ISNULL(NULLIF(D.AnlasmaKuru,0), 1) ELSE 1 END
+                                ) > ISNULL(D.AnlasilanMiktar,0)
+                                THEN ISNULL(D.AnlasilanMiktar,0)
+                                ELSE D.OdenenTl / (
+                                    ISNULL(NULLIF(D.BirimFiyat,0), ISNULL(D.TonFiyat,0) / 1000.0)
+                                    * CASE WHEN UPPER(ISNULL(D.ParaBirimi,'TRY')) = 'USD'
+                                           THEN ISNULL(NULLIF(D.AnlasmaKuru,0), 1) ELSE 1 END
+                                )
+                            END
+                        ELSE 0
+                    END
+                ),0) FROM [komur].[dbo].[ApartmanDaireler] D WHERE D.ApartmanId = A.Id) AS ToplamOdenenKg,
                 (SELECT COUNT(*) FROM [komur].[dbo].[ApartmanDaireler] D WHERE D.ApartmanId = A.Id AND D.AnlasilanMiktar > 0 AND D.TeslimEdilen >= D.AnlasilanMiktar) AS TamamDaire,
                 (SELECT COUNT(*) FROM [komur].[dbo].[ApartmanDaireler] D WHERE D.ApartmanId = A.Id AND D.TeslimEdilen > 0 AND D.TeslimEdilen < D.AnlasilanMiktar) AS KismiDaire
             FROM [komur].[dbo].[Apartmanlar] A
@@ -4463,8 +4495,8 @@ app.get('/api/apartman/:id', async (req, res) => {
             .query(`SELECT * FROM [komur].[dbo].[Apartmanlar] WHERE Id = @id`);
         if (!apt.recordset.length) return res.status(404).json({ hata: 'Apartman bulunamadı' });
 
-        // Ödeme caride var ama listede görünmeyen kg'leri onar
-        try { await apartmanOdemeKgOnarApartman(pool, id); } catch (_) { /* liste yine de gelsin */ }
+        // Onarım GET'te yapılmaz (mobil/masaüstü açılışı kilitler).
+        // Gerekirse /borc-esitle arka planda çağrılır.
 
         const daireler = await pool.request().input('id', sql.Int, id)
             .query(`
