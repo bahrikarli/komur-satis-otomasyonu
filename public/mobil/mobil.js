@@ -234,8 +234,8 @@
         const borc = Number(h.BORÇ) || 0;
         const odeme = Number(h.ÖDEME) || 0;
         let tutarHtml = '—';
-        if (borc > 0) tutarHtml = `<span class="borc">+${formatPara(borc)}</span>`;
-        else if (odeme > 0) tutarHtml = `<span class="odeme">-${formatPara(odeme)}</span>`;
+        if (borc > 0) tutarHtml = `<span class="borc">-${formatPara(borc)}</span>`;
+        else if (odeme > 0) tutarHtml = `<span class="odeme">+${formatPara(odeme)}</span>`;
 
         let aciklama = h.AÇIKLAMA || '—';
         let miktar = Number(h.ADET) || 0;
@@ -1036,8 +1036,117 @@
             musteriCache = liste;
             aktifMusteri = liste.find((x) => musteriKimlik(x) === id) || aktifMusteri;
             musteriOzetGuncelle(aktifMusteri);
+            musteriDetayBaslikGuncelle(aktifMusteri);
         }
         await musteriEkstreYukle(id);
+    }
+
+    async function cariIslemSil(islemId) {
+        const id = Number(islemId);
+        if (!id) return;
+        if (!confirm('Bu işlemi silmek istediğinize emin misiniz?\nİptal edilen işleme göre stok otomatik güncellenir.')) return;
+        try {
+            const res = await apiFetch(`/api/islem/${id}`, { method: 'DELETE' });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.hata || 'İşlem silinemedi');
+            toast('İşlem silindi');
+            const mid = musteriKimlik(aktifMusteri);
+            if (mid) await musteriYenileVeGoster(mid);
+        } catch (err) {
+            toast(err.message || 'Silinemedi');
+        }
+    }
+
+    async function cariIslemDuzenleAc(btn) {
+        if (!btn) return;
+        const id = Number(btn.dataset.islemDuzenle);
+        if (!id) return;
+        const kalan = parseFloat(btn.dataset.kalan) || 0;
+        const miktar = parseFloat(btn.dataset.miktar) || 0;
+        const teslim = btn.dataset.teslim || 'Teslim Edildi';
+        let not = '';
+        try { not = decodeURIComponent(btn.dataset.not || ''); } catch (_) { not = btn.dataset.not || ''; }
+        $('islemDuzenleId').value = id;
+        $('islemDuzenleToplam').value = miktar;
+        $('islemDuzenleTeslimMiktar').value = kalan;
+        $('islemDuzenleBekliyor').checked = (teslim === 'Bekliyor');
+        $('islemDuzenleNot').value = String(not).replace(/null/gi, '');
+        const ad = musteriAdi(aktifMusteri) || '—';
+        if ($('islemDuzenleMusteriAd')) $('islemDuzenleMusteriAd').textContent = ad;
+        if ($('islemDuzenleLimit')) {
+            $('islemDuzenleLimit').innerHTML = `Toplam satış: <b>${formatSayi(miktar)}</b> · Güncel kalan: <b class="text-danger">${formatSayi(kalan)}</b>`;
+        }
+        modalAc('modal-islem-duzenle');
+        cariIslemGecmisiYukle(id);
+    }
+
+    async function cariIslemGecmisiYukle(hareketId) {
+        const kutu = $('islemDuzenleGecmis');
+        if (!kutu) return;
+        kutu.innerHTML = '<div class="form-hint">Yükleniyor…</div>';
+        try {
+            const res = await apiFetch(`/api/teslimat-gecmisi/${hareketId}`);
+            const rows = await res.json();
+            if (!res.ok || !Array.isArray(rows) || !rows.length) {
+                kutu.innerHTML = '<div class="form-hint">Teslimat geçmişi yok</div>';
+                return;
+            }
+            kutu.innerHTML = '<div class="form-hint mb-1">Teslimat geçmişi</div>' + rows.map((g) => {
+                const tar = tarihGoster(g.Tarih);
+                return `<div class="alt" style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #e2e8f0">
+                    <span class="alt-detay">${ekstreRaporKacis(tar)} · ${formatSayi(g.YikilanMiktar)} · ${ekstreRaporKacis(g.Aciklama || '')}</span>
+                    <button type="button" class="ekstre-sil-btn" data-gecmis-sil="${g.ID}" data-gecmis-hareket="${hareketId}" title="Geri al"><i class="fas fa-trash-alt"></i></button>
+                </div>`;
+            }).join('');
+        } catch (_) {
+            kutu.innerHTML = '<div class="form-hint">Geçmiş alınamadı</div>';
+        }
+    }
+
+    async function cariIslemGuncelleKaydet() {
+        const id = Number($('islemDuzenleId')?.value);
+        if (!id) return;
+        const miktar = parseFloat($('islemDuzenleTeslimMiktar')?.value) || 0;
+        const notlar = $('islemDuzenleNot')?.value || '';
+        const durum = $('islemDuzenleBekliyor')?.checked ? 'Bekliyor' : 'Teslim Edildi';
+        if (miktar < 0) {
+            toast('Miktar sıfırdan küçük olamaz');
+            return;
+        }
+        const btn = $('btnIslemDuzenleKaydet');
+        if (btn) btn.disabled = true;
+        try {
+            const res = await apiFetch(`/api/islem-guncelle/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ teslim_edilen_miktar: miktar, notlar, durum })
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.hata || 'İşlem güncellenemedi');
+            modalKapat('modal-islem-duzenle');
+            toast('İşlem güncellendi');
+            const mid = musteriKimlik(aktifMusteri);
+            if (mid) await musteriYenileVeGoster(mid);
+        } catch (err) {
+            toast(err.message || 'Güncellenemedi');
+        } finally {
+            if (btn) btn.disabled = false;
+        }
+    }
+
+    async function cariTeslimatGecmisiSil(gecmisId, hareketId) {
+        if (!confirm('Bu teslimatı iptal edip miktarı müşteriye iade etmek istiyor musunuz?')) return;
+        try {
+            const res = await apiFetch(`/api/teslimat-gecmisi/${gecmisId}`, { method: 'DELETE' });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok || data.success === false) throw new Error(data.hata || 'Silinemedi');
+            toast('Teslimat geri alındı');
+            modalKapat('modal-islem-duzenle');
+            const mid = musteriKimlik(aktifMusteri);
+            if (mid) await musteriYenileVeGoster(mid);
+        } catch (err) {
+            toast(err.message || 'Silinemedi');
+        }
     }
 
     function ekstreRaporKacis(metin) {
@@ -1122,15 +1231,37 @@
             $('musteriEkstre').innerHTML = rows.map((h) => {
                 const borc = Number(h.BORÇ) || 0;
                 const odeme = Number(h.ÖDEME) || 0;
+                const islemId = Number(h.Kimlik ?? h.KİMLİK ?? h.ID ?? 0) || 0;
+                let miktar = Number(h.ADET) || 0;
+                const aciklamaHam = String(h.AÇIKLAMA || '');
+                if (!miktar && aciklamaHam.includes(' x ')) {
+                    miktar = parseFloat(aciklamaHam.split(' x ')[0]) || 0;
+                }
+                let teslimDurumu = h.TeslimDurumu || '';
+                if (!teslimDurumu || teslimDurumu === 'null') teslimDurumu = 'Teslim Edildi';
+                let kalanTeslimat = 0;
+                if (teslimDurumu === 'Bekliyor') {
+                    kalanTeslimat = h.KalanTeslimat != null ? parseFloat(h.KalanTeslimat) : miktar;
+                    if (!Number.isFinite(kalanTeslimat) || kalanTeslimat < 0) kalanTeslimat = 0;
+                }
                 let tutar = '—';
                 if (borc > 0) tutar = `<span class="borc">Borç ${formatPara(borc)}</span>`;
                 if (odeme > 0) tutar = `<span class="odeme">Ödeme ${formatPara(odeme)}</span>`;
-                const adet = h.ADET ? ` · ${formatSayi(h.ADET)} ${h.birimtür || ''}` : '';
+                const adet = miktar ? ` · ${formatSayi(miktar)} ${h.birimtür || ''}` : '';
+                const duzenleBtn = (borc > 0 && islemId)
+                    ? `<button type="button" class="ekstre-info-btn" data-islem-duzenle="${islemId}" data-kalan="${kalanTeslimat}" data-miktar="${miktar}" data-teslim="${ekstreRaporKacis(teslimDurumu)}" data-not="${encodeURIComponent(h.notlar || '')}" title="Düzenle"><i class="fas fa-edit"></i></button>`
+                    : '';
+                const silBtn = islemId
+                    ? `<button type="button" class="ekstre-sil-btn" data-islem-sil="${islemId}" title="İşlemi sil"><i class="fas fa-trash-alt"></i></button>`
+                    : '';
+                const aksiyon = (duzenleBtn || silBtn)
+                    ? `<span class="ekstre-aksiyonlar">${duzenleBtn}${silBtn}</span>`
+                    : '';
                 return `<div class="ekstre-item">
-                    <div class="ust"><span>${tarihGoster(h.TARİH)}</span><span>${h.TeslimDurumu || ''}</span></div>
-                    <div class="aciklama">${h.AÇIKLAMA || '—'}${adet}</div>
+                    <div class="ust"><span>${tarihGoster(h.TARİH)}</span><span class="ust-sag"><span>${ekstreRaporKacis(teslimDurumu || '')}</span>${aksiyon}</span></div>
+                    <div class="aciklama">${ekstreRaporKacis(h.AÇIKLAMA || '—')}${adet}</div>
                     <div class="alt">${tutar}</div>
-                    ${h.notlar ? `<div class="bakiye-satir">${h.notlar}</div>` : ''}
+                    ${h.notlar ? `<div class="bakiye-satir">${ekstreRaporKacis(h.notlar)}</div>` : ''}
                 </div>`;
             }).join('');
         } catch (err) {
@@ -1508,12 +1639,31 @@
 
     function modalOdemeAc() {
         if (!aktifMusteri) return;
-        const bakiye = Number(aktifMusteri.Bakiye) || 0;
-        $('odemeTutar').value = bakiye > 0 ? bakiye.toFixed(2) : '';
+        $('odemeTutar').value = '';
         $('odemeTuru').value = 'Nakit';
         $('odemeNot').value = '';
         odemeKapsamHazirlaMob(musteriKimlik(aktifMusteri));
         modalAc('modal-odeme');
+    }
+
+    function odemeTutarKapsamaGoreDoldur() {
+        const borclar = window.mobilOdemeBorclar || {};
+        const kutuAcik = $('odemeKapsamKutu') && !$('odemeKapsamKutu').classList.contains('d-none');
+        const kapsam = kutuAcik
+            ? ($('odemeKapsam')?.value || 'apartman')
+            : (window.mobilOdemeKapsam || 'genel');
+        const tutar = kapsam === 'apartman'
+            ? (parseFloat(borclar.apartman) || 0)
+            : (parseFloat(borclar.genel) || 0);
+        // Tek tip borçta (kapsam kutusu gizli) ilgili tutarı, ikisi yoksa genel bakiyeyi kullan
+        let hedef = tutar;
+        if (hedef <= 0) {
+            hedef = kapsam === 'apartman'
+                ? (parseFloat(borclar.genel) || 0)
+                : (parseFloat(borclar.apartman) || 0);
+        }
+        if (hedef <= 0) hedef = Number(aktifMusteri?.Bakiye) || 0;
+        if ($('odemeTutar')) $('odemeTutar').value = hedef > 0 ? hedef.toFixed(2) : '';
     }
 
     async function odemeKapsamHazirlaMob(musteriId) {
@@ -1521,13 +1671,18 @@
         const sel = $('odemeKapsam');
         const bilgi = $('odemeKapsamBilgi');
         window.mobilOdemeKapsam = 'genel';
+        window.mobilOdemeBorclar = { apartman: 0, genel: 0 };
         if (kutu) kutu.classList.add('d-none');
         try {
             const res = await apiFetch(`/api/musteri/${musteriId}/borc-ozet?_t=` + Date.now());
             const o = await res.json();
-            if (!res.ok) return;
+            if (!res.ok) {
+                odemeTutarKapsamaGoreDoldur();
+                return;
+            }
             const ap = parseFloat(o.apartmanBorc) || 0;
             const gn = parseFloat(o.genelBorc) || 0;
+            window.mobilOdemeBorclar = { apartman: ap, genel: gn };
             if (ap > 0 && gn > 0) {
                 window.mobilOdemeKapsam = 'apartman';
                 if (sel) sel.value = 'apartman';
@@ -1539,6 +1694,7 @@
                 window.mobilOdemeKapsam = 'genel';
             }
         } catch (e) { /* sessiz */ }
+        odemeTutarKapsamaGoreDoldur();
     }
 
     /** Masaüstü ile aynı: makbuzlu ödeme, açıklama "Nakit Tahsilat" vb. */
@@ -2250,41 +2406,193 @@
             const d = await apiJson(res, 'Özet alınamadı.');
             if (!res.ok) throw new Error(d.hata || d.message || 'Özet alınamadı.');
 
+            const bugunIslem = Number(d.bugunIslem) || 0;
+            const bugunTl = Number(d.bugunSatisTl) || 0;
+            const tedarikciN = Number(d.tedarikciSayisi) || 0;
+            const tedarikciTl = Number(d.tedarikciBakiye) || 0;
+            const stokN = Number(d.stokKalem) || 0;
+            const stokTl = Number(d.stokDeger) || 0;
+            const musteriN = Number(d.toplamMusteri) || 0;
+            const musteriAktif = Number(d.aktifMusteri) || 0;
+            const musteriTl = Number(d.musteriBorcToplam) || 0;
+
             cards.innerHTML = `
-                <div class="ozet-rozet ozet-rozet--satis tiklanabilir" id="cardBugun" role="button" tabindex="0" title="Bugünkü hareketler">
-                    <div class="rozet-ikon"><i class="fas fa-hand-holding-usd"></i></div>
-                    <div class="rozet-icerik">
-                        <div class="rozet-baslik">Bugünkü satış</div>
-                        <div class="rozet-satir"><span class="rozet-deger">${formatSayi(d.bugunKomur)}</span><span class="rozet-birim">kömür</span></div>
-                        <div class="rozet-satir rozet-satir-alt"><span class="rozet-deger">${formatSayi(d.bugunUn)}</span><span class="rozet-birim">un</span></div>
+                <div class="ana-dash-card ana-dash-card--bugun" id="cardBugun" role="button" tabindex="0">
+                    <div class="ana-dash-ust">
+                        <span class="ana-dash-ikon"><i class="fas fa-chart-column"></i></span>
+                        <span class="ana-dash-etiket">Bugün</span>
                     </div>
+                    <div class="ana-dash-meta">${bugunIslem} işlem</div>
+                    <div class="ana-dash-tutar">${formatPara(bugunTl)}</div>
                 </div>
-                <div class="ozet-rozet ozet-rozet--musteri tiklanabilir" id="cardMusteri" role="button" tabindex="0" title="Müşteri listesi">
-                    <div class="rozet-ikon"><i class="fas fa-users"></i></div>
-                    <div class="rozet-icerik">
-                        <div class="rozet-baslik">Müşteri</div>
-                        <div class="rozet-satir"><span class="rozet-deger">${formatSayi(d.toplamMusteri)}</span><span class="rozet-birim">kişi</span></div>
-                        <div class="rozet-alt-satir"><span class="rozet-aktif">${formatSayi(d.aktifMusteri)} aktif</span> · <span class="rozet-pasif">${formatSayi(d.pasifMusteri)} pasif</span></div>
-                        <span class="rozet-ipucu">Listeyi aç</span>
+                <div class="ana-dash-card ana-dash-card--tedarikci" id="cardTedarikci" role="button" tabindex="0">
+                    <div class="ana-dash-ust">
+                        <span class="ana-dash-ikon"><i class="fas fa-truck"></i></span>
+                        <span class="ana-dash-etiket">Tedarikçi</span>
                     </div>
+                    <div class="ana-dash-meta">${tedarikciN} tedarikçi</div>
+                    <div class="ana-dash-tutar">${formatPara(tedarikciTl)}</div>
                 </div>
-                <div class="ozet-rozet ozet-rozet--sevk tiklanabilir" id="cardSevk" role="button" tabindex="0" title="Bekleyen sevkiyat">
-                    <div class="rozet-ikon"><i class="fas fa-truck"></i></div>
-                    <div class="rozet-icerik">
-                        <div class="rozet-baslik">Bekleyen sevk</div>
-                        <div class="rozet-satir"><span class="rozet-deger">${formatSayi(d.bekleyenSevk)}</span></div>
-                        <span class="rozet-ipucu">Sevk listesi</span>
+                <div class="ana-dash-card ana-dash-card--stok" id="cardStok" role="button" tabindex="0">
+                    <div class="ana-dash-ust">
+                        <span class="ana-dash-ikon"><i class="fas fa-box"></i></span>
+                        <span class="ana-dash-etiket">Stok</span>
                     </div>
+                    <div class="ana-dash-meta">${stokN} ürün</div>
+                    <div class="ana-dash-tutar">${formatPara(stokTl)}</div>
+                </div>
+                <div class="ana-dash-card ana-dash-card--musteri" id="cardMusteri" role="button" tabindex="0">
+                    <div class="ana-dash-ust">
+                        <span class="ana-dash-ikon"><i class="fas fa-user"></i></span>
+                        <span class="ana-dash-etiket">Müşteri</span>
+                    </div>
+                    <div class="ana-dash-meta">${musteriN} müşteri · ${musteriAktif} aktif</div>
+                    <div class="ana-dash-tutar">${formatPara(musteriTl)}</div>
                 </div>
             `;
-            $('cardBugun').addEventListener('click', bugunGoster);
-            $('cardMusteri').addEventListener('click', () => panelGoster('musteri'));
-            $('cardSevk').addEventListener('click', () => panelGoster('sevk'));
+            $('cardBugun')?.addEventListener('click', bugunGoster);
+            $('cardTedarikci')?.addEventListener('click', () => {
+                anaMenuKapat();
+                panelGoster('tedarikci');
+                tedarikciYukle();
+            });
+            $('cardStok')?.addEventListener('click', () => panelGoster('stok'));
+            $('cardMusteri')?.addEventListener('click', () => panelGoster('musteri'));
         } catch (err) {
-            cards.innerHTML = `<div class="ozet-rozet" style="grid-column:1/-1"><div class="rozet-baslik">Hata</div><div class="rozet-detay">${ekstreRaporKacis(err.message)}</div></div>`;
+            cards.innerHTML = `<div class="ana-dash-card" style="grid-column:1/-1"><div class="ana-dash-etiket">Hata</div><div class="ana-dash-meta">${ekstreRaporKacis(err.message)}</div></div>`;
         }
-        piyasaYukle();
-        stokOzetYukle();
+        anaBugunIslemleriYukle();
+    }
+
+    function anaIslemKarti(h) {
+        const borc = Number(h.BORÇ) || 0;
+        const odeme = Number(h.ÖDEME) || 0;
+        const notlar = String(h.notlar || '');
+        if (notlar.includes('Apartman anlaşması') && odeme === 0 && borc > 0) return '';
+
+        const g = musteriKimlikGosterim(h);
+        let tip = 'satis';
+        let rozet = 'SATIŞ';
+        let tipCls = '';
+        let tutar = borc;
+        let tag = 'VERESİYE';
+        let tagCls = '';
+
+        if (odeme > 0 && borc <= 0) {
+            tip = 'odeme';
+            tipCls = 'ana-islem-kart--odeme';
+            rozet = 'TAHSİLAT';
+            tutar = odeme;
+            const ac = String(h.AÇIKLAMA || '').toLocaleLowerCase('tr-TR');
+            if (ac.includes('kart') || ac.includes('kredi')) tag = 'KART';
+            else if (ac.includes('havale') || ac.includes('eft')) tag = 'HAVALE';
+            else tag = 'NAKİT';
+            tagCls = 'ana-islem-tag--odeme';
+        } else if (borc > 0) {
+            const ac = String(h.AÇIKLAMA || '').toLocaleLowerCase('tr-TR');
+            if (ac.includes('nakit') || String(h.AÇIKLAMA || '').includes('Tahsilat')) tag = 'NAKİT';
+            else tag = 'VERESİYE';
+        }
+
+        let aciklama = h.AÇIKLAMA || '—';
+        let miktar = Number(h.ADET) || 0;
+        const birim = (h.birimtür || h.BirimTur || '').trim() || 'adet';
+        if (aciklama.includes(' x ')) {
+            const parcalar = aciklama.split(' x ');
+            if (miktar === 0) miktar = parseFloat(parcalar[0]) || 0;
+            aciklama = parcalar.slice(1).join(' x ').trim() || aciklama;
+        }
+        if (aciklama.includes(' (') && !aciklama.includes('Taksit')) {
+            aciklama = aciklama.split(' (')[0].trim();
+        }
+        const birimFiyat = (borc > 0 && miktar > 0) ? borc / miktar : null;
+        const yapan = (h.IslemiYapan && h.IslemiYapan !== 'Sistem')
+            ? String(h.IslemiYapan).toLocaleUpperCase('tr-TR')
+            : '';
+
+        const detayHtml = tip === 'odeme'
+            ? `<div class="detay">${ekstreRaporKacis(aciklama)}<b>+${formatPara(tutar)}</b></div>`
+            : `<div class="detay">${miktar > 0 ? `${formatSayi(miktar)} ${ekstreRaporKacis(birim)}${birimFiyat != null ? ' × ' + formatPara(birimFiyat) : ''}` : ekstreRaporKacis(aciklama)}<b>${formatPara(tutar)}</b></div>`;
+
+        return `<div class="ana-islem-kart ${tipCls}">
+            <div class="ana-islem-ust">
+                <span class="ana-islem-rozet"><i class="fas ${tip === 'odeme' ? 'fa-money-bill-wave' : 'fa-calculator'}"></i> ${rozet}</span>
+                <span class="ana-islem-tutar">${tip === 'odeme' ? '+' : ''}${formatPara(tutar)}</span>
+            </div>
+            <div class="ana-islem-musteri">
+                <i class="fas fa-user" style="color:#7c3aed;font-size:0.75rem"></i>
+                <span class="ad">${ekstreRaporKacis(g.ana)}</span>
+                <span class="ana-islem-tag ${tagCls}">${tag}</span>
+                <span class="ana-islem-tarih">${ekstreRaporKacis(tarihGoster(h.TARİH || h.TARIH))}</span>
+            </div>
+            <div class="ana-islem-satir">
+                <span class="urun">${ekstreRaporKacis(tip === 'odeme' ? 'Tahsilat' : (aciklama.split('·')[0].trim() || 'Ürün'))}</span>
+                ${detayHtml}
+            </div>
+            ${yapan ? `<span class="ana-islem-yapan">${ekstreRaporKacis(yapan)}</span>` : ''}
+        </div>`;
+    }
+
+    function anaGiderKarti(g) {
+        const kasadanCikar = g.IslemTipi !== 'Mazot Çıkışı';
+        const tutar = kasadanCikar ? (Number(g.Tutar) || 0) : 0;
+        if (tutar <= 0) return '';
+        const baslik = g.FirmaKisi || 'Gider';
+        const aciklama = [g.Kategori, g.Aciklama].filter(Boolean).join(' · ') || '—';
+        return `<div class="ana-islem-kart ana-islem-kart--gider">
+            <div class="ana-islem-ust">
+                <span class="ana-islem-rozet"><i class="fas fa-receipt"></i> GİDER</span>
+                <span class="ana-islem-tutar">-${formatPara(tutar)}</span>
+            </div>
+            <div class="ana-islem-musteri">
+                <span class="ad">${ekstreRaporKacis(baslik)}</span>
+                <span class="ana-islem-tarih">${ekstreRaporKacis(tarihGoster(g.Tarih))}</span>
+            </div>
+            <div class="ana-islem-satir">
+                <span class="urun">${ekstreRaporKacis(aciklama)}</span>
+                <div class="detay"><b>-${formatPara(tutar)}</b></div>
+            </div>
+        </div>`;
+    }
+
+    async function anaBugunIslemleriYukle() {
+        const el = $('anaBugunListe');
+        if (!el) return;
+        el.innerHTML = '<div class="empty-msg">Yükleniyor…</div>';
+        try {
+            const bugun = new Date();
+            const y = bugun.getFullYear();
+            const m = String(bugun.getMonth() + 1).padStart(2, '0');
+            const d = String(bugun.getDate()).padStart(2, '0');
+            const tar = `${y}-${m}-${d}`;
+            const [hareketRes, giderRes] = await Promise.all([
+                apiFetch(`/api/gunluk-hareketler?baslangic=${tar}&bitis=${tar}`),
+                apiFetch(`/api/gunluk-giderler?baslangic=${tar}&bitis=${tar}`)
+            ]);
+            const hareketler = await apiJson(hareketRes, 'Hareket alınamadı');
+            const giderler = giderRes.ok ? await giderRes.json().catch(() => []) : [];
+            if (!hareketRes.ok || !Array.isArray(hareketler)) {
+                el.innerHTML = '<div class="empty-msg">İşlemler alınamadı</div>';
+                return;
+            }
+            const birlesik = [];
+            hareketler.forEach((h) => {
+                const html = anaIslemKarti(h);
+                if (html) birlesik.push({ tarih: h.TARİH || h.TARIH, html });
+            });
+            (Array.isArray(giderler) ? giderler : []).forEach((g) => {
+                const html = anaGiderKarti(g);
+                if (html) birlesik.push({ tarih: g.Tarih, html });
+            });
+            birlesik.sort((a, b) => dbTarihSortKey(b.tarih) - dbTarihSortKey(a.tarih));
+            if (!birlesik.length) {
+                el.innerHTML = '<div class="empty-msg">Bugün henüz işlem yok</div>';
+                return;
+            }
+            el.innerHTML = birlesik.slice(0, 8).map((x) => x.html).join('');
+        } catch (err) {
+            el.innerHTML = `<div class="empty-msg">${ekstreRaporKacis(err.message)}</div>`;
+        }
     }
 
     async function gunlukOzetYukle() {
@@ -4073,8 +4381,13 @@
             $('loginServerPill').textContent = sunucuUrl();
         });
 
-        document.querySelectorAll('.nav-item').forEach((btn) => {
-            btn.addEventListener('click', () => panelGoster(btn.dataset.panel));
+        $('btnMenuAna')?.addEventListener('click', () => {
+            anaMenuKapat();
+            panelGoster('ana');
+        });
+        $('btnMenuSevk')?.addEventListener('click', () => {
+            anaMenuKapat();
+            panelGoster('sevk');
         });
 
         $('musteriAra').addEventListener('input', (e) => musteriFiltrele(e.target.value));
@@ -4091,6 +4404,26 @@
         $('btnMusteriEkleKaydet')?.addEventListener('click', musteriEkleKaydet);
         $('btnMusteriDuzenle')?.addEventListener('click', musteriDuzenleAc);
         $('btnMusteriDuzenleKaydet')?.addEventListener('click', musteriDuzenleKaydet);
+        $('btnIslemDuzenleKaydet')?.addEventListener('click', cariIslemGuncelleKaydet);
+        $('musteriEkstre')?.addEventListener('click', (e) => {
+            const sil = e.target.closest('[data-islem-sil]');
+            if (sil?.dataset.islemSil) {
+                e.preventDefault(); e.stopPropagation();
+                cariIslemSil(Number(sil.dataset.islemSil));
+                return;
+            }
+            const duz = e.target.closest('[data-islem-duzenle]');
+            if (duz?.dataset.islemDuzenle) {
+                e.preventDefault(); e.stopPropagation();
+                cariIslemDuzenleAc(duz);
+            }
+        });
+        $('islemDuzenleGecmis')?.addEventListener('click', (e) => {
+            const sil = e.target.closest('[data-gecmis-sil]');
+            if (sil?.dataset.gecmisSil) {
+                cariTeslimatGecmisiSil(Number(sil.dataset.gecmisSil), Number(sil.dataset.gecmisHareket));
+            }
+        });
         $('btnRaporKapat')?.addEventListener('click', overlayKapat);
         $('btnAnaMenu')?.addEventListener('click', (e) => {
             e.stopPropagation();
@@ -4248,6 +4581,7 @@
             if (wrap && !wrap.contains(e.target)) anaMenuKapat();
         });
         $('btnBugunKapat').addEventListener('click', overlayKapat);
+        $('btnAnaBugunTumu')?.addEventListener('click', bugunGoster);
         $('btnGunlukOzetGetir')?.addEventListener('click', () => gunlukOzetYukle());
         $('bugunBaslangic')?.addEventListener('change', () => {
             if (!mobilAdminMi() && $('bugunBitis')) $('bugunBitis').value = $('bugunBaslangic').value;
@@ -4266,6 +4600,10 @@
         $('btnEkstreOnizlemeYazdir')?.addEventListener('click', ekstreMobilYazdirBaslat);
         $('btnModalSatis').addEventListener('click', modalSatisAc);
         $('btnModalOdeme').addEventListener('click', modalOdemeAc);
+        $('odemeKapsam')?.addEventListener('change', () => {
+            window.mobilOdemeKapsam = $('odemeKapsam')?.value || 'genel';
+            odemeTutarKapsamaGoreDoldur();
+        });
         $('btnMusteriMenu')?.addEventListener('click', (e) => {
             e.stopPropagation();
             musteriMenuToggle();

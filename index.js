@@ -1505,6 +1505,7 @@ app.get('/api/mobil-ozet', async (req, res) => {
         const satisQuery = `
             SELECT 
                 ISNULL(SUM(CASE 
+                    WHEN BORÇ <= 0 THEN 0
                     WHEN ISNULL(notlar, N'') LIKE N'%Apartman anlaşması%' THEN 0
                     WHEN UPPER(REPLACE(REPLACE(AÇIKLAMA, N'İ', N'I'), N'ı', N'I')) LIKE N'% UN%'
                       OR UPPER(REPLACE(REPLACE(AÇIKLAMA, N'İ', N'I'), N'ı', N'I')) LIKE N'UN %'
@@ -1513,16 +1514,22 @@ app.get('/api/mobil-ozet', async (req, res) => {
                       OR UPPER(REPLACE(REPLACE(AÇIKLAMA, N'İ', N'I'), N'ı', N'I')) LIKE N'%KRISTAL UN%'
                     THEN ADET ELSE 0 END), 0) as UnSatis,
                 ISNULL(SUM(CASE 
+                    WHEN BORÇ <= 0 THEN 0
                     WHEN ISNULL(notlar, N'') LIKE N'%Apartman anlaşması%' THEN 0
                     WHEN UPPER(REPLACE(REPLACE(AÇIKLAMA, N'İ', N'I'), N'ı', N'I')) LIKE N'% UN%'
                       OR UPPER(REPLACE(REPLACE(AÇIKLAMA, N'İ', N'I'), N'ı', N'I')) LIKE N'UN %'
                       OR UPPER(REPLACE(REPLACE(AÇIKLAMA, N'İ', N'I'), N'ı', N'I')) LIKE N'%UN %'
                       OR UPPER(REPLACE(REPLACE(AÇIKLAMA, N'İ', N'I'), N'ı', N'I')) LIKE N'%UN/%'
                       OR UPPER(REPLACE(REPLACE(AÇIKLAMA, N'İ', N'I'), N'ı', N'I')) LIKE N'%KRISTAL UN%'
-                    THEN 0 ELSE ADET END), 0) as KomurSatis
+                    THEN 0 ELSE ADET END), 0) as KomurSatis,
+                ISNULL(SUM(CASE WHEN ISNULL(notlar, N'') LIKE N'%Apartman anlaşması%' THEN 0 ELSE ISNULL(BORÇ,0) END), 0) as BugunSatisTl,
+                ISNULL(SUM(CASE WHEN ISNULL(notlar, N'') LIKE N'%Apartman anlaşması%' THEN 0 ELSE ISNULL(ÖDEME,0) END), 0) as BugunTahsilatTl,
+                ISNULL(SUM(CASE
+                    WHEN ISNULL(notlar, N'') LIKE N'%Apartman anlaşması%' AND ISNULL(ÖDEME,0) <= 0 THEN 0
+                    WHEN ISNULL(BORÇ,0) > 0 OR ISNULL(ÖDEME,0) > 0 THEN 1 ELSE 0 END), 0) as BugunIslem
             FROM [komur].[dbo].[MusteriHareket]
-            WHERE CAST(TARİH as DATE) = CAST(GETDATE() as DATE) 
-              AND BORÇ > 0 
+            WHERE CAST(TARİH as DATE) = CAST(GETDATE() as DATE)
+              AND (ISNULL(BORÇ,0) > 0 OR ISNULL(ÖDEME,0) > 0)
         `;
         const satisRes = await sql.query(satisQuery);
         const sevkRes = await sql.query(`
@@ -1535,20 +1542,61 @@ app.get('/api/mobil-ozet', async (req, res) => {
         const stokRes = await sql.query(`
             SELECT 
                 COUNT(*) as kalem,
-                ISNULL(SUM(ISNULL(S.BaslangicStogu, 0)), 0) as toplam
+                ISNULL(SUM(ISNULL(S.BaslangicStogu, 0)), 0) as toplam,
+                ISNULL(SUM(ISNULL(S.BaslangicStogu, 0) * ISNULL(S.SatisFiyati, 0)), 0) as stokDeger
             FROM [komur].[dbo].[StokListesi] S
             WHERE S.TakipEdilsinMi = 1
         `);
+
+        let tedarikciSayisi = 0;
+        let tedarikciBakiye = 0;
+        try {
+            await ensureMalAlimDovizKolonlari();
+            await ensureTedarikciOdemeDovizKolonlari();
+            const pool = await sql.connect(config);
+            const tedRes = await pool.request().query(`
+                SELECT T.ID,
+                    ISNULL((SELECT SUM(ToplamTutar) FROM [komur].[dbo].[MalAlimlari] WHERE TedarikciID = T.ID), 0)
+                    - ISNULL((SELECT SUM(OdenenTutar) FROM [komur].[dbo].[TedarikciOdemeleri] WHERE TedarikciID = T.ID), 0) AS Bakiye
+                FROM [komur].[dbo].[Tedarikciler] T
+            `);
+            const rows = tedRes.recordset || [];
+            tedarikciSayisi = rows.length;
+            tedarikciBakiye = rows.reduce((t, r) => t + (parseFloat(r.Bakiye) || 0), 0);
+        } catch (tedErr) {
+            console.warn('Mobil özet tedarikçi toplamı:', tedErr.message);
+        }
+
+        let musteriBorcToplam = 0;
+        try {
+            const borcRes = await sql.query(`
+                SELECT ISNULL(SUM(x.Bakiye), 0) AS toplam
+                FROM (
+                    SELECT (ISNULL(SUM(BORÇ),0) - ISNULL(SUM(ÖDEME),0)) AS Bakiye
+                    FROM [komur].[dbo].[MusteriHareket]
+                    GROUP BY Kisi
+                    HAVING (ISNULL(SUM(BORÇ),0) - ISNULL(SUM(ÖDEME),0)) > 0.01
+                ) x
+            `);
+            musteriBorcToplam = borcRes.recordset[0]?.toplam || 0;
+        } catch (_) {}
 
         res.json({
             toplamMusteri: musteriRes.recordset[0].toplam,
             aktifMusteri,
             pasifMusteri,
+            musteriBorcToplam,
             bugunUn: satisRes.recordset[0].UnSatis,
             bugunKomur: satisRes.recordset[0].KomurSatis,
+            bugunSatisTl: satisRes.recordset[0].BugunSatisTl,
+            bugunTahsilatTl: satisRes.recordset[0].BugunTahsilatTl,
+            bugunIslem: satisRes.recordset[0].BugunIslem,
             bekleyenSevk: sevkRes.recordset[0].adet,
             toplamStok: stokRes.recordset[0].toplam,
-            stokKalem: stokRes.recordset[0].kalem
+            stokKalem: stokRes.recordset[0].kalem,
+            stokDeger: stokRes.recordset[0].stokDeger,
+            tedarikciSayisi,
+            tedarikciBakiye
         });
     } catch (err) {
         console.error('Mobil özet yükleme hatası:', err);
@@ -2151,7 +2199,13 @@ app.delete('/api/islem/:kimlik', async (req, res) => {
             try {
                 const aptOdemeMi = (parseFloat(islem.ÖDEME) || 0) > 0 && String(islem.birimtür || '').toUpperCase() === 'APT';
                 if (aptOdemeMi) {
-                    const geri = await apartmanOdemeKgGeriAl(pool, islem.Kisi, islem.ÖDEME, 'Ödeme silindi');
+                    const geri = await apartmanOdemeKgGeriAl(
+                        pool,
+                        islem.Kisi,
+                        islem.ÖDEME,
+                        'Ödeme silindi',
+                        islem.AÇIKLAMA || ''
+                    );
                     console.log(`↩️ Apartman ödemesi geri alındı: ${geri.geriAlinan} TL / +${geri.kgEklenen} kg`);
                 }
             } catch (aptGeriHata) {
@@ -4122,6 +4176,40 @@ async function apartmanOdemeKgOnarApartman(pool, apartmanId) {
         const odenenKg = Math.max(0, anl - kalan);
         const odTl = parseFloat(d.OdenenTl) || 0;
 
+        // 0) Ödeme silindikten kalan hayalet kg/TL (< 0.5 kg veya < 1 ₺) → sıfırla
+        if (
+            (odenenKg > 0 && odenenKg < 0.5 && odTl < 50)
+            || (odTl > 0 && odTl < 1 && odenenKg < 1)
+            || (odTl < 0.5 && odenenKg < 0.5 && (odenenKg > 0.001 || odTl > 0.001))
+        ) {
+            // Cari APT ödemesi yoksa veya çok küçük kalıntıysa temizle
+            let aktifAptOdeme = 0;
+            if (d.MusteriKimlik) {
+                try {
+                    const odKontrol = await pool.request().input('mk', sql.Int, d.MusteriKimlik).query(`
+                        SELECT ISNULL(SUM(ÖDEME), 0) AS T
+                        FROM [komur].[dbo].[MusteriHareket] WITH (NOLOCK)
+                        WHERE Kisi = @mk AND ISNULL(ÖDEME, 0) > 0
+                          AND (
+                            ISNULL(birimtür, '') = 'APT'
+                            OR ISNULL(notlar, '') LIKE N'%Apartman:%'
+                            OR ISNULL(notlar, '') LIKE N'%Anlık USD%'
+                          )
+                    `);
+                    aktifAptOdeme = parseFloat(odKontrol.recordset?.[0]?.T) || 0;
+                } catch (_) { aktifAptOdeme = 0; }
+            }
+            if (aktifAptOdeme < 1) {
+                await pool.request()
+                    .input('id', sql.Int, d.Id)
+                    .input('kg', sql.Decimal(18, 2), anl)
+                    .query(`UPDATE [komur].[dbo].[ApartmanDaireler] SET KalanBorcKg = @kg, OdenenTl = 0 WHERE Id = @id`);
+                try { await daireAnlasmaBorcEsitle(pool, d.Id, 'Sistem', usdKur); } catch (_) {}
+                onarilan++;
+                continue;
+            }
+        }
+
         // 1) OdenenTl var ama kg düşmemiş → TL'den kg tahmin et
         if (odTl > 0.01 && odenenKg < 0.01) {
             const para = String(d.ParaBirimi || 'TRY').toUpperCase();
@@ -4336,7 +4424,7 @@ async function apartmanOdemeKgIsle(pool, musteriId, odemeTl, islemiYapan, odemeT
 }
 
 /** Apartmana özgü ödeme silindiğinde kg borcunu geri yükle (OdenenTl kadar) */
-async function apartmanOdemeKgGeriAl(pool, musteriId, odemeTl, islemiYapan) {
+async function apartmanOdemeKgGeriAl(pool, musteriId, odemeTl, islemiYapan, odemeTuru) {
     const tutar = parseFloat(odemeTl) || 0;
     if (tutar <= 0 || !musteriId) return { geriAlinan: 0, kgEklenen: 0, detay: [] };
 
@@ -4346,7 +4434,10 @@ async function apartmanOdemeKgGeriAl(pool, musteriId, odemeTl, islemiYapan) {
         SELECT Id, AnlasilanMiktar, KalanBorcKg, BirimFiyat, TonFiyat, ParaBirimi, AnlasmaKuru, OdenenTl, Blok, DaireNo
         FROM [komur].[dbo].[ApartmanDaireler]
         WHERE MusteriKimlik = @mk AND UrunID IS NOT NULL
-          AND ISNULL(OdenenTl, 0) > 0.001
+          AND (
+            ISNULL(OdenenTl, 0) > 0.001
+            OR (ISNULL(AnlasilanMiktar, 0) - ISNULL(KalanBorcKg, AnlasilanMiktar)) > 0.001
+          )
         ORDER BY Id DESC
     `);
 
@@ -4359,44 +4450,88 @@ async function apartmanOdemeKgGeriAl(pool, musteriId, odemeTl, islemiYapan) {
         if (kalanGeri <= 0.001) break;
 
         const odenenTl = parseFloat(d.OdenenTl) || 0;
-        if (odenenTl <= 0) continue;
-
         const anlasilanKg = parseFloat(d.AnlasilanMiktar) || 0;
-        let borcKg = d.KalanBorcKg != null ? parseFloat(d.KalanBorcKg) : 0;
+        let borcKg = d.KalanBorcKg != null ? parseFloat(d.KalanBorcKg) : anlasilanKg;
+        if (!Number.isFinite(borcKg) || borcKg < 0) borcKg = 0;
+        if (anlasilanKg > 0 && borcKg > anlasilanKg) borcKg = anlasilanKg;
+        const odenenKg = Math.max(0, anlasilanKg - borcKg);
+
+        // Ne TL ne kg ödenmişse atla
+        if (odenenTl <= 0.001 && odenenKg <= 0.001) continue;
 
         const paraBirimi = String(d.ParaBirimi || 'TRY').toUpperCase();
-        let kgFiyat = apartmanDaireKgFiyat(d);
-        if (kgFiyat <= 0) continue;
+        const anlasmaTon = parseFloat(d.TonFiyat) || ((parseFloat(d.BirimFiyat) || 0) * 1000);
+        let kgFiyat;
 
         if (paraBirimi === 'USD') {
-            // Geri almada da güncel (günlük) kuru kullan
+            // Ödeme ile aynı mantık: efektif ton + güncel kur
             if (usdKur == null) usdKur = await tcmbUsdSatisKuruGetir() || parseFloat(d.AnlasmaKuru);
             if (!usdKur || usdKur <= 0) continue;
+            const odemeTon = await aptOdemeEfektifTonFiyat(pool, odemeTuru, anlasmaTon);
+            kgFiyat = apartmanKgFiyatFromTon(odemeTon > 0 ? odemeTon : anlasmaTon);
+        } else {
+            kgFiyat = apartmanDaireKgFiyat(d);
         }
+        if (kgFiyat <= 0) continue;
+
         const kgBirimTl = paraBirimi === 'USD' ? kgFiyat * usdKur : kgFiyat;
         if (kgBirimTl <= 0) continue;
 
-        // Bu daireden geri alınabilecek tutar, ödenen kadarını aşamaz
-        const geriTl = Math.min(kalanGeri, odenenTl);
-        const kgEkle = geriTl / kgBirimTl;
-        let yeniKalan = borcKg + kgEkle;
-        if (anlasilanKg > 0 && yeniKalan > anlasilanKg) yeniKalan = anlasilanKg;
-        const yeniOdenen = Math.max(0, odenenTl - geriTl);
+        // Bu daireden geri alınabilecek tutar
+        const daireMaxTl = odenenTl > 0.001
+            ? odenenTl
+            : Math.round(odenenKg * kgBirimTl * 100) / 100;
+        const geriTl = Math.min(kalanGeri, daireMaxTl > 0 ? daireMaxTl : kalanGeri);
+
+        let yeniKalan;
+        let yeniOdenen;
+        let kgEkle;
+
+        // Neredeyse tüm ödeme geri alınıyorsa (kur/fiyat farkı kalıntısı olmasın) tam sıfırla
+        const tamGeri = (odenenTl > 0.001 && geriTl >= odenenTl - 0.5)
+            || (odenenTl <= 0.001 && odenenKg > 0.001 && geriTl >= daireMaxTl - 0.5)
+            || (odenenKg > 0 && odenenKg < 0.5 && kalanGeri >= 0.01);
+
+        if (tamGeri) {
+            kgEkle = odenenKg;
+            yeniKalan = anlasilanKg;
+            yeniOdenen = 0;
+        } else {
+            kgEkle = geriTl / kgBirimTl;
+            yeniKalan = Math.min(anlasilanKg, borcKg + kgEkle);
+            yeniOdenen = Math.max(0, Math.round((odenenTl - geriTl) * 100) / 100);
+            // Küçük kalıntıları temizle
+            if (yeniOdenen < 0.5) yeniOdenen = 0;
+            const kalanOdenenKg = Math.max(0, anlasilanKg - yeniKalan);
+            if (yeniOdenen <= 0 || kalanOdenenKg < 0.5) {
+                yeniKalan = anlasilanKg;
+                yeniOdenen = 0;
+                kgEkle = odenenKg;
+            } else {
+                yeniKalan = Math.round(yeniKalan * 100) / 100;
+            }
+        }
 
         await pool.request()
             .input('id', sql.Int, d.Id)
-            .input('kg', sql.Decimal(18, 2), yeniKalan)
-            .input('tl', sql.Decimal(18, 2), yeniOdenen)
+            .input('kg', sql.Decimal(18, 2), Math.round(yeniKalan * 100) / 100)
+            .input('tl', sql.Decimal(18, 2), Math.round(yeniOdenen * 100) / 100)
             .query(`UPDATE [komur].[dbo].[ApartmanDaireler] SET KalanBorcKg = @kg, OdenenTl = @tl WHERE Id = @id`);
 
         await daireAnlasmaBorcEsitle(pool, d.Id, islemiYapan || 'Sistem', usdKur);
 
-        kalanGeri -= geriTl;
+        kalanGeri = Math.max(0, Math.round((kalanGeri - (tamGeri ? (odenenTl || daireMaxTl || geriTl) : geriTl)) * 100) / 100);
         toplamKg += kgEkle;
-        detay.push({ daireId: d.Id, blok: d.Blok, daireNo: d.DaireNo, kgEklenen: Math.round(kgEkle * 100) / 100, kalanKg: Math.round(yeniKalan * 100) / 100 });
+        detay.push({
+            daireId: d.Id,
+            blok: d.Blok,
+            daireNo: d.DaireNo,
+            kgEklenen: Math.round(kgEkle * 100) / 100,
+            kalanKg: Math.round(yeniKalan * 100) / 100
+        });
     }
 
-    return { geriAlinan: tutar - kalanGeri, kgEklenen: Math.round(toplamKg * 100) / 100, detay };
+    return { geriAlinan: Math.round((tutar - kalanGeri) * 100) / 100, kgEklenen: Math.round(toplamKg * 100) / 100, detay };
 }
 
 // --- Apartman ekle ---
